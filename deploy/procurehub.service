@@ -1,0 +1,12 @@
+[Unit]
+Description=ProcureHub procurement server
+After=network.target
+
+[Service]
+ExecStart=/opt/procurehub/procurehub-linux --port 8080 --no-browser --data /opt/procurehub/data
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

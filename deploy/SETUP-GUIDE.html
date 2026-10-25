@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RGS Infra ProcureHub Setup Guide</title>
+<style>
+:root{--ink:#14212A;--ink2:#47575F;--line:#D3DBD8;--bg:#F2F5F4;--card:#fff;--accent:#0C6A8B;--soft:#DBEDF3;--amber:#B86E05;--amsoft:#FBEED6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:30px;margin:0 0 4px}h2{font-size:21px;margin:40px 0 10px;padding-top:12px;border-top:2px solid var(--line)}h3{font-size:16px;margin:22px 0 6px}
+.sub{color:var(--ink2);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:12px 0}
+.tip{background:var(--soft);border-color:#9fcfdf}.warn{background:var(--amsoft);border-color:#e8c88f}
+code,kbd{font-family:Consolas,"Courier New",monospace;background:#e9eeec;padding:1px 6px;border-radius:4px;font-size:13.5px}
+pre{background:#14212A;color:#e2ecef;padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:13px}
+ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:#e9eeec}
+.opt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+</style></head><body><main>
+<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 5.7.1</small></h1>
+<p class="sub">Procurement for multi-site water supply &amp; sewerage projects: site demands → categorise → RFQ to vendors → comparative → PO → receipt → dispatch → site confirmation.</p>
+
+<div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
+<li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
+<li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 5.7.1</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
+<div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
+
+<h2>1. Start it on the HQ computer (5 minutes)</h2>
+<ol>
+<li>Copy the whole <b>ProcureHub</b> folder to the computer that will be the server, e.g. <code>D:\RGS-ProcureHub</code>. Pick a PC that stays switched on during working hours. Do not run it from inside the zip file.</li>
+<li>Double-click <b>RGS-ProcureHub.exe</b>.
+  <ul><li>If Windows shows <i>"Windows protected your PC"</i>, click <b>More info → Run anyway</b> (the program is new and not yet signed).</li>
+  <li>ProcureHub sets up Windows Firewall itself the first time it runs from a folder: when Windows asks <i>"Do you want to allow this app to make changes?"</i>, click <b>Yes</b>. The black window then shows <b>Windows Firewall: allowed for other computers</b>.</li></ul></li>
+<li>A black window opens showing the addresses, and your browser opens ProcureHub. <b>Keep the black window open</b> — closing it stops ProcureHub for everyone (you can minimise it).</li>
+<li>First time only: fill in your company name and create the HQ administrator login.</li>
+<li>Go to <b>Settings &amp; users</b>: upload your logo and fill in company details. Then add <b>Projects</b> (with a site photo), <b>Vendors</b> (tick the categories each supplies) and one <b>Site</b> user per project.</li>
+</ol>
+<div class="card tip"><b>New in version 2:</b> picture catalogue of 117 standard water supply &amp; sewerage items so sites pick instead of type; photos on demands, receipts, goods receipts, projects, items and your logo; site stock with daily material-use entries; transfers of surplus material from one site to another; printable challans and requisitions; notifications, search, dark mode, and a phone layout with a bottom menu for sites.</div>
+<div class="card tip">Want to try it first? Click <b>Try it with sample data</b> on the welcome screen. Remove it later from Settings → <b>Remove sample data</b>.</div>
+
+<h3>Users</h3>
+<table><tr><th>Who</th><th>Access</th><th>They can</th></tr>
+<tr><td>HQ purchase team</td><td><b>HQ</b></td><td>See all projects, vendors and rates; approve demands, send RFQs, compare quotes, issue POs, receive and dispatch material.</td></tr>
+<tr><td>Site engineer / storekeeper</td><td><b>Site</b> + their project</td><td>Raise demands from the picture catalogue, track every item, confirm receipt with photos, send transfers HQ asks for, and record material used. They see only their own project and never see vendors or rates.</td></tr></table>
+<p>Open <b>Settings &amp; backup → Site logins</b> and tap <b>Create login</b> for each project (or <b>Create logins for all sites</b>). ProcureHub makes the username and a temporary password and shows them once, with buttons to <b>WhatsApp</b>, <b>Copy</b> or <b>Print</b> them for the site. At first sign-in the site must choose its own password. If a site forgets it, tap <b>Reset</b> to issue a new temporary password. Everyone can change their password any time in <b>My account</b>.</p>
+
+<h2>2. Connect all your projects across the country</h2>
+<p>Inside your office, others can already use the <b>"On the office network"</b> address shown in the black window (e.g. <code>http://192.168.1.20:8080</code>). Sites in other cities need an internet address. Choose <b>one</b> option:</p>
+<div class="opt">
+<div class="card"><h3 style="margin-top:0">Option A — Cloud server (recommended)</h3>
+<p>Rent a small cloud server (₹500–1,500/month from any provider, e.g. AWS Lightsail, DigitalOcean, Hostinger VPS, Azure). It is always on, has a fixed address and does not depend on your office PC or power.</p></div>
+<div class="card"><h3 style="margin-top:0">Option B — Keep it on the HQ PC</h3>
+<p>Free. Use <b>Cloudflare Tunnel</b> to give the HQ PC a secure https web address. The HQ PC and internet must stay on whenever sites work.</p></div></div>
+
+<h3>Option A: cloud server (Linux)</h3>
+<ol>
+<li>Create an Ubuntu server and note its public IP. Point a sub-domain such as <code>procure.yourcompany.com</code> to that IP in your domain's DNS (an "A record").</li>
+<li>Upload <code>procurehub-linux</code> and <code>procurehub.service</code> to <code>/opt/procurehub/</code> and install it as a service so it starts automatically:
+<pre>sudo mkdir -p /opt/procurehub &amp;&amp; sudo mv procurehub-linux /opt/procurehub/
+sudo chmod +x /opt/procurehub/procurehub-linux
+sudo cp procurehub.service /etc/systemd/system/
+sudo systemctl enable --now procurehub</pre></li>
+<li>Add free automatic https with Caddy:
+<pre>sudo apt install -y caddy
+echo 'procure.yourcompany.com {
+  reverse_proxy localhost:8080
+}' | sudo tee /etc/caddy/Caddyfile
+sudo systemctl restart caddy</pre></li>
+<li>Open <code>https://procure.yourcompany.com</code> — set up as in step 1. To move existing data from the HQ PC: on the PC, Settings → Backup → <b>Full backup (.zip)</b>; on the server, Settings → Backup → <b>Restore from backup</b>.</li>
+</ol>
+
+<h3>Option B: Cloudflare Tunnel on the HQ PC</h3>
+<ol>
+<li>Create a free account at <b>dash.cloudflare.com</b> and add your company domain (Cloudflare guides you to change the domain's name servers).</li>
+<li>In Cloudflare, open <b>Zero Trust → Networks → Tunnels → Create a tunnel</b>, choose <b>Cloudflared</b>, name it "procurehub", and run the Windows install command it shows on the HQ PC (in Command Prompt as Administrator). It installs as a Windows service.</li>
+<li>Add a <b>Public hostname</b>: sub-domain <code>procure</code>, your domain, service type <b>HTTP</b>, URL <code>localhost:8080</code>. Save.</li>
+<li>Sites now open <code>https://procure.yourcompany.com</code>. No router changes or static IP needed, and the connection is encrypted.</li>
+</ol>
+<div class="card">Quick trial without a domain: install cloudflared and run <code>cloudflared tunnel --url http://localhost:8080</code>. It prints a temporary <code>https://….trycloudflare.com</code> address. It changes every time, so use it only for testing.</div>
+<div class="card warn"><b>Do not</b> open port 8080 on your office router directly to the internet without https — passwords would travel unencrypted. Use Option A or B.</div>
+
+<h3>Start automatically with Windows (Option B)</h3>
+<p>Press <kbd>Win</kbd>+<kbd>R</kbd>, type <code>shell:startup</code>, press Enter, and put a shortcut to <code>RGS-ProcureHub.exe</code> in that folder. In the shortcut's Properties → Target, add <code> --no-browser</code> at the end.</p>
+
+<div class="card tip"><b>New in 5.2 — GST for each item</b><ul style="margin:6px 0 0">
+<li><b>Item catalogue:</b> each item can have its own <b>GST %</b> and <b>HSN code</b>. New quotations start with that GST.</li>
+<li><b>Quotations:</b> every line has its own GST % box. "Apply to all lines" sets one rate for the whole quote. Pasting from Excel accepts two columns (rate and GST %).</li>
+<li><b>Comparative and POs:</b> lowest price, landed totals and PO values use each line's GST. One PO can mix 5%, 12%, 18% and 28% items. The PO shows HSN and a GST line for each rate.</li>
+<li><b>Correcting an existing PO:</b> open the PO → <b>GST &amp; HSN</b>, change the rates, Save. Optionally the catalogue remembers them.</li>
+<li>Old quotations and POs keep the GST they had; nothing is recalculated unless you change it.</li></ul></div>
+<div class="card tip"><b>New in 5.3 — HQ store, documents, vendor categories</b><ul style="margin:6px 0 0">
+<li><b>HQ store</b> (menu): <i>Stock in store</i> shows every item lying at HQ with quantity received, sent to sites, in store, reserved for approved site demands, free, last inward and days in store; tap an item for its full in-and-out register. <i>Record inward</i> against a PO or without a PO (purchased without PO, opening stock, other). <i>Send material to a site</i> sends any free stock to any site on a challan. <i>Inward (GRN)</i> lists every inward with documents and a printable inward note.</li>
+<li><b>Direct or via HQ store:</b> on a PO, until anything is received, switch between delivery to the HQ store and direct delivery to sites.</li>
+<li><b>Documents:</b> wherever a challan, invoice, quotation or receipt copy is attached, click <b>Browse files</b> (or drag files onto the box) to upload photos (JPG, PNG) or PDF files up to 12 MB each. Documents can also be added to an inward later.</li>
+<li><b>Vendor categories:</b> selected categories turn blue with a tick; vendor cards show category names; on the Vendors page, click a category to tick vendors for it directly.</li></ul></div>
+<div class="card tip"><b>New in 5.4 — GST billing through the HQ store, authorised site receipt</b><ol style="margin:6px 0 0">
+<li><b>Settings → HQ store — address &amp; GST registration:</b> enter the store name, legal name, GSTIN (checked for mistakes), full address, state, PIN and store in-charge. POs delivered to the HQ store then show it as <i>Bill to &amp; ship to</i>, so vendors invoice on the store's GSTIN.</li>
+<li><b>Projects → each project:</b> enter the site's bill-to name and, if the site has its own GST registration, its GSTIN and state. Also list the <b>persons authorised to receive material</b> (name, designation, mobile).</li>
+<li><b>Outward from HQ store:</b> every challan to a site carries HSN, rate, taxable value and GST. Same GSTIN (or no site GSTIN) → <b>delivery challan</b>; different GSTIN → <b>tax invoice</b> with its own number. Same state → CGST + SGST; other state → IGST. Values are taken from the last purchase rate.</li>
+<li><b>Receipt at site:</b> the site chooses the authorised person, uploads the challan <b>signed and stamped at site</b> (photo or PDF from the computer) and ticks the confirmation. Without these the receipt cannot be saved. Each site has a <i>Received material — site record</i>; HQ sees all receipts and missing signed copies under <i>Dispatch to sites → Site receipts</i>.</li>
+<li><b>Registers:</b> Reports → <i>Inward register (GST)</i> and <i>Outward register (GST)</i> list every item coming into and going out of the HQ store with GSTINs, HSN, values and tax, ready for accounts. Both are also in the daily Excel backup.</li></ol></div>
+<div class="card tip"><b>New in 5.5 — pre-check of site demands</b><ol style="margin:6px 0 0">
+<li><b>Switch it on:</b> Settings → <i>Demand pre-check</i> → On. From then on every new demand — whoever raises it, site or HQ — is pre-checked first and is not shown in the approver's Demand inbox until it is pre-approved. When switching on, you are asked whether demands still waiting for approval should go to pre-check too.</li>
+<li><b>Choose the pre-checkers first:</b> Settings → HQ team &amp; permissions → Add person → role <i>Demand pre-checker</i> (limit to their own sites if needed). Pre-check cannot be switched on until at least one pre-checker exists. <b>Administrators and approvers cannot pre-check</b>, and the person who pre-approves a demand cannot also approve it — so pre-check and approval are always done by two different people.</li>
+<li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
+<li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
+<li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 5.7 — material sent to a job worker</b><p style="margin:6px 0">Example: switchgear bought from one vendor goes straight to your panel builder, who makes the complete panel and bills it to HQ or a site.</p><ol style="margin:6px 0 0">
+<li><b>Route the PO:</b> open the switchgear PO → <b>Change delivery</b> → <i>To a job worker</i>. Choose the panel builder and who the supplier's invoice is made out to: <b>the job worker</b> (he buys it as his raw material and includes it in his bill) or <b>us</b> (free issue — the material stays ours while it is with him). The PO print shows Bill to / Ship to accordingly.</li>
+<li><b>Receipt at the job worker:</b> on the PO click <b>Record receipt at job worker</b> with the challan / invoice copy. It does not go into HQ store stock. You can also send material from the HQ store (<i>With job workers → Send from HQ store</i>, prints a job-work challan), or record material another supplier delivered to him.</li>
+<li><b>His bill for the finished product:</b> <i>With job workers → Record job worker's bill</i>: bill no., product (e.g. MCC panel), amount and GST, where it was delivered (HQ store, a site, or through your PO to him), and the quantity of each raw material from his balance that went into it. That quantity is marked <b>used</b>.</li>
+<li><b>Unconsumed balance:</b> whatever is not used stays against him, per item, until a later bill, a return to the HQ store, or a wastage write-off. The program never lets more be used or returned than he holds. Print a balance statement for him to confirm, or download the Excel; the backup Excel has the sheets "Material with job workers" and "Job worker movements".</li></ol></div>
+<div class="card tip"><b>New in 5.6 — your own item categories, and which site the store material is for</b><ul style="margin:6px 0 0">
+<li><b>New categories:</b> Item catalogue → <b>Categories</b> → <i>Add category</i>: name, optional keywords (so new items are sorted into it automatically) and an optional picture. Or, while adding an item, click <b>+ New</b> next to Category. New categories appear for sites, vendors, the procurement queue and reports. Unused categories can be deleted; used ones can be renamed or hidden.</li>
+<li><b>HQ store — Demanded by site:</b> every item in the store shows the site(s) whose approved demand it is waiting to go to, with the quantity (hover for the MR numbers), or <i>Free stock — no demand</i>. The item register, the inward list and <i>Expected from vendors</i> also show which sites the material was bought for, and the stock Excel has a "Demanded by site" column.</li></ul></div>
+<h2>3. Using it at site</h2>
+<div class="card tip"><b>New in 5.1 — demand tracking and approver remarks</b><ul style="margin:6px 0 0">
+<li><b>Sites track, HQ decides.</b> Once a site sends a demand it is <b>view only</b> at site: no editing or cancelling. The site sees every item's stage (raised → approved → ordered → dispatched → received), who approved or rejected it and when. “Raised by me” in My demands shows only that person's demands.</li>
+<li><b>Approver remarks.</b> While approving, HQ can type a remark against any item, or one remark for the whole requisition in the Approve box. Rejecting needs a reason. HQ can also add a general remark any time. Remarks carry the approver's name and time, can't be deleted, and appear on the site's screen, the printed MR, the Excel demand register and the daily Excel backup.</li></ul></div>
+<ul><li>Open the address on the phone, sign in, and choose <b>Add to Home screen</b> (Chrome menu ⋮ or Safari share button) — it then opens like an app.</li>
+<li><b>Raise demand</b>: tap a category, tap the item, choose the size and quantity, add a photo if useful, then <b>Send to HQ</b>. Items not in the catalogue can be typed, and rows can be pasted from Excel.</li>
+<li><b>Receive material</b>: when a truck arrives, tap <b>Confirm receipt</b>, enter what actually arrived, take a photo of the material or challan, and note any shortage.</li><li><b>Transfers</b>: if HQ asks your site to send surplus to another site, it appears under Receive material. Load it and tap <b>Mark as sent</b>.</li><li><b>Site stock</b>: record material used so HQ always knows what is left at site.</li></ul>
+
+<h2>4. Email RFQs and POs to vendors</h2>
+<p>Settings → <b>Email for RFQs and POs</b>. For Gmail / Google Workspace:</p>
+<ol><li>Turn on 2-Step Verification on the purchase mailbox.</li><li>Create an <b>App password</b> at <code>myaccount.google.com/apppasswords</code>.</li>
+<li>Enter: server <code>smtp.gmail.com</code>, port <code>587</code>, STARTTLS, username = full email, password = the 16-letter app password, send-from = same email.</li>
+<li>Click <b>Save and send test email</b>.</li></ol>
+<p>Outlook/Office 365: <code>smtp.office365.com</code>, port 587, STARTTLS. Other providers: use their SMTP details. WhatsApp and Copy text buttons work without any setup.</p>
+
+<h2>5. Data, backups and safety</h2>
+<ul>
+<li>All data and photos are in the <b>ProcureHub-Data</b> folder next to the program (photos in its <code>files</code> subfolder).</li>
+<li><b>Automatic backups, no action needed:</b> every day an <b>Excel workbook of every record</b> (projects, vendors, demands, quotations, POs, receipts, dispatches, site stock and its register) is saved in <code>ProcureHub-Data\backups\excel</code> and kept 120 days. A safety copy of the database is made every 15 minutes. If the data file is ever damaged, ProcureHub repairs itself from it at the next start. A full backup with photos is saved weekly in <code>backups\full</code>.</li>
+<li><b>Protect against a broken computer:</b> in Settings → <b>Backup &amp; data safety</b>, set a <b>Second copy folder</b> on another disk, a USB drive, or a OneDrive / Google Drive folder. Every backup is copied there automatically. You can also enter an email address to receive the Excel file every evening (needs the email settings in section 4).</li>
+<li><b>Back up now</b> and <b>Download Excel</b> buttons are on the same page, along with a list of recent backup files you can download.</li>
+<li>Moving to a new computer: copy the whole RGS-ProcureHub folder including ProcureHub-Data, or use Download backup / Restore.</li>
+<li>Forgot the admin password: close ProcureHub, open Command Prompt in the folder and run <code>RGS-ProcureHub.exe --reset-password admin</code>. It prints a new password.</li>
+</ul>
+
+<h2>6. HQ team, roles &amp; permissions</h2>
+<p>Add each HQ person under <b>Settings → HQ team &amp; permissions → Add person</b>. Pick a ready-made role, then tick or untick individual permissions if needed. They choose their own password at first sign-in.</p>
+<table><tr><th>Role</th><th>Can do</th></tr>
+<tr><td><b>Administrator</b></td><td>Everything, plus add people, set permissions, site logins, restore backups and delete records.</td></tr>
+<tr><td><b>Purchase manager</b></td><td>Approve demands, call for quotations, upload quotes, approve comparatives, issue POs, vendors, items, reports.</td></tr>
+<tr><td><b>Purchase executive</b></td><td>Call for quotations (RFQs) and upload vendor quotations. Cannot approve comparatives or issue POs.</td></tr>
+<tr><td><b>Store keeper</b></td><td>Goods receipt at central store, store stock, dispatch challans and transfers. Does not see rates.</td></tr>
+<tr><td><b>Site coordinator</b></td><td>See site demands and site stock, raise demands for sites, update site stock. Does not see rates.</td></tr>
+<tr><td><b>Accounts / auditor</b></td><td>See everything including rates and reports. Cannot change anything.</td></tr>
+<tr><td><b>Demand pre-checker</b></td><td>Checks new site demands: edits, deletes or pre-approves them for the approver.</td></tr><tr><td><b>Viewer</b></td><td>See site demands and site stock only.</td></tr></table>
+<ul>
+<li><b>Individual permissions:</b> see site demands · approve demands · raise demands · call for quotations · upload quotations · approve comparative · issue POs · see rates and values · central store &amp; dispatch · see site stock · change site stock · projects · vendors · item catalogue · reports &amp; Excel · company/email/backup settings.</li>
+<li><b>Site access:</b> any person can be limited to selected sites. They then see only those sites' demands, stock and dispatches.</li>
+<li><b>Rates are protected:</b> people without "see rates and values" never receive vendor rates or PO values, not even in the data sent to their browser.</li>
+<li><b>Activity log:</b> Settings → Activity log shows who created, changed or deleted what, and when, including permission changes.</li>
+<li>The program always keeps at least one active administrator, and nobody can remove their own administrator rights.</li>
+</ul>
+
+<h2>Sites can't open the address? (check in this order)</h2>
+<ol>
+<li><b>Is the black ProcureHub window open on the HQ PC?</b> If it was closed, or the PC restarted, nobody can connect. Start RGS-ProcureHub.exe again.</li>
+<li><b>Look at the "Windows Firewall" line in the black window.</b> If it says <b>NOT SET UP</b>, close the window, start ProcureHub again and click <b>Yes</b> when Windows asks. Or close ProcureHub, right-click <b>Fix-Network.cmd</b> → <b>Run as administrator</b>, then start ProcureHub. This removes any "block" rule Windows made for the new EXE.</li>
+<li><b>Use the fixed address inside the office.</b> The PC's number address (e.g. 192.168.1.20) can change after a restart. The black window and Settings → How sites connect now also show a fixed address such as <code>http://hq-pc:8080</code> (the computer's name) that keeps working.</li>
+<li><b>Separate antivirus firewall</b> (Quick Heal, K7, Norton, ESET…): allow RGS-ProcureHub.exe in that program too.</li>
+<li><b>Sites in other cities (Cloudflare Tunnel):</b> the tunnel must point to the same port (<code>localhost:8080</code>) and the cloudflared service must be running on the HQ PC. A <i>trycloudflare.com</i> test address changes every time, so sites need the new one.</li>
+<li><b>Ran the new EXE from a new folder?</b> If the black window says <i>"no existing data was found in this folder"</i>, close it and copy the new EXE into your old folder (the one with ProcureHub-Data). Your data is safe in the old folder.</li>
+</ol>
+
+<h2>7. Options</h2>
+<table><tr><th>Start with</th><th>What it does</th></tr>
+<tr><td><code>--port 8090</code></td><td>Use another port if 8080 is busy.</td></tr>
+<tr><td><code>--data D:\PH-Data</code></td><td>Keep the data in another folder.</td></tr>
+<tr><td><code>--no-browser</code></td><td>Do not open the browser on start.</td></tr>
+<tr><td><code>--tls-cert cert.pem --tls-key key.pem</code></td><td>Serve https directly with your own certificate.</td></tr>
+<tr><td><code>--here</code></td><td>Use the data folder next to this program even if a bigger ProcureHub data folder exists elsewhere.</td></tr><tr><td><code>--no-firewall</code></td><td>Windows: don't touch Windows Firewall (if your IT team manages it).</td></tr><tr><td><code>--reset-password USERNAME</code></td><td>Set a new password for a user and exit.</td></tr></table>
+
+<h2>Files in this folder</h2>
+<table><tr><td><code>RGS-ProcureHub.exe</code></td><td>Windows 10/11 (64-bit)</td></tr><tr><td><code>procurehub-linux</code></td><td>Linux cloud server (64-bit)</td></tr><tr><td><code>procurehub-mac</code></td><td>Mac with Apple chip</td></tr><tr><td><code>Fix-Network.cmd</code></td><td>Lets other computers through Windows Firewall (run as administrator)</td></tr><tr><td><code>procurehub.service</code></td><td>Auto-start file for Linux servers</td></tr><tr><td><code>source\</code></td><td>Full source code (Go + one HTML file), for your IT team or future changes</td></tr></table>
+<div class="card"><b>Laptop screens at 125% or 150% display scaling</b><br>ProcureHub automatically switches to a compact layout with an icon menu, so forms fit on small screens. To make everything smaller or bigger, hold <b>Ctrl</b> and press <b>−</b> or <b>+</b> in the browser; <b>Ctrl+0</b> resets.</div></main></body></html>
