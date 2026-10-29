@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "5.7.1"
+const appVersion = "6.0.2"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
@@ -64,6 +64,13 @@ type User struct {
 	MustChange bool    `json:"mustChange,omitempty"`
 	LastLogin  int64   `json:"lastLogin,omitempty"`
 	Access     *Access `json:"access,omitempty"`
+	// Director (Procurement): signature-with-stamp image printed on approved POs
+	Sign        string `json:"sign,omitempty"`
+	Designation string `json:"designation,omitempty"`
+	// site login of the site head / project manager, who authenticates consumption
+	SiteHead bool `json:"siteHead,omitempty"`
+	// fields written by other versions are kept as they are
+	Extra map[string]json.RawMessage `json:"-"`
 }
 
 type Session struct {
@@ -91,7 +98,10 @@ type State struct {
 	Counters map[string]int64           `json:"counters"`
 	SMTP     SMTPConf                   `json:"smtp"`
 	Backup   BackupConf                 `json:"backup"`
+	MailIn   MailInConf                 `json:"mailIn"`
 	Audit    []AuditEntry               `json:"audit,omitempty"`
+	// fields written by other versions are kept as they are
+	Extra map[string]json.RawMessage `json:"-"`
 }
 
 var (
@@ -103,17 +113,17 @@ var (
 	filesDir string
 )
 
-var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true}
+var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true}
 
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]{1,200}$`)
 	usernameRe = regexp.MustCompile(`^[a-z0-9._-]{3,40}$`)
 	prefixRe   = regexp.MustCompile(`^[A-Z]{1,6}$`)
 	fyRe       = regexp.MustCompile(`^\d{2}-\d{2}$`)
-	fileIDRe   = regexp.MustCompile(`^[a-f0-9]{24}\.(jpg|png|webp|pdf)$`)
+	fileIDRe   = regexp.MustCompile(`^[a-f0-9]{24}\.(jpg|png|webp|pdf|xlsx)$`)
 )
 
-var fileTypes = map[string]string{".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".pdf": "application/pdf"}
+var fileTypes = map[string]string{".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".pdf": "application/pdf", ".xlsx": xlsxType}
 
 const sessionTTL = 30 * 24 * time.Hour
 
@@ -308,7 +318,8 @@ func hqOnly(h handler) http.HandlerFunc {
 }
 
 func publicUser(u *User) map[string]any {
-	return map[string]any{"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role, "projectId": u.ProjectID, "active": u.Active, "created": u.Created, "phone": u.Phone, "mustChange": u.MustChange, "lastLogin": u.LastLogin, "access": u.Access, "admin": isAdmin(u)}
+	return map[string]any{"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role, "projectId": u.ProjectID, "active": u.Active, "created": u.Created, "phone": u.Phone, "mustChange": u.MustChange, "lastLogin": u.LastLogin, "access": u.Access, "admin": isAdmin(u),
+		"sign": u.Sign, "designation": u.Designation, "siteHead": u.SiteHead}
 }
 
 func startSession(w http.ResponseWriter, r *http.Request, u *User) {
@@ -521,6 +532,7 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 		var req struct {
 			ID, Username, Name, Role, ProjectID, Password, Phone string
 			Active                                               *bool
+			SiteHead                                             *bool
 			Access                                               *Access
 		}
 		if !readJSON(w, r, &req, 1<<16) {
@@ -622,6 +634,11 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 		target.ProjectID = ""
 		if req.Role == "site" {
 			target.ProjectID = req.ProjectID
+			if req.SiteHead != nil {
+				target.SiteHead = *req.SiteHead
+			}
+		} else {
+			target.SiteHead = false
 		}
 		if req.Password != "" {
 			if len(req.Password) < 6 {
@@ -709,7 +726,7 @@ func visible(u *User, col, id string, d *Doc) bool {
 		switch col {
 		case "projects":
 			return inScope(u, id)
-		case "indents", "sitelog", "stocklvl":
+		case "indents", "sitelog", "stocklvl", "consumption":
 			return inScope(u, str(d.Data, "projectId"))
 		case "dispatches":
 			return inScope(u, str(d.Data, "projectId")) || inScope(u, str(d.Data, "fromProjectId"))
@@ -717,12 +734,12 @@ func visible(u *User, col, id string, d *Doc) bool {
 		return true
 	}
 	if d.Deleted || d.Data == nil {
-		return col != "vendors" && col != "rfqs" && col != "pos" && col != "grns" && col != "jobwork"
+		return col != "vendors" && col != "rfqs" && col != "pos" && col != "grns" && col != "jobwork" && col != "mailquotes"
 	}
 	switch col {
 	case "projects", "catalog", "config":
 		return true
-	case "indents", "sitelog", "stocklvl":
+	case "indents", "sitelog", "stocklvl", "consumption":
 		return str(d.Data, "projectId") == u.ProjectID
 	case "dispatches":
 		return str(d.Data, "projectId") == u.ProjectID || str(d.Data, "fromProjectId") == u.ProjectID
@@ -913,8 +930,16 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 			}
 			merged["createdBy"] = u.ID
 			merged["createdByName"] = u.Name
+			// values of existing stock are entered by HQ
+			delete(merged, "orate")
+			delete(merged, "value")
 			return merged, nil
 		}
+	case "consumption":
+		if str(merged, "projectId") != u.ProjectID || (ex != nil && str(ex, "projectId") != u.ProjectID) {
+			return nil, errors.New("You can only report consumption for your own project.")
+		}
+		return merged, nil
 	case "stocklvl":
 		if str(merged, "projectId") != u.ProjectID || (ex != nil && str(ex, "projectId") != u.ProjectID) {
 			return nil, errors.New("You can only set stock levels for your own project.")
@@ -981,7 +1006,8 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 	if u.Role != "hq" {
 		if req.Op == "delete" {
-			if !(req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID) && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
+			ownPending := req.Col == "consumption" && str(exData, "projectId") == u.ProjectID && str(exData, "reportedBy") == u.ID && str(exData, "status") == "pending"
+			if !ownPending && !(req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID) && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
 				fail(w, 403, errDeny.Error())
 				return
 			}
@@ -1007,6 +1033,26 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 			fail(w, 400, err.Error())
 			return
 		}
+	}
+	// approval by the Director (Procurement), receipts and consumption, for everyone
+	if req.Op != "delete" {
+		if err := approvalGuard(u, req.Op, req.Col, exData, req.Data, newData); err != nil {
+			fail(w, 403, err.Error())
+			return
+		}
+		if err := receiptGuard(req.Col, exData, newData); err != nil {
+			fail(w, 403, err.Error())
+			return
+		}
+		if req.Col == "consumption" {
+			if err := consumptionGuard(u, exData, req.Data, newData); err != nil {
+				fail(w, 403, err.Error())
+				return
+			}
+		}
+	} else if req.Col == "consumption" && str(exData, "status") == "authenticated" && !isAdmin(u) {
+		fail(w, 403, "An authenticated consumption report cannot be deleted.")
+		return
 	}
 	if req.Col == "jobwork" && req.Op != "delete" {
 		if err := checkJobwork(req.ID, newData); err != nil {
@@ -1062,12 +1108,12 @@ func hCounter(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Invalid number series.")
 		return
 	}
-	if u.Role != "hq" && req.Prefix != "MR" {
+	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" {
 		fail(w, 403, "Not allowed.")
 		return
 	}
 	if u.Role == "hq" {
-		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}}[req.Prefix]
+		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}, "STI": {"store", "po_issue"}, "CR": {"sitestock_edit"}, "OS": {"store", "sitestock_edit"}}[req.Prefix]
 		if perm != nil {
 			if err := need(u, perm...); err != nil {
 				fail(w, 403, err.Error())
@@ -1294,10 +1340,10 @@ func b64wrap(s string) string {
 type mailAttachment struct {
 	Name, Type string
 	Data       []byte
+	CID        string // set for an image shown inside the HTML (src="cid:…")
 }
 
 func buildMsg(c SMTPConf, to []string, subject, html, text string, atts ...mailAttachment) []byte {
-	bd := "ph_" + randHex(12)
 	from := c.From
 	if c.FromName != "" {
 		from = mime.QEncoding.Encode("utf-8", clean(c.FromName)) + " <" + c.From + ">"
@@ -1306,31 +1352,49 @@ func buildMsg(c SMTPConf, to []string, subject, html, text string, atts ...mailA
 	if i := strings.LastIndex(c.From, "@"); i >= 0 {
 		domain = c.From[i+1:]
 	}
-	var b strings.Builder
-	mixed := "phm_" + randHex(12)
-	ctype := fmt.Sprintf("multipart/alternative; boundary=\"%s\"", bd)
-	if len(atts) > 0 {
-		ctype = fmt.Sprintf("multipart/mixed; boundary=\"%s\"", mixed)
-	}
-	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMessage-ID: <%s@%s>\r\nMIME-Version: 1.0\r\nContent-Type: %s\r\n\r\n",
-		from, clean(strings.Join(to, ", ")), mime.BEncoding.Encode("utf-8", clean(subject)), time.Now().Format(time.RFC1123Z), randHex(10), domain, ctype)
-	if len(atts) > 0 {
-		fmt.Fprintf(&b, "--%s\r\nContent-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", mixed, bd)
+	var inline, regular []mailAttachment
+	for _, a := range atts {
+		if a.CID != "" {
+			inline = append(inline, a)
+		} else {
+			regular = append(regular, a)
+		}
 	}
 	if text == "" {
 		text = "Please view this message in an email program that shows HTML."
 	}
-	fmt.Fprintf(&b, "--%s\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", bd, b64wrap(text))
+	// text + html alternatives
+	alt := "ph_" + randHex(12)
+	var body strings.Builder
+	fmt.Fprintf(&body, "--%s\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", alt, b64wrap(text))
 	if html != "" {
-		fmt.Fprintf(&b, "--%s\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", bd, b64wrap("<!doctype html><html><body>"+html+"</body></html>"))
+		fmt.Fprintf(&body, "--%s\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", alt, b64wrap("<!doctype html><html><body>"+html+"</body></html>"))
 	}
-	fmt.Fprintf(&b, "--%s--\r\n", bd)
-	for _, a := range atts {
-		fmt.Fprintf(&b, "--%s\r\nContent-Type: %s; name=\"%s\"\r\nContent-Disposition: attachment; filename=\"%s\"\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", mixed, a.Type, clean(a.Name), clean(a.Name), b64wrapBytes(a.Data))
+	fmt.Fprintf(&body, "--%s--\r\n", alt)
+	ctype, part := fmt.Sprintf("multipart/alternative; boundary=\"%s\"", alt), body.String()
+	if len(inline) > 0 { // images shown inside the mail
+		rel := "phr_" + randHex(12)
+		var b strings.Builder
+		fmt.Fprintf(&b, "--%s\r\nContent-Type: %s\r\n\r\n%s", rel, ctype, part)
+		for _, a := range inline {
+			fmt.Fprintf(&b, "--%s\r\nContent-Type: %s\r\nContent-ID: <%s>\r\nContent-Disposition: inline; filename=\"%s\"\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", rel, a.Type, clean(a.CID), clean(a.Name), b64wrapBytes(a.Data))
+		}
+		fmt.Fprintf(&b, "--%s--\r\n", rel)
+		ctype, part = fmt.Sprintf("multipart/related; type=\"multipart/alternative\"; boundary=\"%s\"", rel), b.String()
 	}
-	if len(atts) > 0 {
+	if len(regular) > 0 {
+		mixed := "phm_" + randHex(12)
+		var b strings.Builder
+		fmt.Fprintf(&b, "--%s\r\nContent-Type: %s\r\n\r\n%s", mixed, ctype, part)
+		for _, a := range regular {
+			fmt.Fprintf(&b, "--%s\r\nContent-Type: %s; name=\"%s\"\r\nContent-Disposition: attachment; filename=\"%s\"\r\nContent-Transfer-Encoding: base64\r\n\r\n%s\r\n", mixed, a.Type, clean(a.Name), clean(a.Name), b64wrapBytes(a.Data))
+		}
 		fmt.Fprintf(&b, "--%s--\r\n", mixed)
+		ctype, part = fmt.Sprintf("multipart/mixed; boundary=\"%s\"", mixed), b.String()
 	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMessage-ID: <%s@%s>\r\nMIME-Version: 1.0\r\nContent-Type: %s\r\n\r\n%s",
+		from, clean(strings.Join(to, ", ")), mime.BEncoding.Encode("utf-8", clean(subject)), time.Now().Format(time.RFC1123Z), randHex(10), domain, ctype, part)
 	return []byte(b.String())
 }
 
@@ -1451,6 +1515,8 @@ func hMail(w http.ResponseWriter, r *http.Request, u *User) {
 	var req struct {
 		To                  []string
 		Subject, HTML, Text string
+		RfqSheet            struct{ Rfq, Vendor string }
+		PoID                string
 	}
 	if !readJSON(w, r, &req, 4<<20) {
 		return
@@ -1469,7 +1535,33 @@ func hMail(w http.ResponseWriter, r *http.Request, u *User) {
 	mu.Lock()
 	c := st.SMTP
 	mu.Unlock()
-	if err := sendMail(c, to, req.Subject, req.HTML, req.Text); err != nil {
+	var atts []mailAttachment
+	if req.RfqSheet.Rfq != "" { // the quotation sheet the vendor fills in and sends back
+		name, data, err := buildRFQSheet(req.RfqSheet.Rfq, req.RfqSheet.Vendor)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		atts = append(atts, mailAttachment{Name: name, Type: xlsxType, Data: data})
+	}
+	html := req.HTML
+	if req.PoID != "" { // a purchase order may go to the vendor only once approved
+		mu.Lock()
+		po := docData("pos", req.PoID)
+		mu.Unlock()
+		if po == nil {
+			fail(w, 404, "Purchase order not found.")
+			return
+		}
+		if !poApproved(po) {
+			fail(w, 403, "This purchase order is waiting for approval by the Director (Procurement). It cannot be sent to the vendor yet.")
+			return
+		}
+		var inl []mailAttachment
+		html, inl = inlineFiles(html)
+		atts = append(atts, inl...)
+	}
+	if err := sendMail(c, to, req.Subject, html, req.Text, atts...); err != nil {
 		fail(w, 502, err.Error())
 		return
 	}
@@ -1685,6 +1777,8 @@ func main() {
 	mux.HandleFunc("/api/login", hLogin)
 	mux.HandleFunc("/api/logout", hLogout)
 	mux.HandleFunc("/api/password", authed(hPassword))
+	mux.HandleFunc("/api/me/sign", authed(hMySign))
+	mux.HandleFunc("/api/items/rename", adminOnly(hItemRename))
 	mux.HandleFunc("/api/users", adminOnly(hUsers))
 	mux.HandleFunc("/api/audit", adminOnly(hAudit))
 	mux.HandleFunc("/api/sync", authed(hSync))
@@ -1702,6 +1796,10 @@ func main() {
 	mux.HandleFunc("/api/smtp", permOnly(hSMTP, "settings"))
 	mux.HandleFunc("/api/smtp/test", permOnly(hSMTPTest, "settings"))
 	mux.HandleFunc("/api/mail", permOnly(hMail, "rfq_create", "po_issue"))
+	mux.HandleFunc("/api/mailin", permOnly(hMailIn, "settings"))
+	mux.HandleFunc("/api/mailin/check", permOnly(hMailInCheck, "quotes_enter", "rfq_create", "settings"))
+	mux.HandleFunc("/api/mailin/assign", permOnly(hMailInAssign, "quotes_enter"))
+	mux.HandleFunc("/api/rfqsheet", permOnly(hRFQSheet, "rfq_create", "quotes_enter"))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "Not found.") })
 	mux.HandleFunc("/files/", hFile)
 	mux.HandleFunc("/", hStatic)
@@ -1748,6 +1846,7 @@ func main() {
 	fmt.Println("==============================================================")
 
 	go backupLoop()
+	go mailInLoop()
 	go func() {
 		for {
 			time.Sleep(10 * time.Minute)

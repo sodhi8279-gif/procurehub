@@ -129,9 +129,12 @@ func subList(m map[string]any, k string) []map[string]any {
 type stockRow struct {
 	Desc, Spec, Unit, Cat                     string
 	Open, Recv, Out, Used, Dmg, Ret, Adj, Min float64
+	Cons                                      float64 // authenticated consumption reports
 }
 
-func (r *stockRow) bal() float64 { return r.Open + r.Recv - r.Out - r.Used - r.Dmg - r.Ret + r.Adj }
+func (r *stockRow) bal() float64 {
+	return r.Open + r.Recv - r.Out - r.Used - r.Cons - r.Dmg - r.Ret + r.Adj
+}
 
 // siteStockLocked mirrors the client's derive(): balance per project and item.
 func siteStockLocked() map[string]map[string]*stockRow {
@@ -181,6 +184,14 @@ func siteStockLocked() map[string]map[string]*stockRow {
 			r.Ret += q
 		case "adjust":
 			r.Adj += q
+		}
+	}
+	for _, x := range liveLocked("consumption") {
+		if str(x.D, "status") != "authenticated" {
+			continue
+		}
+		for _, l := range subList(x.D, "lines") {
+			row(str(x.D, "projectId"), itemKeyOf(l), l).Cons += fnum(l["qty"])
 		}
 	}
 	for _, x := range liveLocked("stocklvl") {
@@ -436,7 +447,7 @@ func buildWorkbookLocked() []xSheet {
 	}
 	sheets = append(sheets, xSheet{"Outward register (GST)", rows})
 	// Site stock
-	rows = [][]any{{"Project code", "Project", "Item", "Specification", "Category", "Unit", "Opening", "Received", "Sent to other sites", "Issued / used", "Damaged / lost", "Returned to store", "Count adjustment", "Balance", "Minimum level", "Below minimum"}}
+	rows = [][]any{{"Project code", "Project", "Item", "Specification", "Category", "Unit", "Opening", "Received", "Sent to other sites", "Issued / used", "Consumed (authenticated)", "Damaged / lost", "Returned to store", "Count adjustment", "Balance", "Minimum level", "Below minimum"}}
 	site := siteStockLocked()
 	pids := make([]string, 0, len(site))
 	for p := range site {
@@ -455,18 +466,28 @@ func buildWorkbookLocked() []xSheet {
 			if r.Min > 0 && r.bal() < r.Min {
 				low = "Yes"
 			}
-			rows = append(rows, []any{pcode(p), pname(p), r.Desc, r.Spec, catName(r.Cat), r.Unit, r.Open, r.Recv, r.Out, r.Used, r.Dmg, r.Ret, r.Adj, r.bal(), r.Min, low})
+			rows = append(rows, []any{pcode(p), pname(p), r.Desc, r.Spec, catName(r.Cat), r.Unit, r.Open, r.Recv, r.Out, r.Used, r.Cons, r.Dmg, r.Ret, r.Adj, r.bal(), r.Min, low})
 		}
 	}
 	sheets = append(sheets, xSheet{"Site stock", rows})
 	// Site stock register
-	rows = [][]any{{"Date", "Project", "Entry", "Item", "Specification", "Unit", "Qty", "Issued to", "Location / chainage", "Reason / remarks", "Entered by"}}
+	rows = [][]any{{"Date", "Project", "Entry", "Item", "Specification", "Unit", "Qty", "Issued to", "Location / chainage", "Reason / remarks", "Entered by", "Rate (existing stock)", "Value (existing stock)", "Value basis"}}
 	typeName := map[string]string{"opening": "Opening stock", "use": "Issued / used", "damage": "Damaged / lost", "return": "Returned to central store", "adjust": "Physical count adjustment"}
 	for _, x := range liveLocked("sitelog") {
 		e := x.D
-		rows = append(rows, []any{str(e, "date"), pcode(str(e, "projectId")), firstNonEmpty(typeName[str(e, "type")], str(e, "type")), str(e, "desc"), str(e, "spec"), str(e, "unit"), fnum(e["qty"]), str(e, "issuedTo"), str(e, "location"), firstNonEmpty(str(e, "reason"), str(e, "remarks")), str(e, "createdByName")})
+		rows = append(rows, []any{str(e, "date"), pcode(str(e, "projectId")), firstNonEmpty(typeName[str(e, "type")], str(e, "type")), str(e, "desc"), str(e, "spec"), str(e, "unit"), fnum(e["qty"]), str(e, "issuedTo"), str(e, "location"), firstNonEmpty(str(e, "reason"), str(e, "remarks")), str(e, "createdByName"), e["orate"], e["value"], str(e, "basis")})
 	}
 	sheets = append(sheets, xSheet{"Site stock register", rows})
+	// Consumption reports
+	rows = [][]any{{"Report", "Date", "Project", "Description of consumption", "Remarks", "Item", "Specification", "Unit", "Qty", "Reported by", "Status", "Authenticated / rejected by", "On", "Remark"}}
+	for _, x := range liveLocked("consumption") {
+		d := x.D
+		a, _ := d["auth"].(map[string]any)
+		for _, l := range subList(d, "lines") {
+			rows = append(rows, []any{str(d, "no"), str(d, "date"), pcode(str(d, "projectId")), str(d, "description"), str(d, "remarks"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), str(d, "reportedByName"), str(d, "status"), str(a, "byName"), msDate(a["at"]), str(a, "remark")})
+		}
+	}
+	sheets = append(sheets, xSheet{"Consumption", rows})
 	// Central store
 	type cs struct {
 		desc, spec, unit, cat string

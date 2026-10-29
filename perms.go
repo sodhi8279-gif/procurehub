@@ -37,6 +37,8 @@ var permLabels = map[string]string{
 	"masters_items":    "edit the item catalogue",
 	"reports":          "see reports and download data",
 	"settings":         "change company, email and backup settings",
+	"po_approve":       "approve purchase orders and site transfer indents",
+	"consume_auth":     "authenticate site consumption reports",
 }
 
 func isAdmin(u *User) bool { return u != nil && u.Role == "hq" && (u.Access == nil || u.Access.Admin) }
@@ -47,7 +49,9 @@ func can(u *User, p string) bool {
 	}
 	if isAdmin(u) {
 		// Pre-check is a separate duty: administrators approve, pre-checkers pre-check.
-		return p != "demands_precheck"
+		// separate duties: administrators do not pre-check demands, approve
+		// purchase orders or authenticate site consumption themselves
+		return p != "demands_precheck" && p != "po_approve" && p != "consume_auth"
 	}
 	for _, x := range u.Access.Perms {
 		if x == p {
@@ -55,7 +59,7 @@ func can(u *User, p string) bool {
 		}
 	}
 	if p == "rates_view" { // people who handle quotes or orders must see prices
-		return canAny(u, "quotes_enter", "compare_approve", "po_issue", "reports")
+		return canAny(u, "quotes_enter", "compare_approve", "po_issue", "po_approve", "reports")
 	}
 	return false
 }
@@ -130,7 +134,7 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		src = ex
 	}
 	switch col {
-	case "indents", "sitelog", "stocklvl":
+	case "indents", "sitelog", "stocklvl", "consumption":
 		if !inScope(u, str(src, "projectId")) || (ex != nil && !inScope(u, str(ex, "projectId"))) {
 			return errors.New("This project is not one of the sites assigned to you.")
 		}
@@ -169,6 +173,25 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		return need(u, "settings")
 	case "sitelog", "stocklvl":
 		return need(u, "sitestock_edit")
+	case "consumption":
+		if op == "delete" {
+			return errors.New("Only administrators can delete consumption reports.")
+		}
+		if _, ok := patch["status"]; ok && ex != nil {
+			return need(u, "consume_auth")
+		}
+		return need(u, "sitestock_edit")
+	case "mailquotes":
+		// created by the mail reader; people only accept or set aside
+		if op != "update" {
+			return errors.New("Quotations from email are created by the mail reader.")
+		}
+		for k := range patch {
+			if k != "status" && k != "decidedAt" && k != "decidedBy" && k != "decidedByName" {
+				return errors.New("Only the status of a quotation from email can be changed.")
+			}
+		}
+		return need(u, "quotes_enter")
 	case "jobwork":
 		// material with vendors for job work
 		if op == "delete" {
@@ -183,6 +206,9 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 	case "dispatches":
 		if op == "delete" {
 			return errors.New("Only administrators can delete dispatches.")
+		}
+		if op == "update" && len(patch) == 1 && patch["approval"] != nil {
+			return need(u, "po_approve", "store", "po_issue")
 		}
 		return need(u, "store", "po_issue")
 	case "indents":
@@ -207,6 +233,9 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 			}
 			if only {
 				return need(u, "store", "po_issue")
+			}
+			if len(patch) == 1 && patch["approval"] != nil {
+				return need(u, "po_approve", "po_issue")
 			}
 		}
 		return need(u, "po_issue")
@@ -254,6 +283,24 @@ func sanitizeFor(u *User, col string, data map[string]any) map[string]any {
 	if data == nil || can(u, "rates_view") {
 		return data
 	}
+	if col == "sitelog" {
+		if _, has := data["value"]; !has {
+			if _, has2 := data["orate"]; !has2 {
+				return data
+			}
+		}
+		out := shallowCopy(data)
+		delete(out, "value")
+		delete(out, "orate")
+		out["ratesHidden"] = true
+		return out
+	}
+	if col == "mailquotes" {
+		out := shallowCopy(data)
+		delete(out, "quote")
+		out["ratesHidden"] = true
+		return out
+	}
 	if col == "jobwork" {
 		out := shallowCopy(data)
 		var ls []any
@@ -277,7 +324,7 @@ func sanitizeFor(u *User, col string, data map[string]any) map[string]any {
 		var ls []any
 		for _, l := range subList(data, "lines") {
 			c := shallowCopy(l)
-			for _, k := range []string{"rate", "taxable", "tax"} {
+			for _, k := range []string{"rate", "taxable", "tax", "orate", "value"} {
 				delete(c, k)
 			}
 			ls = append(ls, c)

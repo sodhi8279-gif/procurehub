@@ -23,7 +23,7 @@ async function boot(){
   ui.me=j.user;ui.net=j.net||null;ui.uid=j.user.id;ui.isHQ=j.user.role==='hq';ui.role=ui.isHQ?'hq':'site';
   if(j.user.mustChange){ui.view='pwchange';render();setTimeout(()=>{const el=document.getElementById('pw-old');el&&el.focus()},50);return}
   ui.view=ui.isHQ?'dashboard':'s_home';
-  if(ui.isHQ){loadUsers();loadSmtp()}
+  if(ui.isHQ){loadUsers();loadSmtp();loadMailIn()}
   if(ui.isHQ&&!isAdm()){const pv=parseHash();if(pv&&!viewAllowed(pv.v)) history.replaceState(null,'','#dashboard')}
   render();syncLoop();
 }
@@ -108,7 +108,7 @@ A.userPreset=d=>{const a=ui.modal.d.acc;if(d.k==='admin'){a.admin=true;a.role='A
 A.userPerm=(d,el)=>{const a=ui.modal.d.acc;const s=new Set(a.perms);el.checked?s.add(d.k):s.delete(d.k);a.perms=[...s];a.admin=false;const m=ROLE_PRESETS.find(p=>p[2].length===a.perms.length&&p[2].every(x=>s.has(x)));a.role=m?m[0]:'Custom';render()};
 A.userScope=d=>{ui.modal.d.acc.scope=d.val;render()};
 A.userProj=(d,el)=>{const a=ui.modal.d.acc;const s=new Set(a.projects);el.checked?s.add(d.k):s.delete(d.k);a.projects=[...s];render()};
-A.saveUser=async()=>{const m=ui.modal;const u=m.d;if(u.role==='hq'&&!u.acc.admin){if(!u.acc.perms.length) return toast('Tick at least one permission, or make this person an administrator.','err');if(u.acc.scope==='some'&&!u.acc.projects.length) return toast('Choose at least one site.','err')}const r=await run(()=>api('/api/users',{id:m.id||'',name:u.name||'',username:u.username||'',password:u.password||'',phone:u.phone||'',role:u.role,projectId:u.role==='site'?u.projectId||'':'',active:u.active!==false,access:u.role==='hq'?{admin:!!u.acc.admin,role:u.acc.admin?'Administrator':u.acc.role,perms:u.acc.perms,projects:u.acc.scope==='some'?u.acc.projects:[]}:null}),m.id?'User updated':'User created');if(r){closeModal();loadUsers()}};
+A.saveUser=async()=>{const m=ui.modal;const u=m.d;if(u.role==='hq'&&!u.acc.admin){if(!u.acc.perms.length) return toast('Tick at least one permission, or make this person an administrator.','err');if(u.acc.scope==='some'&&!u.acc.projects.length) return toast('Choose at least one site.','err')}const r=await run(()=>api('/api/users',{id:m.id||'',name:u.name||'',username:u.username||'',password:u.password||'',phone:u.phone||'',role:u.role,projectId:u.role==='site'?u.projectId||'':'',siteHead:u.role==='site'&&!!u.siteHead,active:u.active!==false,access:u.role==='hq'?{admin:!!u.acc.admin,role:u.acc.admin?'Administrator':u.acc.role,perms:u.acc.perms,projects:u.acc.scope==='some'?u.acc.projects:[]}:null}),m.id?'User updated':'User created');if(r){closeModal();loadUsers()}};
 A.loadAudit=()=>loadAudit();
 A.delUser=()=>{const id=ui.modal.id;confirmBox({title:'Delete user',body:'This person can no longer sign in. Their past demands and receipts stay on record.',yes:'Delete user',danger:true,onYes:async()=>{if(await run(()=>api('/api/users?id='+encodeURIComponent(id),undefined,'DELETE'),'User deleted')){closeModal();loadUsers()}}})};
 
@@ -225,15 +225,15 @@ A.saveTransfer=async()=>{const m=ui.modal,x=m.x,d=m.d;const ik=itemKey(x.l.desc,
   if(!row){toast('Choose the sending site.','err');return}if(!(q>0)){toast('Enter the quantity.','err');return}
   if(q>row.free+1e-9){toast(`Only ${fq(row.free)} ${x.l.unit} is available at ${projCode(d.from)}.`,'err');return}
   if(q>x.info.need) q=x.info.need;
-  const ok=await run(async()=>{const no=await allocNo('TR',S.dispatches);const did=newId();
-    await setDoc('dispatches',did,{no,type:'transfer',fromProjectId:d.from,projectId:x.ind.projectId,status:'to_send',date:today(),note:d.note||'',at:Date.now(),createdBy:ui.uid,
+  const ok=await run(async()=>{const no=await allocNo('STI',S.dispatches);const did=newId();
+    await setDoc('dispatches',did,{no,type:'transfer',fromProjectId:d.from,projectId:x.ind.projectId,status:'to_send',date:today(),note:d.note||'',purpose:d.purpose||'',at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||'',
       lines:[{itemKey:ik,desc:x.l.desc,spec:x.l.spec||'',unit:x.l.unit,cat:x.l.category,qty:q,indentId:x.ind.id,lineId:x.l.id,mrNo:x.ind.no,recvQty:null}]});
     await patchLines(x.ind.id,ls=>{const i=ls.findIndex(l=>l.id===x.l.id);const l=ls[i];const need=needQty(l);
       if(q<need-1e-9){const rest=Math.round((need-q)*1000)/1000;const nl=JSON.parse(JSON.stringify(l));for(const k of ['transferId','transferNo','transferFrom','transferAt','rfqId','rfqNo','poId','poNo','fromStock']) delete nl[k];
         Object.assign(nl,{id:newId(),qty:rest,approvedQty:rest,splitFrom:l.id,siteNote:(l.siteNote?l.siteNote+' · ':'')+'Balance after transfer'});ls.splice(i+1,0,nl);l.approvedQty=q}
       Object.assign(l,{transferId:did,transferNo:no,transferFrom:projCode(d.from),transferAt:Date.now()})});
     return no});
-  if(ok){closeModal();toast(`${ok} created. ${projCode(d.from)} will see it under Receive material.`)}};
+  if(ok){closeModal();if(poApprovalOn()){toast(`Site transfer indent ${ok} sent to the Director (Procurement) for approval. ${projCode(d.from)} can send the material once it is approved.`);go('sti',S.dispatches.find(y=>y.no===ok)?S.dispatches.find(y=>y.no===ok).id:null)}else toast(`Site transfer indent ${ok} created. ${projCode(d.from)} will see it under Receive material.`)}};
 A.addRfqVendor=()=>{const r=S.rfqs.find(x=>x.id===ui.param);const others=S.vendors.filter(v=>!(r.vendorIds||[]).includes(v.id));
   if(!others.length){toast('All vendors are already on this RFQ.');return}
   confirmBox({title:'Add vendor to '+r.no,body:`<div class="checks">${others.map(v=>`<label class="check"><input type="radio" name="addv" id="av-${v.id}" data-act="pickAddV" data-v="${v.id}">${vendorAvatar(v)}<span>${esc(v.name)}</span></label>`).join('')}</div>`,yes:'Add vendor',onYes:async m=>{if(!m.pick){toast('Choose a vendor.','err');return}if(await run(()=>updDoc('rfqs',r.id,{vendorIds:[...(r.vendorIds||[]),m.pick]}),'Vendor added')) closeModal()}})};
@@ -242,14 +242,14 @@ const rfqOf=()=>S.rfqs.find(x=>x.id===ui.param);
 async function logSend(r,vid,via){await updDoc('rfqs',r.id,{sentLog:[...(r.sentLog||[]),{vendorId:vid,via,at:Date.now()}],status:r.status==='draft'?'sent':r.status})}
 A.logSend=async(d,el,e)=>{const r=rfqOf();const v=vend(d.v);if(!v||!v.phone){e.preventDefault();toast('Add a phone number for this vendor first.','err');return}try{await logSend(r,d.v,d.via)}catch(err){}};
 A.copyRfq=async d=>{const r=rfqOf();const v=vend(d.v);const t=rfqText(r,v);try{await navigator.clipboard.writeText(t);toast('RFQ text copied');await logSend(r,d.v,'copied text')}catch(e){openModal({type:'text',title:'RFQ text for '+(v?v.name:''),text:t})}};
-const sendMail=(to,subject,html,text)=>api('/api/mail',{to:[to],subject,html,text});
+const sendMail=(to,subject,html,text,extra)=>api('/api/mail',Object.assign({to:[to],subject,html,text},extra||{}));
 A.mailRfq=async d=>{const r=rfqOf();const v=vend(d.v);if(!v||!v.email){toast('Add an email for this vendor first.','err');return}
   if(!mailOk()){toast('Set up email in Settings first, or use WhatsApp / Copy.','err');return}
-  await run(async()=>{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v));await logSend(r,d.v,'Email')},'RFQ emailed to '+v.name)};
+  await run(async()=>{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v),{rfqSheet:{rfq:r.id,vendor:v.id}});await logSend(r,d.v,'Email')},'RFQ emailed to '+v.name)};
 A.mailRfqAll=async()=>{const r=rfqOf();if(!mailOk()){toast('Set up email in Settings first, or use WhatsApp / Copy.','err');return}
   const vs=(r.vendorIds||[]).map(vend).filter(v=>v&&v.email);if(!vs.length){toast('None of these vendors has an email address.','err');return}
   ui.busy=true;render();let ok=0;const log=[...(r.sentLog||[])];
-  for(const v of vs){try{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v));ok++;log.push({vendorId:v.id,via:'Email',at:Date.now()})}catch(e){toast(v.name+': '+errMsg(e),'err');break}}
+  for(const v of vs){try{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v),{rfqSheet:{rfq:r.id,vendor:v.id}});ok++;log.push({vendorId:v.id,via:'Email',at:Date.now()})}catch(e){toast(v.name+': '+errMsg(e),'err');break}}
   try{if(ok) await updDoc('rfqs',r.id,{sentLog:log,status:r.status==='draft'?'sent':r.status})}catch(e){}
   ui.busy=false;render();if(ok) toast(`RFQ emailed to ${ok} vendor${ok===1?'':'s'}`);const noMail=(r.vendorIds||[]).length-vs.length;if(noMail) toast(noMail+' vendor(s) have no email. Use WhatsApp for them.')};
 A.enterQuote=d=>{const r=rfqOf();const v=vend(d.v)||{};const q=(r.quotes||{})[d.v];
@@ -264,7 +264,9 @@ A.pasteRates=()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const 
 A.saveQuote=async()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const q=m.d;const rates={},gstRates={};for(const l of r.lines){const v=num(q.rates[l.key]);if(v>0){rates[l.key]=v;const gs=String(q.gstRates[l.key]??'').trim();const g=gs===''?num(q.gst):num(gs);if(!(g>=0&&g<=100)||isNaN(g)){toast(`GST % for ${l.desc} must be between 0 and 100.`,'err');return}gstRates[l.key]=g}}
   if(!Object.keys(rates).length){toast('Enter at least one rate.','err');return}
   const quote={rates,gstRates,gst:num(q.gst),freight:num(q.freight),deliveryDays:q.deliveryDays?num(q.deliveryDays):'',payment:q.payment||'',validity:q.validity||'',remarks:q.remarks||'',files:q.files||[],at:Date.now()};
-  if(await run(()=>updDoc('rfqs',r.id,{quotes:Object.assign({},r.quotes||{},{[m.vid]:quote}),status:r.status==='draft'?'sent':r.status}),'Quotation saved')) closeModal()};
+  const hsn={};for(const k in rates) if(q.hsn&&String(q.hsn[k]||'').trim()) hsn[k]=String(q.hsn[k]).trim();if(Object.keys(hsn).length) quote.hsn=hsn;
+  if(m.mailId) quote.fromMail=m.mailId;
+  if(await run(async()=>{await updDoc('rfqs',r.id,{quotes:Object.assign({},r.quotes||{},{[m.vid]:quote}),status:r.status==='draft'?'sent':r.status});if(m.mailId) await updDoc('mailquotes',m.mailId,{status:'accepted',decidedAt:Date.now(),decidedBy:ui.uid||null})},m.mailId?'Quotation from email accepted into the comparative':'Quotation saved')) closeModal()};
 A.delQuote=async()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const quotes=Object.assign({},r.quotes);delete quotes[m.vid];const award=Object.assign({},r.award);for(const k in award) if(award[k]===m.vid) delete award[k];
   if(await run(()=>updDoc('rfqs',r.id,{quotes,award}),'Quote removed')) closeModal()};
 A.award=async d=>{const r=rfqOf();if(r.status==='approved'){toast('Reopen the comparative to change awards.','err');return}await run(()=>updDoc('rfqs',r.id,{award:Object.assign({},r.award||{},{[d.k]:d.v})}))};
@@ -281,7 +283,7 @@ async function generatePOs(r){
   const poIds=[],created=[];
   for(const [vid,lines] of Object.entries(byV)){const v=vend(vid)||{};const q=r.quotes[vid];const no=await allocNo('PO',S.pos.concat(created));const id=newId();
     const po={no,rfqId:r.id,rfqNo:r.no,vendorId:vid,vendorName:v.name||'',date:today(),deliveryMode:r.deliveryMode,deliveryDays:q.deliveryDays||'',payment:q.payment||v.payment||'',freight:num(q.freight),terms:S.config.poTerms||DEFAULT_TERMS,
-      lines:lines.map(l=>({key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,qty:num(l.qty),rate:num(q.rates[l.key]),gst:qGst(q,l.key),hsn:itemHsn(l.desc),itemKey:itemKey(l.desc,l.spec,l.unit),srcs:l.srcs})),received:{},status:'issued',at:Date.now(),createdBy:ui.uid||null};
+      lines:lines.map(l=>({key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,qty:num(l.qty),rate:num(q.rates[l.key]),gst:qGst(q,l.key),hsn:((q.hsn||{})[l.key])||itemHsn(l.desc),itemKey:itemKey(l.desc,l.spec,l.unit),srcs:l.srcs})),received:{},status:'issued',at:Date.now(),createdBy:ui.uid||null};
     await setDoc('pos',id,po);poIds.push(id);created.push(po);const exp=po.deliveryDays?addDays(po.date,+po.deliveryDays):'';
     if(r.deliveryMode==='site') await createDirectDispatches(po,id,exp);
     const byInd={};for(const l of po.lines) for(const s of l.srcs)(byInd[s.indentId]=byInd[s.indentId]||[]).push(s.lineId);
@@ -314,7 +316,7 @@ A.savePoDelivery=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId
     await updDoc('pos',po.id,patch);
     if(d.mode==='vendor'||cur==='vendor') await jwMarkLines(po,d.mode==='vendor'?fab.name||'job worker':'');
   },'Delivery changed to '+(d.mode==='site'?'direct to sites':d.mode==='vendor'?(fab.name||'the job worker'):'HQ store')+'. Send the updated PO to the vendor.');if(ok!==false) closeModal()};
-A.genPOs=async()=>{const r=rfqOf();const res=await run(()=>generatePOs(r));if(res&&res.length){toast(`${res.length} purchase order${res.length===1?'':'s'} created`);go('pos')}};
+A.genPOs=async()=>{const r=rfqOf();const res=await run(()=>generatePOs(r));if(res&&res.length){toast(`${res.length} purchase order${res.length===1?'':'s'} created`+(poApprovalOn()?' — waiting for approval by the Director (Procurement)':''));go('pos')}};
 A.dlComparative=()=>{const r=rfqOf();const vids=(r.vendorIds||[]).filter(v=>(r.quotes||{})[v]);const vn=v=>(vend(v)||{}).name||'';const rows=[['Comparative statement',r.no,fd(r.date)],[],['Item','Specification','Qty','Unit',...vids.flatMap(v=>[vn(v)+' rate',vn(v)+' GST %',vn(v)+' amount']),'L1 vendor','Awarded to']];
   const l1=l1Map(r);for(const l of r.lines) rows.push([l.desc,l.spec,l.qty,l.unit,...vids.flatMap(v=>{const rt=num(r.quotes[v].rates[l.key]);return [rt||'',rt?qGst(r.quotes[v],l.key):'',rt?rt*l.qty:'']}),l1[l.key]?vn(l1[l.key].v):'',r.award&&r.award[l.key]?vn(r.award[l.key]):'']);
   rows.push([]);for(const lab of ['Basic value','GST amount','Freight','Landed total','Delivery days','Payment']) rows.push([lab,'','','',...vids.flatMap(v=>{const q=r.quotes[v];const t=landed(r,v);return [lab==='Basic value'?Math.round(t.basic*100)/100:lab==='GST amount'?Math.round(t.gst*100)/100:lab==='Freight'?q.freight:lab==='Landed total'?Math.round(t.total*100)/100:lab==='Delivery days'?q.deliveryDays:q.payment,'','']})]);
@@ -326,7 +328,7 @@ A.dlPo=()=>{const po=poOf();saveFile(po.no.replace(/\//g,'-')+'.html',`<!doctype
 A.printPo=()=>{const po=poOf();printHtml(po.no,poDoc(po))};
 A.mailPo=async()=>{if(!mailOk()){toast('Set up email in Settings first.','err');return}const po=poOf();const v=vend(po.vendorId)||{};if(!v.email){toast('Add an email for this vendor first.','err');return}
   confirmBox({title:'Email '+po.no+' to '+v.name,body:`The purchase order goes to <b>${esc(v.email)}</b> from your company mailbox.`,yes:'Send email',onYes:async()=>{
-    const ok=await run(async()=>{await sendMail(v.email,`Purchase Order ${po.no} – ${company()}`,`<p>Dear ${esc(v.contact||v.name)},</p><p>Please find our purchase order below. Kindly acknowledge and confirm the dispatch schedule.</p>${poDoc(po).replace(/src="\/files\//g,`src="${location.origin}/files/`)}`,`Purchase Order ${po.no} dated ${fd(po.date)}. Total ${money(poTotals(po).total)}. Please view this email in HTML.`);
+    const ok=await run(async()=>{await sendMail(v.email,`Purchase Order ${po.no} – ${company()}`,`<p>Dear ${esc(v.contact||v.name)},</p><p>Please find our purchase order below. Kindly acknowledge and confirm the dispatch schedule.</p>${poDoc(po).replace(/src="\/files\//g,`src="${location.origin}/files/`)}`,`Purchase Order ${po.no} dated ${fd(po.date)}. Total ${money(poTotals(po).total)}. Please view this email in HTML.`,{poId:po.id});
       await updDoc('pos',po.id,{mailLog:[...(po.mailLog||[]),{at:Date.now(),to:v.email}]})},'PO emailed to '+v.name);if(ok) closeModal()}})};
 A.cancelPo=()=>{const po=poOf();confirmBox({title:'Cancel '+po.no,body:'The demand lines go back to the procurement queue. Direct-to-site deliveries not yet received are cancelled.',yes:'Cancel PO',danger:true,onYes:async()=>{await run(async()=>{
   await updDoc('pos',po.id,{status:'cancelled',cancelledAt:Date.now()});
@@ -335,7 +337,7 @@ A.cancelPo=()=>{const po=poOf();confirmBox({title:'Cancel '+po.no,body:'The dema
   for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const l of ls) if(lids.includes(l.id)&&l.poId===po.id){for(const k of ['poId','poNo','poAt','vendorName','expectedDate','orderedQty','rfqId','rfqNo','rfqAt']) delete l[k]}})},'PO cancelled');closeModal()}})};
 
 /* ================= RECEIPT, STORE, DISPATCH ================= */
-A.recordGrn=d=>{const po=S.pos.find(p=>p.id===d.id);const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
+A.recordGrn=d=>{const po=S.pos.find(p=>p.id===d.id);if(!poIsApproved(po)){toast('This PO is waiting for approval by the Director (Procurement).','err');return}const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
   openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[]}})};
 A.saveGrn=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId);const d=m.d;
   const lines=po.lines.map(l=>{const rc=num(d.recv[l.key]),rj=num(d.rej[l.key]);return {key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,itemKey:l.itemKey||itemKey(l.desc,l.spec,l.unit),recv:rc,rej:rj,acc:Math.max(0,rc-rj)}}).filter(l=>l.recv>0);
@@ -372,7 +374,7 @@ A.saveFreeChallan=async(dd,el,e,force)=>{const d=ui.modal.d;if(!d.projectId){toa
   const ok=await run(async()=>{const no=await allocNo('DC',S.dispatches);await setDoc('dispatches',newId(),{no,type:'store',projectId:d.projectId,date:d.date||today(),vehicle:d.vehicle||'',lrNo:d.lrNo||'',driver:d.driver||'',note:d.note||'',status:'in_transit',shippedAt:Date.now(),at:Date.now(),free:true,
     lines:lines.map(l=>{const r=L[l.k];return {itemKey:l.k,desc:r.desc,spec:r.spec||'',unit:r.unit,cat:r.cat,qty:num(l.qty),recvQty:null}})});return no});
   if(ok!==false){closeModal();toast(ok+' created. '+projCode(d.projectId)+' can now confirm receipt.')}};
-A.openingStock=()=>openModal({type:'opening',d:{desc:'',spec:'',qty:'',unit:'Nos'}});
+A.openingStock=()=>A.openStock({p:'hq'});
 A.saveOpening=async()=>{const d=ui.modal.d;if(!String(d.desc).trim()||!(num(d.qty)>0)){toast('Enter item and quantity.','err');return}
   const cat=classify(d.desc,d.spec).cat;const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:'opening',date:today(),lines:[{key:'O1',desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,cat,itemKey:itemKey(d.desc,d.spec,d.unit),recv:num(d.qty),rej:0,acc:num(d.qty)}],at:Date.now()})},'Added to store stock');
   if(ok) closeModal()};
@@ -416,7 +418,7 @@ A.saveSiteLog=async()=>{const m=ui.modal,d=m.d,pid=m.projectId;const q=num(d.qty
   if(d.type==='opening'){if(!String(d.desc).trim()){toast('Enter the item.','err');return}if(!(q>0)){toast('Enter the quantity.','err');return}
     doc={type:'opening',itemKey:itemKey(d.desc,d.spec,d.unit),desc:d.desc.trim(),spec:(d.spec||'').trim(),unit:d.unit,cat:classify(d.desc,d.spec).cat}}
   else{const row=(D.site[pid]||{})[d.key];if(!row){toast('Choose the item.','err');return}if(!(q>0)){toast('Enter the quantity.','err');return}
-    if(q>row.bal+1e-9){toast(`Only ${fq(row.bal)} ${row.unit} is in stock.`,'err');return}
+    const avail=row.bal-(row.pcons||0);if(q>avail+1e-9){toast(`Only ${fq(avail)} ${row.unit} is available${row.pcons?' ('+fq(row.pcons)+' is in consumption reports waiting for authentication)':''}.`,'err');return}
     if(d.type==='damage'&&!d.reason){toast('Choose the reason.','err');return}
     doc={type:d.type,itemKey:row.itemKey,desc:row.desc,spec:row.spec,unit:row.unit,cat:row.cat}}
   Object.assign(doc,{projectId:pid,qty:q,date:d.date||today(),location:d.location||'',issuedTo:(d.issuedTo||'').trim(),reason:d.reason||'',remarks:d.remarks||'',at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''});
@@ -527,7 +529,7 @@ A.dlOutward=()=>{const rows=[['Document no','Kind','Invoice no','Date','Site cod
     for(const l of ls){const tax=num(l.tax);rows.push([d.no,d.kind==='invoice'?'Tax invoice':'Delivery challan',d.invoiceNo||'',d.date,p.code||'',p.name||'',to.name||'',to.gstin||'',to.code||'',from.gstin||'',l.desc,l.spec||'',l.hsn||'',num(l.qty),l.unit,num(l.rate),num(l.taxable),num(l.gst),intra?Math.round(tax*50)/100:0,intra?Math.round(tax*50)/100:0,intra?0:Math.round(tax*100)/100,Math.round((num(l.taxable)+tax)*100)/100,dispStatus(d).label,d.receivedOn||(d.receivedAt?msDate(d.receivedAt):''),d.receivedByName||'',d.receiverDesignation||'',(d.signedDocs||[]).length?'Yes':'No',est?'Older challan: valued at last purchase rate':'As issued'])}}
   saveXlsx('outward-register-gst-'+today()+'.xlsx',[{name:'Outward register',rows}])};
 A.dlStock=()=>{const L=storeLedger();const rv=seeRates();const rows=[['Item','Specification','Category','Unit','Received','Sent to sites','In store','Demanded by site','Reserved for demands','Free','Last inward','Days in store',...(rv?['Value (Rs)']:[])]];
-  for(const r of Object.values(L).sort((a,b)=>String(a.desc).localeCompare(b.desc))) rows.push([r.desc,r.spec||'',catName(r.cat),r.unit,r.inQ,r.outQ,r.bal,r.forSites.map(x=>projCode(x.p)+' '+x.q+(x.mrs.length?' ('+x.mrs.join(', ')+')':'')).join('; ')||(r.bal>0?'Free stock':''),r.reserved,r.free,r.lastIn,r.age??'',...(rv?[Math.round(r.value)]:[])]);
+  for(const r of Object.values(L).sort((a,b)=>String(a.desc).localeCompare(b.desc))) rows.push([r.desc,r.spec||'',catName(r.cat),r.unit,r.inQ,r.outQ,r.bal,r.forSites.map(x=>projName(x.p)+' '+x.q+(x.mrs.length?' ('+x.mrs.join(', ')+')':'')).join('; ')||(r.bal>0?'Free stock':''),r.reserved,r.free,r.lastIn,r.age??'',...(rv?[Math.round(r.value)]:[])]);
   const led=[['Item','Specification','Unit','Date','Document','Details','In','Out','Balance']];for(const r of Object.values(L)) for(const e of r.ent) led.push([r.desc,r.spec||'',r.unit,e.d,e.no||'',e.what,e.inQ||'',e.outQ||'',e.bal]);
   saveXlsx('hq-store-stock-'+today()+'.xlsx',[{name:'HQ store stock',rows},{name:'In and out register',rows:led}])};
 A.dlSiteStock=()=>{const rows=[['Project code','Project','Item','Specification','Category','Unit','Opening / added','Received','Sent to other sites','Issued','Damaged / lost','Returned to store','Count corrections','Balance','Minimum level','Status','Value']];for(const p in D.site) for(const r of Object.values(D.site[p])) rows.push([projCode(p),projLabel(p),r.desc,r.spec||'',catName(r.cat),r.unit,r.open,r.recv,r.out,r.used,r.dmg,r.ret,r.adj,r.bal,r.min||'',stockStatus(r).label,Math.round(r.value)]);saveXlsx('site-stock-'+today()+'.xlsx',[{name:'Site stock',rows}])};
@@ -618,4 +620,5 @@ document.addEventListener('change',e=>{
   const h=el.dataset.actChange;if(h&&CH[h]){if(!actOk(h)){toast('You don\'t have permission for this.','err');return}CH[h](el)}
 });
 document.addEventListener('submit',e=>{const f=e.target;if(f.dataset&&f.dataset.submit&&A[f.dataset.submit]){e.preventDefault();A[f.dataset.submit]()}});
-boot();
+// start once every script (including the add-on files after this one) has loaded
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);else setTimeout(boot,0);

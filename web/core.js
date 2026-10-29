@@ -60,7 +60,7 @@ function cover(p,cls=''){if(p&&p.photo) return `<img class="cover-img ${cls}" sr
 /* ================= HQ ROLES & PERMISSIONS ================= */
 const PERM_GROUPS=[
  ['Demands',[['demands_view','See site demands','Demand inbox and every requisition from the sites this person can see'],['demands_precheck','Pre-check demands','Check new site demands first: edit items and quantities, delete a demand, or pre-approve it for the approver'],['demands_approve','Approve demands','Approve, change quantities, hold or reject demand lines'],['raise_demand','Raise demands for sites','Create requisitions on behalf of a site']]],
- ['Quotations & purchase orders',[['rfq_create','Call for quotations','Create RFQs from the procurement queue and send them to vendors'],['quotes_enter','Upload quotations','Enter or paste vendor rates and attach quotation copies'],['compare_approve','Approve comparative','Award lines to vendors and approve the comparative statement'],['po_issue','Issue purchase orders','Generate, email and cancel purchase orders'],['rates_view','See rates and values','Vendor rates, PO values and stock value. Always on for anyone who uploads quotes, approves, issues POs or sees reports']]],
+ ['Quotations & purchase orders',[['rfq_create','Call for quotations','Create RFQs from the procurement queue and send them to vendors'],['quotes_enter','Upload quotations','Enter or paste vendor rates and attach quotation copies'],['compare_approve','Approve comparative','Award lines to vendors and approve the comparative statement'],['po_issue','Issue purchase orders','Generate, email and cancel purchase orders'],['po_approve','Approve purchase orders','Director (Procurement): approve and sign purchase orders before they can be sent to vendors'],['rates_view','See rates and values','Vendor rates, PO values and stock value. Always on for anyone who uploads quotes, approves, issues POs or sees reports']]],
  ['Store & site stock',[['store','HQ store & dispatch','Inward at HQ store (GRN), store stock, dispatch challans to sites and transfers between sites'],['sitestock_view','See site stock','Stock registers of the sites this person can see'],['sitestock_edit','Change site stock','Add stock, issues, counts and minimum levels for sites']]],
  ['Masters, reports & settings',[['masters_projects','Projects','Add and edit projects'],['masters_vendors','Vendors','Add and edit vendors and the materials they supply'],['masters_items','Item catalogue','Edit items, sizes and pictures'],['reports','Reports & Excel download','Spend reports, registers and full data download'],['settings','Company, email & backup settings','Everything in Settings except users and logins']]],
 ];
@@ -72,13 +72,14 @@ const ROLE_PRESETS=[
  ['Site coordinator','Follows site demands and stock, raises demands for sites',['demands_view','raise_demand','sitestock_view','sitestock_edit']],
  ['Accounts / auditor','Sees everything including rates and reports. Cannot change anything',['demands_view','rates_view','sitestock_view','reports']],
  ['Demand pre-checker','Checks new site demands, corrects or deletes them, and pre-approves them for the approver',['demands_view','demands_precheck','sitestock_view']],
+ ['Director (Procurement)','Approves and signs purchase orders before they go to vendors; sees demands, rates and reports',['po_approve','demands_view','rates_view','reports','sitestock_view']],
  ['Viewer','Sees site demands and site stock only',['demands_view','sitestock_view']],
 ];
 const seeRates=()=>can('rates_view');
 const isAdm=()=>!!(ui.me&&ui.me.role==='hq'&&ui.me.admin);
-function can(p){const me=ui.me;if(!me||me.role!=='hq') return false;if(me.admin) return p!=='demands_precheck';const ps=(me.access&&me.access.perms)||[];if(ps.includes(p)) return true;if(p==='rates_view') return ['quotes_enter','compare_approve','po_issue','reports'].some(x=>ps.includes(x));return false}
+function can(p){const me=ui.me;if(!me||me.role!=='hq') return false;if(me.admin) return p!=='demands_precheck'&&p!=='po_approve'&&p!=='consume_auth';const ps=(me.access&&me.access.perms)||[];if(ps.includes(p)) return true;if(p==='rates_view') return ['quotes_enter','compare_approve','po_issue','po_approve','reports'].some(x=>ps.includes(x));return false}
 const permOk=p=>p==='__admin'?isAdm():can(p);
-const VIEW_PERM={precheck:['demands_precheck','__admin'],demands:['demands_view','demands_approve'],indent:['demands_view','demands_approve','demands_precheck'],queue:['rfq_create','store','po_issue','demands_approve'],rfqs:['rfq_create','quotes_enter','compare_approve','rates_view'],rfq:['rfq_create','quotes_enter','compare_approve','rates_view'],pos:['po_issue','rates_view','store'],po:['po_issue','rates_view','store'],grn:['store'],dispatch:['store'],jobwork:['store','po_issue','rates_view'],sitestock:['sitestock_view','sitestock_edit'],projects:['masters_projects','sitestock_view','demands_view'],vendors:['masters_vendors','rfq_create'],items:['masters_items'],reports:['reports'],settings:['settings','__admin'],s_new:['raise_demand'],done:['raise_demand']};
+const VIEW_PERM={precheck:['demands_precheck','__admin'],demands:['demands_view','demands_approve'],indent:['demands_view','demands_approve','demands_precheck'],queue:['rfq_create','store','po_issue','demands_approve'],rfqs:['rfq_create','quotes_enter','compare_approve','rates_view'],rfq:['rfq_create','quotes_enter','compare_approve','rates_view'],pos:['po_issue','po_approve','rates_view','store'],po:['po_issue','po_approve','rates_view','store'],grn:['store'],dispatch:['store'],jobwork:['store','po_issue','rates_view'],sitestock:['sitestock_view','sitestock_edit'],projects:['masters_projects','sitestock_view','demands_view'],vendors:['masters_vendors','rfq_create'],items:['masters_items'],reports:['reports'],settings:['settings','__admin'],s_new:['raise_demand'],done:['raise_demand']};
 function viewAllowed(v){if(!ui.me||ui.me.role!=='hq'||ui.role!=='hq') return true;const ps=VIEW_PERM[v];return !ps||ps.some(permOk)}
 const ACT_PERM={pcSave:'demands_precheck',pcPass:'demands_precheck',pcDelete:'demands_precheck',pcRm:'demands_precheck',pcAdd:'demands_precheck',savePrecheckSetting:'settings',approveAllPending:'demands_approve',lineStatus:'demands_approve',approveIndent:'demands_approve',hqRemark:'demands_approve',setLineCat:'demands_approve',
  newRfq:'rfq_create',rfqForCat:'rfq_create',selCat:'rfq_create',toggleSel:'rfq_create',mailRfq:'rfq_create',mailRfqAll:'rfq_create',logSend:'rfq_create',copyRfq:'rfq_create',addRfqVendor:'rfq_create',cancelRfq:'rfq_create',
@@ -123,7 +124,7 @@ function taxLines(lines,intra){let taxable=0,cgst=0,sgst=0,igst=0;const out=line
   return {lines:out,taxable:r(taxable),cgst:r(cgst),sgst:r(sgst),igst:r(igst),total:r(taxable+cgst+sgst+igst)}}
 
 /* ================= STATE ================= */
-const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],catalog:{},catalogList:[],config:{}};
+const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],catalog:{},catalogList:[],config:{}};
 const ui={view:'loading',param:null,modal:null,f:{},sel:{},draft:{},loaded:{},role:null,preview:'',uid:null,fatal:null,tab:{},busy:false,online:true,me:null,users:[],smtp:null,pop:null,q:'',drawer:false,uploading:0,pickCat:null,pickQ:'',cartOpen:false};
 let D={};
 const app=document.getElementById('app');
@@ -131,6 +132,8 @@ const store={cols:{},rev:0,epoch:''};
 const mailOk=()=>!!(ui.smtp&&ui.smtp.configured);
 const proj=id=>S.projects.find(p=>p.id===id);
 const projCode=id=>{const p=proj(id);return p?(p.code||p.name):'—'};
+// full site name (HQ store screens show which site the material is for)
+const projName=id=>{const p=proj(id);return p?(p.name||p.code):'—'};
 const projLabel=id=>{const p=proj(id);return p?`${p.code?p.code+' · ':''}${p.name}`:'Unknown project'};
 const vend=id=>S.vendors.find(v=>v.id===id);
 const company=()=>S.config.company||ui.company||'RGS Infra';
@@ -148,7 +151,7 @@ async function api(path,body,method){
 function applyDoc(d){const c=store.cols[d.col]||(store.cols[d.col]={});if(d.deleted) delete c[d.id];else c[d.id]=d.data}
 function rebuild(){
   const L=c=>Object.entries(store.cols[c]||{}).map(([id,d])=>Object.assign({},d,{id}));
-  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork']) S[k]=L(k);
+  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption']) S[k]=L(k);
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
@@ -205,7 +208,8 @@ async function uploadFile(file,opt={}){
   return uploadBlob(await compressImage(file,opt.max||1600,opt.png));
 }
 const isPdf=id=>/\.pdf$/.test(String(id||''));
-function photoTile(id,removePath){return `<span class="ph">${isPdf(id)?`<a class="ph-pdf" href="/files/${esc(id)}" target="_blank" rel="noopener">${icon('doc')}<span>PDF</span></a>`:`<button type="button" class="ph-img" data-act="viewPhoto" data-id="${esc(id)}" aria-label="View photo"><img src="/files/${esc(id)}" alt="" loading="lazy"></button>`}${removePath?`<button type="button" class="ph-x" data-act="rmPhoto" data-path="${esc(removePath)}" data-id="${esc(id)}" aria-label="Remove">${icon('x')}</button>`:''}</span>`}
+const isXlsx=id=>/\.xlsx$/.test(String(id||''));
+function photoTile(id,removePath){return `<span class="ph">${isXlsx(id)?`<a class="ph-pdf" href="/files/${esc(id)}" download>${icon('grid')}<span>Excel</span></a>`:isPdf(id)?`<a class="ph-pdf" href="/files/${esc(id)}" target="_blank" rel="noopener">${icon('doc')}<span>PDF</span></a>`:`<button type="button" class="ph-img" data-act="viewPhoto" data-id="${esc(id)}" aria-label="View photo"><img src="/files/${esc(id)}" alt="" loading="lazy"></button>`}${removePath?`<button type="button" class="ph-x" data-act="rmPhoto" data-path="${esc(removePath)}" data-id="${esc(id)}" aria-label="Remove">${icon('x')}</button>`:''}</span>`}
 function photoPicker(path,ids,o={}){
   ids=(Array.isArray(ids)?ids:(ids?[ids]:[])).filter(Boolean);const multi=o.multi!==false;const fid='up-'+path.replace(/[^a-zA-Z0-9]/g,'-');
   if(o.doc) return `<div class="photos doc-up">${ids.map(id=>photoTile(id,path)).join('')}<label class="doc-drop" for="${fid}" data-drop="${esc(path)}" data-multi="${multi?1:0}">${ui.uploading?'<span class="spin"></span>':icon('ul')}<span><b>Browse files</b> or drag them here<small>Photos (JPG, PNG) or PDF · up to 12 MB each${multi?' · several at once':''}</small></span></label><input type="file" id="${fid}" accept="image/*,application/pdf,.pdf" ${multi?'multiple':''} hidden data-upload="${esc(path)}" data-multi="${multi?1:0}"></div>`;
@@ -217,8 +221,13 @@ function photoStrip(ids){ids=(ids||[]).filter(Boolean);return ids.length?`<div c
 function derive(){
   const d={delivered:{},transit:{},storeOut:{},storeDisp:{},stock:{},directRecv:{},poDispatches:{},site:{},reserved:{},lineDisp:{}};
   D=d;d.items=catalogItems();d.itemMap=Object.fromEntries(d.items.map(x=>[x.id,x]));
-  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,open:0,dmg:0,ret:0,adj:0,bal:0,min:0,last:0})};
+  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,open:0,dmg:0,ret:0,adj:0,bal:0,min:0,last:0})};
   d.rate={};for(const p of S.pos){if(p.status==='cancelled') continue;for(const l of p.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const r=d.rate[k];if(!r||(p.at||0)>r.at) d.rate[k]={rate:num(l.rate)*(1+num(l.gst)/100),at:p.at||0}}}
+  // value of existing stock entered with a rate (used when there is no PO rate)
+  d.orate={};const oat={};const orate=(k,r,at)=>{if(num(r)>0&&(!(k in oat)||at>=oat[k])){d.orate[k]=num(r);oat[k]=at}};
+  for(const g of S.grns) if(g.type==='opening') for(const l of g.lines||[]) orate(l.itemKey||itemKey(l.desc,l.spec,l.unit),l.orate,g.at||0);
+  for(const e of S.sitelog) if(e.type==='opening') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
+  d.rateOf=k=>d.rate[k]?d.rate[k].rate:(d.orate[k]||0);
   for(const x of S.dispatches){if(x.status==='cancelled') continue;
     for(const l of x.lines||[]){const k=l.indentId+'|'+l.lineId;const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
       if(l.indentId)(d.lineDisp[k]=d.lineDisp[k]||[]).push(x);
@@ -233,8 +242,10 @@ function derive(){
   const retIn={};
   for(const e of S.sitelog){const ik=e.itemKey||itemKey(e.desc,e.spec,e.unit);const r=siteRow(e.projectId,ik,e);const q=num(e.qty);r.last=Math.max(r.last,e.at||0);
     if(e.type==='use') r.used+=q;else if(e.type==='damage') r.dmg+=q;else if(e.type==='return'){r.ret+=q;retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}else if(e.type==='adjust') r.adj+=q;else r.open+=q}
+  // consumption reported by sites: counts once the site head / project manager authenticates it
+  for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const r=siteRow(c.projectId,l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(c.status==='authenticated'){r.cons+=num(l.qty);r.last=Math.max(r.last,(c.auth&&c.auth.at)||0)}else r.pcons+=num(l.qty)}}
   d.lvl={};for(const v of S.stocklvl){(d.lvl[v.projectId]=d.lvl[v.projectId]||{})[v.itemKey]=v;const r=d.site[v.projectId]&&d.site[v.projectId][v.itemKey];if(r) r.min=num(v.min)}
-  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0&&d.rate[k]?r.bal*d.rate[k].rate:0}
+  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.cons-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-r.pcons-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
   for(const g of S.grns){for(const l of g.lines||[]){const s=d.stock[l.itemKey]||(d.stock[l.itemKey]={itemKey:l.itemKey,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,inQ:0,outQ:0});s.inQ+=num(l.acc)}}
   for(const k in retIn){const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:retIn[k].l.desc,spec:retIn[k].l.spec,unit:retIn[k].l.unit,cat:retIn[k].l.cat,inQ:0,outQ:0});s.inQ+=retIn[k].q}
   for(const k in d.storeOut){const s=d.stock[k];if(s) s.outQ+=d.storeOut[k];else d.stock[k]={itemKey:k,desc:k.split('|')[0],spec:'',unit:k.split('|')[2],cat:'others',inQ:0,outQ:d.storeOut[k]}}
@@ -255,7 +266,7 @@ function lineInfo(ind,l){
   if(need>0&&del>=need-1e-9) return {st:'delivered',label:'Delivered',tone:'green',del,need};
   if(tr>0) return {st:'transit',label:del>0?'Part received · rest on the way':'On the way',tone:'amber',del,need};
   if(del>0) return {st:'transit',label:'Part received',tone:'amber',del,need};
-  if(l.transferId) return {st:'po',label:'Transfer from '+(l.transferFrom||'another site'),tone:'blue',del,need};
+  if(l.transferId){const t=S.dispatches.find(x=>x.id===l.transferId);const a=t&&t.status==='to_send'&&t.approval;const w=a&&a.status!=='approved'?(a.status==='returned'?' · indent sent back':' · indent awaiting approval'):'';return {st:'po',label:'Transfer from '+(l.transferFrom||'another site')+w,tone:'blue',del,need}}
   if(l.poNo&&l.jwVendor) return {st:'po',label:'Ordered · '+l.poNo+' · goes to '+l.jwVendor+' for assembly',tone:'blue',del,need};
   if(l.poNo) return {st:'po',label:'Ordered · '+l.poNo,tone:'blue',del,need};
   if(l.fromStock) return {st:'po',label:'Issue from central store',tone:'blue',del,need};
@@ -295,7 +306,7 @@ const toStore=p=>p.deliveryMode!=='site'&&p.deliveryMode!=='vendor';
 const delivLabel=p=>p.deliveryMode==='site'?'Direct to sites':p.deliveryMode==='vendor'?'To job worker '+((vend(p.shipToVendorId)||{}).name||p.shipToVendorName||''):'Central store';
 function poRecv(po,key){return po.deliveryMode==='site'?(D.directRecv[po.id+'|'+key]||0):num((po.received||{})[key])}
 function poProgress(po){const o=sum(po.lines||[],l=>num(l.qty));const r=sum(po.lines||[],l=>Math.min(num(l.qty),poRecv(po,l.key)));return {o,r,pct:o?r/o:0}}
-function poStatus(po){if(po.status==='cancelled') return {label:'Cancelled',tone:'red'};const p=poProgress(po);if(p.pct>=1-1e-9) return {label:'Completed',tone:'green'};if(p.r>0) return {label:'Part received',tone:'amber'};return {label:'Open',tone:'blue'}}
+function poStatus(po){if(po.status==='cancelled') return {label:'Cancelled',tone:'red'};const ap=po.approval;if(ap&&ap.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(ap&&ap.status==='returned') return {label:'Sent back',tone:'red'};const p=poProgress(po);if(p.pct>=1-1e-9) return {label:'Completed',tone:'green'};if(p.r>0) return {label:'Part received',tone:'amber'};return {label:'Open',tone:'blue'}}
 function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;
   if(r.status==='cancelled') return {label:'Cancelled',tone:'red'};
   if(r.status==='ordered') return {label:'PO issued',tone:'green'};
@@ -303,7 +314,7 @@ function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;
   if(vq) return {label:`${vq} of ${(r.vendorIds||[]).length} quotes in`,tone:'violet'};
   if(r.status==='sent') return {label:'Awaiting quotes',tone:'amber'};
   return {label:'Draft · not sent',tone:'plain'}}
-function dispStatus(d){return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
+function dispStatus(d){if(d.type==='transfer'&&d.status==='to_send'&&d.approval){if(d.approval.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(d.approval.status==='returned') return {label:'Sent back',tone:'red'}}return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
 const chip=s=>`<span class="chip ${s.tone||''}">${esc(s.label)}</span>`;
 function siteProject(){return ui.role==='site'?(ui.preview||(ui.me&&ui.me.projectId)||''):''}
 const GST_SLABS=[0,0.1,0.25,1.5,3,5,6,12,18,28,40];
@@ -386,16 +397,18 @@ function navItems(){
       ...((S.config&&S.config.precheck)||S.indents.some(pcPending)?[{v:'precheck',l:'Pre-check',i:'check',b:S.indents.filter(pcPending).length}]:[]),
       {v:'demands',l:'Demand inbox',i:'inbox',b:rev},
       {v:'queue',l:'Procurement queue',i:'queue',b:src},
-      {v:'rfqs',l:'Quotations',i:'quote',b:rq},
-      {v:'pos',l:'Purchase orders',i:'po'},
+      {v:'rfqs',l:'Quotations',i:'quote',b:rq+mqCount()},
+      {v:'pos',l:'Purchase orders',i:'po',b:poPendingCount()},
       {v:'grn',l:'HQ store',i:'box',b:grn},
       {v:'dispatch',l:'Dispatch to sites',i:'truck'},
       {v:'jobwork',l:'With job workers',i:'tool',b:jwOpenCount()},
       {v:'sitestock',l:'Site stock',i:'layers'},
+      {v:'consumption',l:'Consumption',i:'doc',b:consWaiting()},
       {g:'Masters'},
       {v:'projects',l:'Projects',i:'proj'},
       {v:'vendors',l:'Vendors',i:'vend'},
       {v:'items',l:'Item catalogue',i:'grid'},
+      {v:'finditems',l:'Find items',i:'search'},
       {g:'Insights'},
       {v:'reports',l:'Reports',i:'chart'},
       {v:'settings',l:'Settings & backup',i:'gear'},
@@ -404,7 +417,7 @@ function navItems(){
     ].filter(n=>n.g||viewAllowed(n.v)).filter((n,i,a)=>!n.g||(a[i+1]&&!a[i+1].g));
   }
   const p=siteProject();const inc=S.dispatches.filter(d=>(d.projectId===p&&(d.status==='in_transit'||d.status==='ordered'))||(d.fromProjectId===p&&d.status==='to_send')).length;
-  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox'},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
+  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox'},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{v:'s_cons',l:'Consumption',i:'doc',b:consWaiting()},{v:'s_find',l:'Find items',i:'search'},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
 }
 function isActive(v){const map={indent:'demands',rfq:'rfqs',po:'pos',s_indent:'s_list',done:ui.role==='hq'?'demands':'s_new'};return ui.view===v||map[ui.view]===v}
 const TITLES={precheck:['Pre-check','New site demands waiting to be checked before approval'],dashboard:['Dashboard','Headquarters'],demands:['Demand inbox','Requests from all sites'],indent:['Material requisition','Demand inbox'],queue:['Procurement queue','Approved demand, grouped by category'],rfqs:['Quotations','Requests for quotation'],rfq:['Request for quotation','Quotations'],pos:['Purchase orders','Procurement'],po:['Purchase order','Purchase orders'],grn:['HQ store','Inward, stock in store and material sent to sites'],dispatch:['Dispatch to sites','Demand-wise challans from HQ store, transfers between sites'],jobwork:['With job workers','Material sent to vendors for job work and what they have used'],sitestock:['Site stock','Material at every project'],reports:['Reports','Spend and performance'],projects:['Projects','Masters'],vendors:['Vendors','Masters'],items:['Item catalogue','Masters'],settings:['Settings & backup','Users, site logins, company, email and backups'],account:['My account','Profile and password'],help:['Help & guide','How ProcureHub works'],s_home:['Home','My site'],s_new:['Raise demand','Pick what your site needs'],s_list:['My demands','Live status from HQ'],s_indent:['Material requisition','My demands'],s_incoming:['Receive material','Incoming and outgoing'],s_stock:['Site stock','Material at my site'],done:['Demand sent','Raise demand']};

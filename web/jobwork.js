@@ -177,7 +177,7 @@ A.jwPrint=d=>{const e=S.jobwork.find(x=>x.id===d.id);if(e) printHtml(jwNo(e),jwD
 A.jwPrintAcct=d=>printHtml('Material with '+((vend(d.v)||{}).name||'job worker'),jwAcctDoc(d.v));
 A.jwUseAll=d=>{const r=jwBalOf(ui.modal.d.vendorId).find(x=>x.itemKey===d.k);if(r){ui.modal.d.use[d.k]=String(r.bal);render()}};
 
-A.jwRecv=d=>{const po=S.pos.find(p=>p.id===(d.id||ui.param));if(!po) return;const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
+A.jwRecv=d=>{const po=S.pos.find(p=>p.id===(d.id||ui.param));if(!po) return;if(!poIsApproved(po)){toast('This PO is waiting for approval by the Director (Procurement).','err');return}const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
   openModal({type:'jwRecv',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,docs:[]}})};
 A.saveJwRecv=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId);const d=m.d;if(!po) return;
   for(const l of po.lines){const q=num(d.recv[l.key]);if(q<0){toast('Quantities cannot be negative.','err');return}}

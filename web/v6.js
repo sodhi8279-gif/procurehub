@@ -1,0 +1,352 @@
+"use strict";
+/* ================= VERSION 6 =================
+   1. Site transfer indent (STI): material moved from one site to another instead of buying it.
+      The indent goes to the Director (Procurement) as a draft, in the same path as a purchase
+      order, and is approved with his signature and stamp before the sending site may dispatch.
+   2. Existing stock with actual or approximate value, for every site store and the HQ store.
+   3. Consumption reports at sites, authenticated by the site head / project manager.
+   4. Find items, and (administrators) correct the spelling or unit of an item everywhere.
+   The server enforces the same rules (approval.go, consumption.go, items.go). */
+
+HQ_VIEWS.push('sti','consumption','finditems','jobwork');
+SITE_VIEWS.push('s_cons','s_find');
+Object.assign(VIEW_PERM,{sti:['po_issue','po_approve','store','rates_view'],consumption:['sitestock_view','sitestock_edit','consume_auth']});
+Object.assign(TITLES,{sti:['Site transfer indent','Purchase orders'],consumption:['Consumption at sites','Material consumed, authenticated by the site head / project manager'],finditems:['Find items','Catalogue, stores, demands and orders'],
+  s_cons:['Consumption','Material consumed at your site'],s_find:['Find items','Catalogue and your site stock']});
+PERM_GROUPS[2][1].push(['consume_auth','Authenticate site consumption','Authenticate or reject consumption reported by sites (the site head / project manager of each site can also do this)']);
+PERM_LABEL.consume_auth=PERM_GROUPS[2][1].slice(-1)[0][1];
+Object.assign(ACT_PERM,{openSti:['po_issue','po_approve','store','rates_view'],stiApprove:'po_approve',saveStiApprove:'po_approve',stiReturn:'po_approve',stiResubmit:['store','po_issue','po_approve'],printSti:['po_issue','po_approve','store','rates_view'],
+  openStock:['store','sitestock_edit'],saveOpenStock:['store','sitestock_edit'],osAdd:['store','sitestock_edit'],osRm:['store','sitestock_edit'],osPaste:['store','sitestock_edit'],
+  consReport:'sitestock_edit',saveCons:'sitestock_edit',consAuth:'consume_auth',consReject:'consume_auth',itemFix:'__admin',saveItemFix:'__admin'});
+
+/* ================= 1. SITE TRANSFER INDENT ================= */
+const stiAppr=d=>d&&d.approval||null;
+const stiApproved=d=>{const a=stiAppr(d);return !a||a.status==='approved'};
+function stiPendingList(){return S.dispatches.filter(d=>d.type==='transfer'&&d.status==='to_send'&&stiAppr(d)&&stiAppr(d).status==='pending')}
+const stiOf=()=>S.dispatches.find(x=>x.id===ui.param);
+const stiName=d=>/^STI\//.test(d.no||'')?'Site transfer indent':'Transfer';
+
+function stiListCard(onlyWaiting){
+  let list=S.dispatches.filter(d=>d.type==='transfer');
+  if(onlyWaiting) list=list.filter(d=>d.status==='to_send'&&stiAppr(d)&&stiAppr(d).status!=='approved');
+  const q=norm(ui.f.pq);if(q) list=list.filter(d=>norm(d.no+' '+projLabel(d.fromProjectId)+' '+projLabel(d.projectId)+' '+(d.lines||[]).map(l=>l.desc).join(' ')).includes(q));
+  list.sort((a,b)=>(b.at||0)-(a.at||0));
+  return `<section class="card"><div class="card-h"><h2>${onlyWaiting?'Site transfer indents waiting for approval':'Site transfer indents'}</h2><span class="sub">Material moved from one site to another instead of a purchase</span></div>
+  ${list.length?`<div class="tw"><table class="t"><thead><tr><th>Indent</th><th>From site</th><th>To site</th><th>Items</th>${seeRates()?'<th class="num">Approx. value</th>':''}<th>Made by</th><th>Status</th></tr></thead><tbody>${list.map(d=>`<tr class="click" data-act="openSti" data-id="${d.id}"><td><span class="docno">${esc(d.no)}</span><small class="muted block">${fd(d.date)}</small></td><td><b>${esc(projName(d.fromProjectId))}</b><small class="muted block">${esc(projCode(d.fromProjectId))}</small></td><td><b>${esc(projName(d.projectId))}</b><small class="muted block">${esc(projCode(d.projectId))}</small></td>
+    <td><div class="thumbs">${(d.lines||[]).slice(0,4).map(l=>lineThumb(l,'xs')).join('')}<span class="small">${esc((d.lines||[]).map(l=>fq(l.qty)+' '+l.unit+' '+l.desc).join(', '))}</span></div></td>${seeRates()?`<td class="num mono">${stiValue(d)?money0(stiValue(d)):'—'}</td>`:''}<td class="small">${esc(d.createdByName||'')}</td><td>${chip(dispStatus(d))}</td></tr>`).join('')}</tbody></table></div>`
+  :emptyBox(ART.x('transfer','e-art'),onlyWaiting?'Nothing waiting':'No site transfer indents yet','Make one from the procurement queue when another site has the item in stock (“Transfer from site”).')}</section>`}
+
+function stiValue(d){return sum(d.lines||[],l=>num(l.qty)*D.rateOf(l.itemKey||itemKey(l.desc,l.spec,l.unit)))}
+
+function stiApprovalCard(d){const a=stiAppr(d);if(!a||d.status==='cancelled') return '';
+  if(a.status==='approved') return `<div class="notice ok po-appr">${icon('check')}<span><b>Approved by ${esc(a.byName||'')}</b>${a.designation?' ('+esc(a.designation)+')':''} on ${fdt(a.at)}${a.remark?' · “'+esc(a.remark)+'”':''}. ${d.status==='to_send'?esc(projCode(d.fromProjectId))+' can now send the material.':''}</span>${a.sign?`<img class="sign-mini" src="/files/${esc(a.sign)}" alt="Signature">`:''}</div>`;
+  const mine=can('po_approve');
+  const head=a.status==='returned'?`<b>Sent back by ${esc(a.byName||'')}</b> on ${fdt(a.at)}: “${esc(a.remark||'')}”. Correct it (or cancel it) and send it for approval again.`
+    :`<b>Draft — waiting for approval by the Director (Procurement).</b> Until it is approved, ${esc(projCode(d.fromProjectId))} cannot send the material.${a.remark?'<br>'+esc(a.remark):''}`;
+  const btns=a.status==='returned'?(can('store')||can('po_issue')||mine?`<button class="btn sm primary" data-act="stiResubmit" data-id="${d.id}">${icon('ul')} Send for approval again</button>`:'')
+    :(mine?`<button class="btn sm primary" data-act="stiApprove" data-id="${d.id}">${icon('check')} Approve &amp; sign</button><button class="btn sm danger" data-act="stiReturn" data-id="${d.id}">Send back</button>`:'');
+  return `<div class="notice ${a.status==='returned'?'err':'warn'} po-appr">${icon(a.status==='returned'?'alert':'clock')}<span>${head}</span>${btns?`<div class="row tight">${btns}</div>`:''}</div>`}
+
+function stiDoc(d){
+  const c=S.config,fp=proj(d.fromProjectId)||{},tp=proj(d.projectId)||{},a=stiAppr(d);const b='border:1px solid #c9d3d6;padding:6px 8px;font-size:12.5px;vertical-align:top';
+  const logo=c.logo?`<img src="/files/${esc(c.logo)}" style="height:54px;max-width:160px;object-fit:contain;margin-bottom:6px" alt="">`:'';
+  const draft=a&&a.status!=='approved'&&d.status!=='cancelled'?`<div style="border:2px solid #C0392B;color:#C0392B;font-weight:800;text-align:center;padding:8px;margin-bottom:12px;letter-spacing:.06em">DRAFT — NOT APPROVED — MATERIAL NOT TO BE SENT</div>`:'';
+  const vals=seeRates();const tot=vals?stiValue(d):0;
+  const site=(lab,p)=>`<b>${lab}</b><br>${esc(p.name||'')}${p.code?' ('+esc(p.code)+')':''}<br><span style="white-space:pre-line">${esc(p.address||[p.city,p.state].filter(Boolean).join(', '))}</span>${p.siteContact?'<br>Site in-charge: '+esc(p.siteContact)+(p.phone?' · '+esc(p.phone):''):''}`;
+  const sign=a&&a.status==='approved'&&a.sign?`<td style="text-align:right;vertical-align:bottom">For ${esc(company())}<br><img src="/files/${esc(a.sign)}" alt="" style="height:78px;max-width:220px;object-fit:contain;margin:4px 0"><br><b>${esc(a.byName||'')}</b><br>${esc(a.designation||'Authorised signatory')}<br><span style="color:#465A6D">Approved ${fd(msDate(a.at))}</span></td>`
+    :`<td style="text-align:right;vertical-align:bottom">For ${esc(company())}<br><br><br>Director (Procurement)</td>`;
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;background:#fff;padding:28px;max-width:900px;margin:0 auto">${draft}
+  <table style="width:100%;border-collapse:collapse"><tr><td style="vertical-align:top">${logo}<div style="font-size:20px;font-weight:800">${esc(company())}</div><div style="font-size:12px;color:#465A6D;white-space:pre-line">${esc(c.hqAddress||'')}</div></td>
+  <td style="text-align:right;vertical-align:top"><div style="font-size:21px;font-weight:800;color:#1172C4">SITE TRANSFER INDENT</div><div style="font-size:13px"><b>${esc(d.no)}</b><br>Date: ${fd(d.date)}${[...new Set((d.lines||[]).map(l=>l.mrNo).filter(Boolean))].length?'<br>Against demand: '+esc([...new Set((d.lines||[]).map(l=>l.mrNo).filter(Boolean))].join(', ')):''}</div></td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:16px"><tr><td style="${b};width:50%">${site('Material to be sent from',fp)}</td><td style="${b}">${site('Material to be received at',tp)}</td></tr>
+  ${d.purpose||d.note?`<tr><td colspan="2" style="${b}">${d.purpose?'<b>Purpose:</b> '+esc(d.purpose):''}${d.purpose&&d.note?'<br>':''}${d.note?'<b>Note to sending site:</b> '+esc(d.note):''}</td></tr>`:''}</table>
+  <table style="width:100%;border-collapse:collapse;margin-top:16px"><thead><tr style="background:#e9eef2"><th style="${b}">#</th><th style="${b};text-align:left">Item</th><th style="${b};text-align:left">Demand</th><th style="${b};text-align:right">Qty</th><th style="${b}">Unit</th>${vals?`<th style="${b};text-align:right">Approx. rate (₹)</th><th style="${b};text-align:right">Approx. value (₹)</th>`:''}</tr></thead>
+  <tbody>${(d.lines||[]).map((l,i)=>{const r=D.rateOf(l.itemKey||itemKey(l.desc,l.spec,l.unit));return `<tr><td style="${b}">${i+1}</td><td style="${b}"><b>${esc(l.desc)}</b>${l.spec?'<br><span style="color:#465A6D">'+esc(l.spec)+'</span>':''}</td><td style="${b}">${esc(l.mrNo||'')}</td><td style="${b};text-align:right">${fq(l.qty)}</td><td style="${b}">${esc(l.unit)}</td>${vals?`<td style="${b};text-align:right">${r?fq(r):'—'}</td><td style="${b};text-align:right">${r?fq(num(l.qty)*r):'—'}</td>`:''}</tr>`}).join('')}
+  ${vals&&tot?`<tr><td colspan="6" style="${b};text-align:right"><b>Approximate value of material transferred</b></td><td style="${b};text-align:right"><b>${fq(tot)}</b></td></tr>`:''}</tbody></table>
+  <div style="margin-top:14px;font-size:12px;color:#465A6D">The sending site dispatches the material with a transfer challan only after this indent is approved, and the receiving site confirms receipt in ProcureHub with the signed and stamped challan. The material is not purchased; no purchase order is issued for these quantities.</div>
+  <table style="width:100%;margin-top:40px;font-size:12px"><tr><td style="vertical-align:bottom">Prepared by<br><br><b>${esc(d.createdByName||'')}</b><br>${fd(msDate(d.at||Date.now()))}</td>${sign}</tr></table></div>`}
+
+function vSti(){
+  const d=stiOf();if(!d||d.type!=='transfer') return emptyBox('','Indent not found','',`<button class="btn" data-act="setF" data-k="ps" data-val="sti" data-go="pos">Back</button>`);
+  const st=dispStatus(d);const sent=['in_transit','delivered','short'].includes(d.status);
+  return `<section class="card"><div class="card-h"><span class="n-ic violet">${icon('swap')}</span><div><h2>${esc(stiName(d))} <span class="docno">${esc(d.no)}</span></h2><span class="sub">${esc(projLabel(d.fromProjectId))} → ${esc(projLabel(d.projectId))}</span></div>${chip(st)}
+   <div class="acts"><button class="btn sm" data-act="printSti" data-id="${d.id}">${icon('print')} Print</button>${sent?`<button class="btn sm" data-act="printChallan" data-id="${d.id}">${icon('doc')} Transfer challan</button>`:''}${d.status==='to_send'?`<button class="btn sm danger" data-act="cancelDispatch" data-id="${d.id}">Cancel</button>`:''}<button class="btn sm ghost" data-act="setF" data-k="ps" data-val="sti" data-go="pos">${icon('back')} Back</button></div></div>
+   <div class="card-b">${stiApprovalCard(d)}${!stiAppr(d)&&d.status==='to_send'?`<div class="notice info">${icon('help')}<span>This transfer was made before approval of transfers was switched on, so it does not need approval.</span></div>`:''}
+   ${sent?`<p class="small muted">${icon('truck','xs')} Sent ${fdt(d.shippedAt)}${d.sentByName?' by '+esc(d.sentByName):''}${d.vehicle?' · vehicle '+esc(d.vehicle):''}${d.receivedAt?' · received '+fdt(d.receivedAt)+' by '+esc(d.receivedByName||''):''}</p>`:''}
+   <div class="paper">${stiDoc(d)}</div></div></section>`}
+
+A.openSti=d=>go('sti',d.id);
+A.printSti=d=>{const x=S.dispatches.find(y=>y.id===(d.id||ui.param));if(x) printHtml(x.no,stiDoc(x))};
+A.stiApprove=d=>openModal({type:'stiApprove',id:d.id||ui.param,d:{remark:''}});
+A.saveStiApprove=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.id);if(!x) return;
+  if(!ui.me.sign){toast('Upload your signature with stamp first (My account).','err');return}
+  if(await run(()=>updDoc('dispatches',x.id,{approval:{status:'approved',remark:String(m.d.remark||'').trim()}}),x.no+' approved and signed. '+projCode(x.fromProjectId)+' can now send the material.')!==false) closeModal()};
+A.stiReturn=d=>{const x=S.dispatches.find(y=>y.id===(d.id||ui.param));if(!x) return;confirmBox({title:'Send '+x.no+' back',body:'The store / purchase team corrects it or cancels it.',noteArea:true,note:'Reason (required)',notePh:'e.g. Buy fresh instead; the sending site needs this material next month',yes:'Send back',danger:true,
+  onYes:async m=>{const r=String(m.noteVal||'').trim();if(!r){toast('Write why it is sent back.','err');return}if(await run(()=>updDoc('dispatches',x.id,{approval:{status:'returned',remark:r}}),'Sent back')!==false) closeModal()}})};
+A.stiResubmit=d=>{const x=S.dispatches.find(y=>y.id===(d.id||ui.param));if(!x) return;confirmBox({title:'Send '+x.no+' for approval',body:'The Director (Procurement) is asked to approve it again.',noteArea:true,note:'What was changed (optional)',yes:'Send for approval',
+  onYes:async m=>{if(await run(()=>updDoc('dispatches',x.id,{approval:{status:'pending',remark:String(m.noteVal||'').trim()}}),'Sent for approval')!==false) closeModal()}})};
+
+function stiApproveModal(m,busy){const d=S.dispatches.find(x=>x.id===m.id);if(!d) return '';const me=ui.me||{};
+  return wrap('Approve '+esc(d.no),`<div class="meta"><div><span>From</span><b>${esc(projLabel(d.fromProjectId))}</b></div><div><span>To</span><b>${esc(projLabel(d.projectId))}</b></div><div><span>Items</span><b>${(d.lines||[]).length}</b></div>${seeRates()&&stiValue(d)?`<div><span>Approx. value</span><b>${money(stiValue(d))}</b></div>`:''}</div>
+   <div class="small">${(d.lines||[]).map(l=>`${fq(l.qty)} ${esc(l.unit)} <b>${esc(l.desc)}</b>${l.spec?' — '+esc(l.spec):''}`).join('<br>')}</div>
+   ${me.sign?`<div class="sign-prev"><span class="small muted">Your signature and stamp will be printed on the indent:</span><img src="/files/${esc(me.sign)}" alt="Your signature"><b>${esc(me.name||'')}</b><span class="small">${esc(me.designation||'Director (Procurement)')}</span></div>`
+     :`<div class="notice warn">${icon('alert')}<span>You have not uploaded your signature with stamp yet. Go to <b>My account → Signature &amp; stamp</b>, upload it, then approve.</span><button class="btn sm" data-act="go" data-v="account">My account</button></div>`}
+   <div class="f full"><label for="f-modal-d-remark">Remark (optional)</label>${inp('modal.d.remark',m.d.remark,'placeholder="e.g. Approved; send within 3 days"')}</div>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveStiApprove" ${busy} ${me.sign?'':'disabled'}>${icon('check')} Approve &amp; sign</button>`)}
+
+/* ================= 2. EXISTING STOCK WITH VALUE ================= */
+const osLine=()=>({desc:'',spec:'',unit:'Nos',qty:'',rate:'',value:''});
+A.openStock=d=>{const target=d.p||siteProject();if(!target){toast('Choose a project first.','err');return}
+  openModal({type:'openStock',target,d:{date:today(),basis:'actual',remarks:'',lines:[osLine(),osLine(),osLine()],paste:'',showPaste:false}})};
+A.osAdd=()=>{ui.modal.d.lines.push(osLine());render()};
+A.osRm=d=>{const ls=ui.modal.d.lines;ls.splice(+d.i,1);if(!ls.length) ls.push(osLine());render()};
+A.osPasteToggle=()=>{ui.modal.d.showPaste=!ui.modal.d.showPaste;render()};
+A.osPaste=()=>{const d=ui.modal.d;const rows=String(d.paste||'').split(/\r?\n/).map(r=>r.split(r.includes('\t')?'\t':/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c=>c.trim().replace(/^"|"$/g,''))).filter(r=>r.some(Boolean));
+  const add=[];for(const r of rows){const [desc,spec,unit,qty,rate,value]=r;if(!desc||!(num(qty)>0)) continue;add.push({desc,spec:spec||'',unit:guessUnit(unit||''),qty:String(num(qty)),rate:num(rate)>0?String(num(rate)):'',value:num(value)>0?String(num(value)):''})}
+  if(!add.length){toast('No rows with an item and a quantity were found. Columns: Item · Specification · Unit · Qty · Rate · Value.','err');return}
+  d.lines=d.lines.filter(l=>String(l.desc).trim()).concat(add);d.paste='';d.showPaste=false;render();toast(add.length+' row'+(add.length===1?'':'s')+' added')};
+const osRate=l=>num(l.rate)>0?num(l.rate):(num(l.value)>0&&num(l.qty)>0?num(l.value)/num(l.qty):0);
+const osVal=l=>num(l.value)>0?num(l.value):num(l.qty)*num(l.rate);
+
+function openStockModal(m,busy){const d=m.d;const hq=m.target==='hq';const vals=ui.role==='hq'&&seeRates();
+  const where=hq?'HQ store':projLabel(m.target);const total=sum(d.lines,osVal);const n=d.lines.filter(l=>String(l.desc).trim()&&num(l.qty)>0).length;
+  return wrap('Existing stock · '+esc(where),`<datalist id="dl-os">${D.items.slice(0,800).map(c=>`<option value="${esc(c.desc)}">`).join('')}</datalist>
+   <p class="small muted">Enter the material already lying in the ${hq?'HQ store':'site store'}${vals?' with its value. Give the rate per unit <b>or</b> the total value of each line.':'.'} It is added to the stock register as existing stock and can then be issued, transferred or dispatched like any other stock.</p>
+   <div class="fields two">${field('Stock as on','modal.d.date',d.date,'type="date"')}${vals?`<div class="f"><label>Value is</label>${seg('osb',[['actual','Actual (from bills)'],['approx','Approximate (estimated)']],d.basis,'osBasis')}</div>`:'<div class="f"></div>'}</div>
+   <div class="tw"><table class="t os-t"><thead><tr><th>#</th><th>Item</th><th>Specification / size</th><th>Unit</th><th class="num">Qty</th>${vals?'<th class="num">Rate (₹)</th><th class="num">Value (₹)</th>':''}<th></th></tr></thead><tbody>
+   ${d.lines.map((l,i)=>`<tr><td class="muted">${i+1}</td><td>${inp('modal.d.lines.'+i+'.desc',l.desc,'list="dl-os" placeholder="Item name" style="min-width:180px"')}</td><td>${inp('modal.d.lines.'+i+'.spec',l.spec,'placeholder="e.g. 150 mm"')}</td>
+     <td><select class="inp sm auto" id="${fid('modal.d.lines.'+i+'.unit')}" data-bind="modal.d.lines.${i}.unit">${selOpts(UNITS.includes(l.unit)?UNITS:UNITS.concat([l.unit]),l.unit)}</select></td>
+     <td>${inp('modal.d.lines.'+i+'.qty',l.qty,'inputmode="decimal" style="width:90px" data-rerender="1"')}</td>
+     ${vals?`<td>${inp('modal.d.lines.'+i+'.rate',l.rate,'inputmode="decimal" style="width:100px" data-rerender="1"')}</td><td>${inp('modal.d.lines.'+i+'.value',l.value,`inputmode="decimal" style="width:120px" data-rerender="1" placeholder="${osVal(l)?fq(Math.round(osVal(l))):''}"`)}</td>`:''}
+     <td><button type="button" class="icon-btn sm" data-act="osRm" data-i="${i}" aria-label="Remove line">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></div>
+   <div class="row"><button type="button" class="btn sm" data-act="osAdd">${icon('plus')} Add line</button><button type="button" class="btn sm" data-act="osPasteToggle">${icon('copy')} Paste from Excel</button><span class="spacer"></span>${vals?`<b>${n} item${n===1?'':'s'} · ${money(total)}${d.basis==='approx'?' (approx.)':''}</b>`:`<b>${n} item${n===1?'':'s'}</b>`}</div>
+   ${d.showPaste?`<div class="f full"><label for="f-modal-d-paste">Copy rows from Excel with the columns <b>Item · Specification · Unit · Qty${vals?' · Rate · Value':''}</b> and paste them here</label><textarea class="inp" id="f-modal-d-paste" data-bind="modal.d.paste" rows="5" placeholder="DI K7 pipe&#9;150 mm&#9;Mtr&#9;120&#9;1450"></textarea><div class="row end"><button type="button" class="btn sm primary" data-act="osPaste">Add these rows</button></div></div>`:''}
+   ${field('Remarks (e.g. physical verification by, location in store)','modal.d.remarks',d.remarks,'','full')}`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveOpenStock" ${busy}>${icon('plus')} Add to ${hq?'HQ store':'site stock'}</button>`,'wide')}
+A.osBasis=d=>{ui.modal.d.basis=d.val;render()};
+
+A.saveOpenStock=async()=>{const m=ui.modal,d=m.d;const hq=m.target==='hq';const vals=ui.role==='hq'&&seeRates();
+  const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
+  for(const l of lines){if(!String(l.desc).trim()){toast('Enter the item name on every line.','err');return}if(!(num(l.qty)>0)){toast('Enter the quantity for '+l.desc+'.','err');return}}
+  if(!lines.length){toast('Enter at least one item.','err');return}
+  const now=Date.now(),me=(ui.me&&ui.me.name)||'';
+  const clean=l=>{const desc=String(l.desc).trim(),spec=String(l.spec||'').trim(),unit=l.unit||'Nos';const o={desc,spec,unit,cat:classify(desc,spec).cat,itemKey:itemKey(desc,spec,unit)};
+    if(vals&&osRate(l)>0){o.orate=Math.round(osRate(l)*100)/100;o.value=Math.round(osVal(l)*100)/100;o.basis=d.basis}return o};
+  const ok=await run(async()=>{
+    if(hq){const no=await allocNo('OS',S.grns);
+      await setDoc('grns',newId(),{no,poId:null,type:'opening',date:d.date||today(),basis:vals?d.basis:'',remarks:d.remarks||'',party:'Existing stock',at:now,by:ui.uid,byName:me,
+        lines:lines.map((l,i)=>Object.assign(clean(l),{key:'O'+(i+1),recv:num(l.qty),rej:0,acc:num(l.qty)}))});return no}
+    const no=await allocNo('OS',S.sitelog.filter(e=>e.batch).map(e=>({no:e.batch})).concat(S.grns));
+    for(const l of lines) await setDoc('sitelog',newId(),Object.assign(clean(l),{type:'opening',projectId:m.target,qty:num(l.qty),date:d.date||today(),reason:'Existing stock',remarks:d.remarks||'',batch:no,at:now,createdBy:ui.uid,createdByName:me}));
+    return no});
+  if(ok){closeModal();toast(`${ok}: ${lines.length} item${lines.length===1?'':'s'} added to ${hq?'the HQ store':projCode(m.target)+' stock'}`)}};
+
+/* ================= 3. CONSUMPTION AT SITES ================= */
+const CONS_ST={pending:{label:'Waiting for authentication',tone:'amber'},authenticated:{label:'Authenticated',tone:'green'},rejected:{label:'Rejected',tone:'red'}};
+function consCanAuth(c){if(!c||c.status!=='pending'||c.reportedBy===ui.uid) return false;
+  if(ui.role==='site') return !ui.preview&&!!(ui.me&&ui.me.siteHead)&&ui.me.projectId===c.projectId;
+  return can('consume_auth')}
+function consWaiting(){return S.consumption.filter(consCanAuth).length}
+function consBody(pid){
+  const f=ui.f.cf||(consWaiting()?'pending':'all');const q=norm(ui.f.cq);
+  let list=S.consumption.filter(c=>!pid||c.projectId===pid);const all=list.length;
+  if(f!=='all') list=list.filter(c=>c.status===f);
+  if(q) list=list.filter(c=>norm([c.no,c.description,c.remarks,c.reportedByName,...(c.lines||[]).map(l=>l.desc+' '+l.spec)].join(' ')).includes(q));
+  list.sort((a,b)=>(b.at||0)-(a.at||0));
+  const site=ui.role==='site';const head=site&&ui.me&&ui.me.siteHead;const canReport=site||can('sitestock_edit');
+  const pend=S.consumption.filter(c=>(!pid||c.projectId===pid)&&c.status==='pending').length;
+  return `${site?`<div class="notice info">${icon('help')}<span>${head?'You are the <b>site head / project manager</b> of this site. Consumption reported by others counts in site stock only after you authenticate it.':'Report material consumed at site with a description of the work. It reduces site stock once the <b>site head / project manager</b> authenticates it.'}</span></div>`:''}
+  <div class="toolbar">${seg('cf',[['pending',`Waiting${pend?' ('+pend+')':''}`],['authenticated','Authenticated'],['rejected','Rejected'],['all','All']],f)}<div class="search-inp">${icon('search')}<input class="inp" id="f-cq" placeholder="Search report, work or item" data-bind="f.cq" data-rerender="1" value="${esc(ui.f.cq||'')}"></div><span class="spacer"></span>${canReport&&pid?`<button class="btn orange" data-act="consReport" data-p="${pid}">${icon('plus')} Report consumption</button>`:''}</div>
+  ${list.length?list.map(consCard).join(''):`<section class="card">${emptyBox(ART.x('use','e-art'),all?'Nothing here':'No consumption reported yet',pid?'Report material consumed at site, with the description of the work and remarks.':'Sites report consumption from their Consumption page.',canReport&&pid?`<button class="btn orange" data-act="consReport" data-p="${pid}">${icon('plus')} Report consumption</button>`:'')}</section>`}`}
+function consCard(c){const s=CONS_ST[c.status]||CONS_ST.pending;const a=c.auth||{};const mineEdit=c.status==='pending'&&(c.reportedBy===ui.uid||(ui.role==='hq'&&can('sitestock_edit')));
+  return `<section class="card cons-card"><div class="card-h"><span class="n-ic ${s.tone}">${icon('doc')}</span><div><h2><span class="docno">${esc(c.no||'')}</span> · ${fd(c.date)}</h2><span class="sub">${ui.role==='hq'?esc(projLabel(c.projectId))+' · ':''}reported by ${esc(c.reportedByName||'')}${c.reportedAt?' on '+fdt(c.reportedAt):''}</span></div>${chip(s)}
+   <div class="acts">${consCanAuth(c)?`<button class="btn sm primary" data-act="consAuth" data-id="${c.id}">${icon('check')} Authenticate</button><button class="btn sm danger" data-act="consReject" data-id="${c.id}">Reject</button>`:''}${mineEdit?`<button class="btn sm" data-act="consReport" data-id="${c.id}">${icon('edit')} Correct</button><button class="btn sm ghost" data-act="consDel" data-id="${c.id}">${icon('trash')}</button>`:''}<button class="btn sm ghost" data-act="consPrint" data-id="${c.id}">${icon('print')}</button></div></div>
+   <div class="card-b"><p><b>Description of consumption:</b> ${esc(c.description||'')}</p>${c.location?`<p class="small"><b>Location / work:</b> ${esc(c.location)}</p>`:''}${c.remarks?`<p class="small"><b>Remarks:</b> ${esc(c.remarks)}</p>`:''}
+   <div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Qty consumed</th></tr></thead><tbody>${(c.lines||[]).map(l=>`<tr><td><div class="who">${lineThumb(l,'xs')}<span><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></span></div></td><td class="num mono">${fq(l.qty)} ${esc(l.unit)}</td></tr>`).join('')}</tbody></table></div>
+   ${photoStrip(c.photos)}
+   ${c.status!=='pending'?`<p class="small ${c.status==='rejected'?'t-red':'t-green'}">${icon(c.status==='rejected'?'alert':'check','xs')} ${c.status==='rejected'?'Rejected':'Authenticated'} by <b>${esc(a.byName||'')}</b>${a.designation?' ('+esc(a.designation)+')':''} on ${fdt(a.at)}${a.remark?' · “'+esc(a.remark)+'”':''}</p>`:''}</div></section>`}
+function vConsumption(){
+  if(ui.role==='site') return consBody(siteProject());
+  const pf=ui.f.cp||'';
+  return `<div class="toolbar"><select class="inp auto" id="f-cp" data-act-change="setFsel" data-k="cp">${projOpts(pf,'All projects')}</select>${pf?`<span class="muted">${esc(projLabel(pf))}</span>`:''}</div>${consBody(pf)}`}
+
+A.consReport=d=>{const c=d.id?S.consumption.find(x=>x.id===d.id):null;const pid=c?c.projectId:(d.p||siteProject()||ui.f.cp||'');
+  if(!pid){toast('Choose the project first.','err');return}
+  const lines=c?c.lines.map(l=>({key:l.itemKey||itemKey(l.desc,l.spec,l.unit),qty:String(l.qty)})):[{key:'',qty:''}];
+  openModal({type:'consReport',id:c?c.id:null,projectId:pid,d:{date:c?c.date:today(),description:c?c.description:'',location:c?c.location||'':'',remarks:c?c.remarks||'':'',photos:c?(c.photos||[]).slice():[],lines}})};
+A.consAddLine=()=>{ui.modal.d.lines.push({key:'',qty:''});render()};
+A.consRmLine=d=>{const ls=ui.modal.d.lines;ls.splice(+d.i,1);if(!ls.length) ls.push({key:'',qty:''});render()};
+function consAvail(pid,key,exceptId){const r=(D.site[pid]||{})[key];if(!r) return 0;let own=0;const c=exceptId&&S.consumption.find(x=>x.id===exceptId);if(c&&c.status==='pending') for(const l of c.lines||[]) if((l.itemKey||itemKey(l.desc,l.spec,l.unit))===key) own+=num(l.qty);return Math.round((r.bal-r.pcons+own)*1000)/1000}
+function consModal(m,busy){const d=m.d;const rows=siteRows(m.projectId).filter(r=>r.bal>1e-9||d.lines.some(l=>l.key===r.itemKey));
+  return wrap((m.id?'Correct consumption report':'Report consumption')+' · '+esc(projCode(m.projectId)),`
+   <div class="fields two">${field('Date of consumption','modal.d.date',d.date,'type="date"')}${field('Location / chainage / structure','modal.d.location',d.location,'placeholder="e.g. Zone 3, MH-41 to MH-47"')}</div>
+   <div class="f full"><label for="f-modal-d-description">Description of consumption (required)</label><textarea class="inp" id="f-modal-d-description" data-bind="modal.d.description" rows="3" placeholder="e.g. Laying of 150 mm DI K7 pipeline from MH-41 to MH-47, 120 m, including jointing">${esc(d.description||'')}</textarea></div>
+   <div class="lbl">Material consumed</div>
+   ${rows.length?`<div class="tw"><table class="t"><thead><tr><th>Item in site stock</th><th class="num">Available</th><th class="num">Qty consumed</th><th></th></tr></thead><tbody>${d.lines.map((l,i)=>{const r=(D.site[m.projectId]||{})[l.key];return `<tr><td><select class="inp" id="${fid('modal.d.lines.'+i+'.key')}" data-bind="modal.d.lines.${i}.key"><option value="">Choose item…</option>${rows.map(x=>`<option value="${esc(x.itemKey)}" ${x.itemKey===l.key?'selected':''}>${esc(x.desc)}${x.spec?' — '+esc(x.spec):''} (${esc(x.unit)})</option>`).join('')}</select></td>
+     <td class="num mono">${r?fq(consAvail(m.projectId,l.key,m.id))+' '+esc(r.unit):'—'}</td><td>${inp('modal.d.lines.'+i+'.qty',l.qty,'inputmode="decimal" style="width:110px"')}</td><td><button type="button" class="icon-btn sm" data-act="consRmLine" data-i="${i}" aria-label="Remove">${icon('trash')}</button></td></tr>`}).join('')}</tbody></table></div>
+   <div class="row"><button type="button" class="btn sm" data-act="consAddLine">${icon('plus')} Add item</button></div>`:`<div class="notice warn">${icon('alert')}<span>There is no stock at this site to report against. Material appears in site stock when receipts are confirmed or existing stock is added.</span></div>`}
+   <div class="f full"><label for="f-modal-d-remarks">Remarks</label><textarea class="inp" id="f-modal-d-remarks" data-bind="modal.d.remarks" rows="2" placeholder="e.g. Wastage 2 m due to cutting">${esc(d.remarks||'')}</textarea></div>
+   <div class="f full"><label>Photos (optional)</label>${photoPicker('modal.d.photos',d.photos)}</div>
+   <p class="small muted">The report goes to the site head / project manager for authentication. Site stock reduces once it is authenticated.</p>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveCons" ${busy} ${rows.length?'':'disabled'}>${icon('check')} ${m.id?'Save correction':'Send for authentication'}</button>`,'wide')}
+A.saveCons=async()=>{const m=ui.modal,d=m.d;const desc=String(d.description||'').trim();
+  if(!desc){toast('Describe the consumption (work done / where the material was used).','err');return}
+  const ls=d.lines.filter(l=>l.key||num(l.qty)>0);if(!ls.length){toast('Add at least one item consumed.','err');return}
+  const seen={};const lines=[];
+  for(const l of ls){const r=(D.site[m.projectId]||{})[l.key];if(!r){toast('Choose the item on every line.','err');return}const q=num(l.qty);if(!(q>0)){toast('Enter the quantity consumed for '+r.desc+'.','err');return}
+    seen[l.key]=(seen[l.key]||0)+q;const av=consAvail(m.projectId,l.key,m.id);if(seen[l.key]>av+1e-9){toast(`Only ${fq(av)} ${r.unit} of ${r.desc} is available at site.`,'err');return}
+    lines.push({itemKey:r.itemKey,desc:r.desc,spec:r.spec||'',unit:r.unit,cat:r.cat,qty:q})}
+  const body={date:d.date||today(),description:desc,location:String(d.location||'').trim(),remarks:String(d.remarks||'').trim(),photos:d.photos||[],lines};
+  const ok=await run(async()=>{if(m.id){await updDoc('consumption',m.id,body);return S.consumption.find(x=>x.id===m.id).no}
+    const no=await allocNo('CR',S.consumption);await setDoc('consumption',newId(),Object.assign({no,projectId:m.projectId,at:Date.now()},body));return no});
+  if(ok){closeModal();toast(m.id?ok+' corrected':ok+' sent to the site head / project manager for authentication')}};
+A.consAuth=d=>{const c=S.consumption.find(x=>x.id===d.id);if(!c) return;confirmBox({title:'Authenticate '+c.no,body:`<p>${esc(c.description)}</p><p class="small">${(c.lines||[]).map(l=>`${fq(l.qty)} ${esc(l.unit)} ${esc(l.desc)}`).join(' · ')}</p><p class="small muted">Reported by ${esc(c.reportedByName||'')}. Site stock reduces by these quantities.</p>`,noteArea:true,note:'Remark (optional)',yes:'Authenticate',
+  onYes:async m=>{if(await run(()=>updDoc('consumption',c.id,{status:'authenticated',authRemark:String(m.noteVal||'').trim()}),c.no+' authenticated. Site stock updated.')!==false) closeModal()}})};
+A.consReject=d=>{const c=S.consumption.find(x=>x.id===d.id);if(!c) return;confirmBox({title:'Reject '+c.no,body:'The quantities are not taken out of site stock. The reporter can make a fresh report.',noteArea:true,note:'Reason (required)',yes:'Reject',danger:true,
+  onYes:async m=>{const r=String(m.noteVal||'').trim();if(!r){toast('Write why the report is rejected.','err');return}if(await run(()=>updDoc('consumption',c.id,{status:'rejected',authRemark:r}),c.no+' rejected')!==false) closeModal()}})};
+A.consDel=d=>{const c=S.consumption.find(x=>x.id===d.id);if(!c) return;confirmBox({title:'Withdraw '+c.no+'?',body:'The report is removed. Nothing changes in site stock.',yes:'Withdraw',danger:true,onYes:async()=>{if(await run(()=>delDoc('consumption',c.id),'Report withdrawn')) closeModal()}})};
+A.consPrint=d=>{const c=S.consumption.find(x=>x.id===d.id);if(c) printHtml(c.no,consDoc(c))};
+function consDoc(c){const p=proj(c.projectId)||{},a=c.auth||{};const b='border:1px solid #c9d3d6;padding:6px 8px;font-size:12.5px;vertical-align:top';
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;padding:28px;max-width:860px;margin:0 auto">
+  <table style="width:100%"><tr><td><b style="font-size:19px">${esc(company())}</b><div style="font-size:12px;color:#465A6D">${esc(p.name||'')} ${p.code?'('+esc(p.code)+')':''}</div></td><td style="text-align:right"><div style="font-size:20px;font-weight:800;color:#1172C4">MATERIAL CONSUMPTION REPORT</div><b>${esc(c.no||'')}</b><br>Date: ${fd(c.date)}</td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:14px"><tr><td style="${b}"><b>Description of consumption</b><br>${esc(c.description||'')}${c.location?'<br><b>Location / work:</b> '+esc(c.location):''}${c.remarks?'<br><b>Remarks:</b> '+esc(c.remarks):''}</td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:14px"><thead><tr style="background:#e9eef2"><th style="${b}">#</th><th style="${b};text-align:left">Item</th><th style="${b};text-align:right">Qty consumed</th><th style="${b}">Unit</th></tr></thead><tbody>${(c.lines||[]).map((l,i)=>`<tr><td style="${b}">${i+1}</td><td style="${b}"><b>${esc(l.desc)}</b>${l.spec?'<br><span style="color:#465A6D">'+esc(l.spec)+'</span>':''}</td><td style="${b};text-align:right">${fq(l.qty)}</td><td style="${b}">${esc(l.unit)}</td></tr>`).join('')}</tbody></table>
+  <table style="width:100%;margin-top:40px;font-size:12px"><tr><td style="vertical-align:bottom">Reported by<br><br><b>${esc(c.reportedByName||'')}</b><br>${c.reportedAt?fdt(c.reportedAt):''}</td>
+  <td style="text-align:right;vertical-align:bottom">${c.status==='authenticated'?`Authenticated by<br><br><b>${esc(a.byName||'')}</b><br>${esc(a.designation||'Site head / Project manager')}<br>${fdt(a.at)}${a.remark?'<br>“'+esc(a.remark)+'”':''}`:c.status==='rejected'?`<b style="color:#C0392B">REJECTED</b> by ${esc(a.byName||'')} on ${fdt(a.at)}<br>${esc(a.remark||'')}`:`<span style="color:#8a5a00">Not yet authenticated</span><br><br>Site head / Project manager`}</td></tr></table></div>`}
+
+/* ================= 4. FIND ITEMS · CORRECT NAMES AND UNITS ================= */
+function itemIndex(){const site=ui.role==='site',pid=siteProject();const M={};
+  const get=(k,s)=>M[k]||(M[k]={key:k,desc:s.desc,spec:s.spec||'',unit:s.unit,cat:s.cat||s.category||classify(s.desc,s.spec).cat,hq:0,sites:[],dem:0,demN:0,pos:[],cons:0});
+  if(!site) for(const k in D.stock){const s=D.stock[k];if(s.inQ||s.outQ) get(k,s).hq=s.bal}
+  for(const p in D.site){if(site&&p!==pid) continue;for(const k in D.site[p]){const r=D.site[p][k];if(r.bal||r.recv||r.open) {const o=get(k,r);if(r.bal) o.sites.push([p,r.bal]);o.cons+=r.cons+r.used}}}
+  for(const x of allLines(site?pid:'')){if(['delivered','rejected'].includes(x.info.st)) continue;const o=get(itemKey(x.l.desc,x.l.spec,x.l.unit),Object.assign({cat:x.l.category},x.l));o.dem+=Math.max(0,x.info.need-x.info.del);o.demN++}
+  if(!site) for(const p of S.pos){if(p.status==='cancelled') continue;for(const l of p.lines||[]){const o=get(l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(!o.pos.includes(p.no)) o.pos.push(p.no)}}
+  return Object.values(M)}
+function vFind(){
+  const q=norm(ui.f.fq);const site=ui.role==='site';const adm=isAdm();
+  const cat=q?D.items.filter(i=>norm(i.desc+' '+(i.spec||'')+' '+(i.sizes||[]).join(' ')+' '+catName(i.category||i.cat)).includes(q)).slice(0,60):[];
+  let rows=itemIndex();if(q) rows=rows.filter(o=>norm(o.desc+' '+o.spec+' '+o.unit+' '+catName(o.cat)).includes(q));
+  rows.sort((a,b)=>String(a.desc).localeCompare(b.desc)||String(a.spec).localeCompare(b.spec));const shown=rows.slice(0,300);
+  // the same item written in more than one way (different unit or spelling of the same words)
+  const dupKey=o=>norm(o.desc).replace(/ /g,'')+'|'+norm(o.spec).replace(/ /g,'');const dup={};for(const o of itemIndex()){const k=dupKey(o);dup[k]=(dup[k]||0)+1}
+  return `<div class="toolbar"><div class="search-inp grow">${icon('search')}<input class="inp" id="f-fq" placeholder="Type an item, size or category — e.g. DI pipe 150, sluice valve, cement" data-bind="f.fq" data-rerender="1" value="${esc(ui.f.fq||'')}"></div><span class="muted">${rows.length} item${rows.length===1?'':'s'}</span></div>
+  ${adm?`<div class="notice info">${icon('edit')}<span>As administrator you can <b>edit</b> the spelling, specification, unit or <b>category</b> of an item (or tick several items and change their category together). The correction is made in every demand, quotation, PO, receipt, challan, stock and consumption entry, so its stock and history stay together. Correcting it to the name of an item that already exists merges the two. Units are relabelled, not converted.</span></div>`:''}
+  <section class="card"><div class="card-h"><h2>${q?'Items found':'All items in use'}</h2><span class="sub">${site?'Your site stock and demands':'HQ store, site stores, open demands and purchase orders'}</span></div>
+  ${adm&&shown.length?(()=>{ui.fiShown=shown.map(o=>o.key);const nsel=Object.keys(ui.sel.fi||{}).length;return `<div class="toolbar pad fi-bulk"><span class="small ${nsel?'':'muted'}">${nsel?`<b>${nsel}</b> item${nsel===1?'':'s'} ticked`:'Tick items to change their category together'}</span><select class="inp sm auto" id="f-fiCat" data-bind="f.fiCat"><option value="">New category…</option>${catOpts(ui.f.fiCat||'')}</select><button class="btn sm primary" data-act="fiBulkCat" ${nsel?'':'disabled'}>${icon('grid')} Change category</button></div>`})():''}
+  ${shown.length?`<div class="tw"><table class="t"><thead><tr>${adm?`<th><input type="checkbox" data-act="fiSelAll" aria-label="Tick all" ${shown.length&&shown.every(o=>(ui.sel.fi||{})[o.key])?'checked':''}></th>`:''}<th>Item</th><th>Category</th><th>Unit</th>${site?'':'<th class="num">HQ store</th>'}<th>${site?'At your site':'At sites'}</th><th class="num">Open demand</th>${site?'':'<th>Purchase orders</th>'}${seeRates()&&!site?'<th class="num">Rate</th>':''}${adm?'<th></th>':''}</tr></thead><tbody>${shown.map(o=>`<tr>${adm?`<td><input type="checkbox" data-act="fiSel" data-k="${esc(o.key)}" aria-label="Tick ${esc(o.desc)}" ${(ui.sel.fi||{})[o.key]?'checked':''}></td>`:''}<td><div class="who">${thumb({category:o.cat,desc:o.desc},'sm')}<span><b>${esc(o.desc)}</b><small class="muted block">${esc(o.spec||'')}${dup[dupKey(o)]>1?(o.spec?' · ':'')+'<span class="t-amber">also written another way</span>':''}</small></span></div></td><td>${catSw(o.cat)}</td><td>${esc(o.unit)}</td>
+    ${site?'':`<td class="num mono">${o.hq?fq(o.hq):'<span class="muted">—</span>'}</td>`}<td>${o.sites.length?`<div class="chips">${o.sites.map(([p,b])=>`<span class="chip plain" title="${esc(projLabel(p))}">${esc(projCode(p))}: ${fq(b)}</span>`).join('')}</div>`:'<span class="muted small">—</span>'}</td>
+    <td class="num mono">${o.dem?fq(o.dem):'<span class="muted">—</span>'}${o.demN?`<small class="muted block">${o.demN} line${o.demN===1?'':'s'}</small>`:''}</td>${site?'':`<td class="small">${o.pos.length?esc(o.pos.slice(-3).join(', '))+(o.pos.length>3?' +'+(o.pos.length-3):''):'<span class="muted">—</span>'}</td>`}
+    ${seeRates()&&!site?`<td class="num mono">${D.rateOf(o.key)?money(D.rateOf(o.key)):'—'}</td>`:''}${adm?`<td><button class="btn sm" data-act="itemFix" data-k="${esc(o.key)}">${icon('edit')} Edit</button></td>`:''}</tr>`).join('')}</tbody></table></div>${rows.length>shown.length?`<div class="card-f small muted">Showing the first ${shown.length}. Type more to narrow down.</div>`:''}`
+  :`<div class="empty sm"><p>${q?'No item in stock, demands or orders matches “'+esc(ui.f.fq)+'”.':'No items in use yet.'}</p></div>`}</section>
+  ${cat.length?`<section class="card"><div class="card-h"><h2>In the item catalogue</h2><span class="sub">What sites can pick when raising a demand</span></div><div class="tw"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Sizes</th>${adm?'<th></th>':''}</tr></thead><tbody>${cat.map(i=>`<tr><td><div class="who">${thumb({category:i.category||i.cat,desc:i.desc},'sm')}<span><b>${esc(i.desc)}</b><small class="muted block">${esc(i.spec||'')}</small></span></div></td><td>${esc(catName(i.category||i.cat))}</td><td>${esc(i.unit||'')}</td><td class="small">${esc((i.sizes||[]).join(', '))}</td>${adm?`<td><button class="btn sm" data-act="itemFix" data-cat="${esc(i.id)}">${icon('edit')} Edit</button></td>`:''}</tr>`).join('')}</tbody></table></div></section>`:''}`}
+
+A.itemFix=d=>{let from;
+  if(d.cat){const it=D.itemMap[d.cat];if(!it) return;from={desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',catOnly:true,catId:it.id}}
+  else{const o=itemIndex().find(x=>x.key===d.k);if(!o) return;from={desc:o.desc,spec:o.spec||'',unit:o.unit,cat:o.cat||'others'}}
+  const cid=from.catId||slug(from.desc);
+  openModal({type:'itemFix',from,d:{desc:from.desc,spec:from.spec,unit:from.unit,category:CAT[from.cat]?from.cat:'others',alsoCat:!!D.itemMap[cid]},catId:cid,count:null});itemFixCount()};
+async function itemFixCount(){const m=ui.modal;if(!m||m.type!=='itemFix') return;try{const j=await api('/api/items/rename',{from:m.from,to:{desc:m.from.desc,spec:m.from.spec,unit:m.from.unit},dry:true});if(ui.modal===m){m.count=j;render()}}catch(e){}}
+function itemFixModal(m,busy){const d=m.d,f=m.from;const it=D.itemMap[m.catId];const units=UNITS.includes(d.unit)?UNITS:UNITS.concat([d.unit]);
+  const named=d.desc.trim()!==f.desc||String(d.spec).trim()!==(f.spec||'')||d.unit!==f.unit;const catChg=d.category!==f.cat;const changed=named||catChg;
+  const toKey=itemKey(d.desc,d.spec,d.unit);const merge=named&&toKey!==itemKey(f.desc,f.spec,f.unit)&&itemIndex().some(o=>o.key===toKey);
+  return wrap('Edit item',`<div class="notice">${icon('tag')}<span>Now: <b>${esc(f.desc)}</b>${f.spec?' — '+esc(f.spec):''} · ${esc(f.unit)} · ${esc(catName(f.cat))}${m.count?`<br><span class="small muted">Used in ${m.count.docs} record${m.count.docs===1?'':'s'} (${m.count.lines} line${m.count.lines===1?'':'s'}).</span>`:''}</span></div>
+   <div class="fields">${field('Item name','modal.d.desc',d.desc,'data-rerender="1"','span2')}${f.catOnly?'':field('Specification / size','modal.d.spec',d.spec,'data-rerender="1"')}
+   <div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
+   <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div></div>
+   ${catChg?`<div class="notice info">${icon('grid')}<span>The category changes from <b>${esc(catName(f.cat))}</b> to <b>${esc(catName(d.category))}</b> in every demand, order and stock entry of this item${f.catOnly?' (all its sizes)':''}. The procurement queue, vendor lists and reports follow the new category.</span></div>`:''}
+   ${merge?`<div class="notice warn">${icon('alert')}<span>An item with this name, specification and unit already exists. The two will be <b>merged</b>: their stock and history are added together.</span></div>`:''}
+   ${d.unit!==f.unit?`<div class="notice warn">${icon('alert')}<span>The unit is only relabelled from <b>${esc(f.unit)}</b> to <b>${esc(d.unit)}</b>; quantities are not converted. Use this to correct a wrongly chosen unit.</span></div>`:''}
+   ${it&&!f.catOnly?`<label class="check"><input type="checkbox" id="f-modal-d-alsoCat" data-bind="modal.d.alsoCat" ${d.alsoCat?'checked':''}> Also change the item “${esc(it.desc)}” in the item catalogue</label>`:''}`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveItemFix" ${busy} ${changed?'':'disabled'}>${icon('check')} Save everywhere</button>`)}
+A.saveItemFix=async()=>{const m=ui.modal,d=m.d,f=m.from;const catChg=d.category!==f.cat;
+  const to={desc:d.desc.trim(),spec:f.catOnly?'':String(d.spec||'').trim(),unit:d.unit,cat:catChg?d.category:''};
+  if(!to.desc){toast('Enter the item name.','err');return}
+  const ok=await run(async()=>{let n=0;
+    if(!f.catOnly){const j=await api('/api/items/rename',{from:{desc:f.desc,spec:f.spec,unit:f.unit},to});n=j.docs}
+    else{for(const o of itemIndex().filter(o=>norm(o.desc)===norm(f.desc))){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:to.desc,spec:o.spec,unit:o.unit===f.unit?to.unit:o.unit,cat:to.cat}});n+=j.docs}}
+    if(f.catOnly||d.alsoCat) await fixCatalog(m.catId,to);
+    return n});
+  if(ok!==false){closeModal();toast(`Saved${ok?' in '+ok+' record'+(ok===1?'':'s'):''}.`)}};
+async function fixCatalog(oldId,to){const it=D.itemMap[oldId];if(!it) return;const newId=slug(to.desc);
+  const base={desc:to.desc,spec:it.spec||'',unit:to.unit||it.unit,sizes:it.sizes||[],category:to.cat||it.category||it.cat,at:Date.now()};for(const k of ['photo','gst','hsn','hidden','kw']) if(it[k]!=null) base[k]=it[k];
+  if(newId===oldId){await setDoc('catalog',oldId,base);return}
+  if(!D.itemMap[newId]) await setDoc('catalog',newId,base);else if(to.cat) await setDoc('catalog',newId,Object.assign({},S.catalog[newId]||{desc:D.itemMap[newId].desc,unit:D.itemMap[newId].unit,sizes:D.itemMap[newId].sizes||[]},{category:to.cat,at:Date.now()}));
+  if(STD[oldId]) await setDoc('catalog',oldId,{desc:'',replacedBy:newId,at:Date.now()});else await delDoc('catalog',oldId)}
+// several items at once: Find items → tick items → Change category
+A.fiSel=(d,el)=>{const s=ui.sel.fi||(ui.sel.fi={});if(el.checked) s[d.k]=1;else delete s[d.k];render()};
+A.fiSelAll=(d,el)=>{const s=ui.sel.fi={};if(el.checked) for(const k of (ui.fiShown||[])) s[k]=1;render()};
+A.fiBulkCat=async()=>{const cat=ui.f.fiCat;const keys=Object.keys(ui.sel.fi||{});if(!cat){toast('Choose the new category.','err');return}if(!keys.length) return;
+  const rows=itemIndex().filter(o=>keys.includes(o.key));
+  confirmBox({title:'Change category of '+rows.length+' item'+(rows.length===1?'':'s'),body:`<p>${rows.slice(0,12).map(o=>esc(o.desc+(o.spec?' '+o.spec:''))).join(', ')}${rows.length>12?'…':''}</p><p>New category: <b>${esc(catName(cat))}</b>. Every demand, order and stock entry of these items is changed${' '}and the catalogue items are moved too.</p>`,yes:'Change category',onYes:async()=>{
+    const ok=await run(async()=>{let n=0;const done=new Set();for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat}});n+=j.docs;
+      const cid=slug(o.desc);if(D.itemMap[cid]&&!done.has(cid)){done.add(cid);await fixCatalog(cid,{desc:D.itemMap[cid].desc,unit:D.itemMap[cid].unit,cat})}}return n});
+    if(ok!==false){ui.sel.fi={};closeModal();toast(`Category changed to ${catName(cat)}${ok?' in '+ok+' record'+(ok===1?'':'s'):''}.`)}}})};
+
+/* ================= MODALS ================= */
+function v6Modal(m,busy){switch(m.type){
+  case 'stiApprove':return stiApproveModal(m,busy);
+  case 'openStock':return openStockModal(m,busy);
+  case 'consReport':return consModal(m,busy);
+  case 'itemFix':return itemFixModal(m,busy);
+}return ''}
+
+/* ================= 5. ITEM SUGGESTIONS WHILE TYPING (demands) =================
+   As the user types an item, every matching item in the database drops down below the box:
+   catalogue items first, then items already used in demands, orders and stock (with their size
+   and unit). If nothing matches exactly what was typed, "Create new item" is offered. */
+function suggItems(q){const toks=norm(q).split(' ').filter(Boolean);if(!toks.length) return {list:[],exact:false};
+  const hit=s=>{const n=' '+norm(s)+' ';return toks.every(t=>n.includes(' '+t)||n.includes(t))};
+  const score=(desc,extra)=>{const nd=norm(desc);return (nd===norm(q)?0:nd.startsWith(norm(q))?1:toks.every(t=>(' '+nd).includes(' '+t))?2:3)+(extra||0)};
+  const out=[];const seen=new Set();
+  for(const it of D.items){if(it.hidden||!it.desc) continue;if(!hit(it.desc+' '+(it.spec||'')+' '+(it.sizes||[]).join(' ')+' '+catName(it.category))) continue;
+    out.push({kind:'cat',id:it.id,desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',sizes:it.sizes||[],note:it.spec||'',sc:score(it.desc)});seen.add(slug(it.desc)+'||')}
+  const used={};const add=(l,src)=>{if(!l||!l.desc) return;const k=itemKey(l.desc,l.spec,l.unit);const o=used[k]||(used[k]={desc:l.desc,spec:l.spec||'',unit:l.unit||'Nos',cat:l.category||l.cat||classify(l.desc,l.spec).cat,n:0,src});o.n++};
+  for(const i of S.indents) for(const l of i.lines||[]) add(l,'demands');
+  for(const p of S.pos) for(const l of p.lines||[]) add(l,'orders');
+  for(const g of S.grns) for(const l of g.lines||[]) add(l,'store');
+  for(const e of S.sitelog) add(e,'site stock');
+  for(const x of S.dispatches) for(const l of x.lines||[]) add(l,'dispatches');
+  for(const k in used){const o=used[k];if(!hit(o.desc+' '+o.spec+' '+o.unit)) continue;out.push({kind:'used',key:k,desc:o.desc,spec:o.spec,unit:o.unit,cat:o.cat,n:o.n,src:o.src,sc:score(o.desc,.5)})}
+  out.sort((a,b)=>a.sc-b.sc||(a.kind==='cat'?-1:0)-(b.kind==='cat'?-1:0)||String(a.desc).localeCompare(b.desc)||String(a.spec).localeCompare(b.spec));
+  const exact=out.some(o=>norm(o.desc)===norm(q)||norm(o.desc+' '+o.spec)===norm(q));
+  return {list:out.slice(0,40),exact}}
+function suggPanel(q,where){q=String(q||'').trim();if(!q) return '';const {list,exact}=suggItems(q);const sel=ui.suggIx||0;
+  const row=(o,i)=>`<button type="button" class="pop-n sugg ${i===sel?'on':''}" data-act="suggPick" data-i="${i}" data-w="${where}">${thumb({category:o.cat,desc:o.desc},'xs')}<span class="grow"><b>${esc(o.desc)}${o.spec?` <span class="sugg-spec">${esc(o.spec)}</span>`:''}</b><small>${esc(catName(o.cat))} · ${esc(o.unit)}${o.kind==='cat'?(o.sizes.length?' · sizes '+esc(o.sizes.slice(0,6).join(', '))+(o.sizes.length>6?'…':''):'')+' · catalogue':' · used before in '+esc(o.src)}</small></span></button>`;
+  const create=!exact?`<button type="button" class="pop-n sugg create ${sel===list.length?'on':''}" data-act="suggPick" data-i="${list.length}" data-w="${where}"><span class="thumb xs plus">${icon('plus')}</span><span class="grow"><b>Create new item “${esc(q)}”</b><small>Not in the database — add it as a new item</small></span></button>`:'';
+  return `<div class="pop wide sugg-pop" role="listbox">${list.length?`<div class="pop-t">${list.length} item${list.length===1?'':'s'} in the database</div>`+list.map(row).join(''):'<div class="pop-empty">No item in the database matches “'+esc(q)+'”.</div>'}${create}</div>`}
+const suggQuery=w=>w==='modal'?(ui.modal&&ui.modal.d&&ui.modal.d.desc)||'':ui.pickQ||'';
+A.suggPick=d=>{if(document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.sugg) document.activeElement.blur();const w=d.w,q=suggQuery(w).trim();const {list}=suggItems(q);const o=list[+d.i];ui.pop=null;ui.suggIx=0;
+  const carry=w==='modal'&&ui.modal?ui.modal.d:{};
+  if(!o){ // create new item
+    if(w==='modal'){ui.modal.d.desc=q;ui.modal.d.newItem=true;render();setTimeout(()=>{const el=document.getElementById('f-modal-d-spec');el&&el.focus()},30);return}
+    ui.pickQ='';A.customItem({desc:q});ui.modal.d.newItem=true;render();return}
+  const it=o.kind==='cat'?D.itemMap[o.id]:(D.itemMap[slug(o.desc)]&&norm(D.itemMap[slug(o.desc)].desc)===norm(o.desc)?D.itemMap[slug(o.desc)]:{id:slug(o.desc),desc:o.desc,category:o.cat,unit:o.unit,sizes:[],spec:''});
+  if(w!=='modal') ui.pickQ='';
+  const sizes=it.sizes||[];let size='',spec=o.kind==='cat'?(it.spec||''):'';
+  if(o.kind==='used'&&o.spec){if(sizes.includes(o.spec)) size=o.spec;else spec=o.spec}
+  if(ui.view!=='s_new'&&w!=='modal') go('s_new');
+  openModal({type:'addItem',item:it,d:{size,otherSize:'',qty:carry.qty||'',unit:o.unit||it.unit||'Nos',spec,note:carry.note||'',photo:carry.photo||''}})};
+// arrow keys and Enter in the item box
+document.addEventListener('keydown',e=>{const el=e.target;if(!el||!el.dataset||!el.dataset.sugg) return;
+  if(el.dataset.sugg==='pick'&&ui.modal) return;
+  if(e.key==='Escape'&&(ui.pop==='pick'||ui.pop==='msugg')){e.preventDefault();e.stopPropagation();ui.pop=null;render();return}const w=el.dataset.sugg;const q=suggQuery(w).trim();if(!q) return;
+  const {list,exact}=suggItems(q);const max=list.length+(exact?0:1)-1;if(max<0) return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();ui.pop=w==='modal'?'msugg':'pick';ui.suggIx=Math.max(0,Math.min(max,(ui.suggIx||0)+(e.key==='ArrowDown'?1:-1)));render();
+    setTimeout(()=>{const on=document.querySelector('.sugg-pop .sugg.on');on&&on.scrollIntoView({block:'nearest'})},0)}
+  else if(e.key==='Enter'&&ui.pop===(w==='modal'?'msugg':'pick')){e.preventDefault();e.stopPropagation();A.suggPick({w,i:String(Math.min(ui.suggIx||0,max))})}
+},true);
+document.addEventListener('input',e=>{const el=e.target;if(el&&el.dataset&&el.dataset.sugg){ui.suggIx=0;if(el.dataset.sugg==='modal'&&ui.modal&&ui.modal.d) ui.modal.d.newItem=false;ui.pop=el.dataset.sugg==='modal'?'msugg':'pick';schedule()}});
+
+// a new item created by someone who keeps the item catalogue goes straight into the catalogue
+{const add=A.addCustom;A.addCustom=async()=>{const d=ui.modal&&ui.modal.d;const nw=d&&d.newItem&&ui.role==='hq'&&!ui.preview&&can('masters_items')&&String(d.desc||'').trim()&&num(d.qty)>0&&!D.itemMap[slug(d.desc)];
+  const x=nw?{desc:d.desc.trim(),unit:d.unit,cat:d.category}:null;add();if(x&&!ui.modal){try{await setDoc('catalog',slug(x.desc),{desc:x.desc,spec:'',unit:x.unit,sizes:[],category:x.cat,at:Date.now()})}catch(e){}}}}
+
+// Item catalogue → edit item: when an administrator changes the category, the demands, orders and
+// stock entries of that item follow (on request).
+{const save=A.saveItem;A.saveItem=async(...a)=>{const m=ui.modal;const it=m&&m.id?D.itemMap[m.id]:null;const old=it&&(it.category||'others');const nw=m&&m.d&&m.d.category;
+  await save(...a);
+  if(!it||!isAdm()||!nw||old===nw||(ui.modal&&ui.modal===m)) return;
+  const rows=itemIndex().filter(o=>norm(o.desc)===norm(it.desc)&&o.cat!==nw);if(!rows.length) return;
+  confirmBox({title:'Also change past records?',body:`<p><b>${esc(it.desc)}</b> is now in <b>${esc(catName(nw))}</b>. ${rows.length} size${rows.length===1?'':'s'} of it in demands, orders or stock still show <b>${esc(catName(old))}</b>.</p><p>Change them too, so the procurement queue, vendors and reports use the new category?</p>`,yes:'Change them too',onYes:async()=>{
+    const ok=await run(async()=>{let n=0;for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat:nw}});n+=j.docs}return n});
+    if(ok!==false){closeModal();toast(`Category changed in ${ok} record${ok===1?'':'s'}.`)}}})}}
