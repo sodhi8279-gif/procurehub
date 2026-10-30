@@ -431,6 +431,31 @@ func stampDecisions(u *User, ex, nd map[string]any) {
 			continue
 		}
 		o := old[str(l, "id")]
+		// item changed by HQ after pre-check (e.g. Cement OPC to PPC while approving):
+		// keep what the site asked for and who changed it. Pre-check keeps its own record.
+		if o != nil && pcStatus(ex) != "pending" {
+			if str(o, "desc") != str(l, "desc") || str(o, "spec") != str(l, "spec") || str(o, "unit") != str(l, "unit") {
+				if po, _ := o["apprOrig"].(map[string]any); po != nil {
+					l["apprOrig"] = po
+				} else {
+					l["apprOrig"] = map[string]any{"desc": o["desc"], "spec": o["spec"], "unit": o["unit"], "qty": o["qty"], "category": o["category"]}
+				}
+				l["chgBy"], l["chgByName"], l["chgAt"] = u.ID, u.Name, now
+				if op, _ := l["apprOrig"].(map[string]any); op != nil && str(op, "desc") == str(l, "desc") && str(op, "spec") == str(l, "spec") && str(op, "unit") == str(l, "unit") {
+					for _, k := range []string{"apprOrig", "chgBy", "chgByName", "chgAt", "chgNote"} { // changed back to what the site asked
+						delete(l, k)
+					}
+				}
+			} else {
+				for _, k := range []string{"apprOrig", "chgBy", "chgByName", "chgAt"} { // only the server sets these
+					if v, has := o[k]; has {
+						l[k] = v
+					} else {
+						delete(l, k)
+					}
+				}
+			}
+		}
 		st := str(l, "status")
 		if st == "" || st == "pending" {
 			for _, k := range []string{"decidedBy", "decidedByName", "decidedAt"} {

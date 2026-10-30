@@ -318,8 +318,10 @@ function suggPanel(q,where){q=String(q||'').trim();if(!q) return '';const {list,
   const row=(o,i)=>`<button type="button" class="pop-n sugg ${i===sel?'on':''}" data-act="suggPick" data-i="${i}" data-w="${where}">${thumb({category:o.cat,desc:o.desc},'xs')}<span class="grow"><b>${esc(o.desc)}${o.spec?` <span class="sugg-spec">${esc(o.spec)}</span>`:''}</b><small>${esc(catName(o.cat))} · ${esc(o.unit)}${o.kind==='cat'?(o.sizes.length?' · sizes '+esc(o.sizes.slice(0,6).join(', '))+(o.sizes.length>6?'…':''):'')+' · catalogue':' · used before in '+esc(o.src)}</small></span></button>`;
   const create=!exact?`<button type="button" class="pop-n sugg create ${sel===list.length?'on':''}" data-act="suggPick" data-i="${list.length}" data-w="${where}"><span class="thumb xs plus">${icon('plus')}</span><span class="grow"><b>Create new item “${esc(q)}”</b><small>Not in the database — add it as a new item</small></span></button>`:'';
   return `<div class="pop wide sugg-pop" role="listbox">${list.length?`<div class="pop-t">${list.length} item${list.length===1?'':'s'} in the database</div>`+list.map(row).join(''):'<div class="pop-empty">No item in the database matches “'+esc(q)+'”.</div>'}${create}</div>`}
-const suggQuery=w=>w==='modal'?(ui.modal&&ui.modal.d&&ui.modal.d.desc)||'':ui.pickQ||'';
+const popOf=w=>w==='modal'?'msugg':w==='line'?'lsugg':'pick';
+const suggQuery=w=>w==='modal'||w==='line'?(ui.modal&&ui.modal.d&&ui.modal.d.desc)||'':ui.pickQ||'';
 A.suggPick=d=>{if(document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.sugg) document.activeElement.blur();const w=d.w,q=suggQuery(w).trim();const {list}=suggItems(q);const o=list[+d.i];ui.pop=null;ui.suggIx=0;
+  if(w==='line'){const m=ui.modal;if(o){Object.assign(m.d,{desc:o.desc,unit:o.unit||m.d.unit,category:o.cat||m.d.category});m.d.spec=o.kind==='used'?(o.spec||''):((D.itemMap[o.id]&&D.itemMap[o.id].spec)||'');m.sizes=o.kind==='cat'?(o.sizes||[]):[]}else{m.d.desc=q;m.sizes=[]}render();setTimeout(()=>{const el=document.getElementById('f-modal-d-spec');el&&el.focus()},30);return}
   const carry=w==='modal'&&ui.modal?ui.modal.d:{};
   if(!o){ // create new item
     if(w==='modal'){ui.modal.d.desc=q;ui.modal.d.newItem=true;render();setTimeout(()=>{const el=document.getElementById('f-modal-d-spec');el&&el.focus()},30);return}
@@ -333,13 +335,13 @@ A.suggPick=d=>{if(document.activeElement&&document.activeElement.dataset&&docume
 // arrow keys and Enter in the item box
 document.addEventListener('keydown',e=>{const el=e.target;if(!el||!el.dataset||!el.dataset.sugg) return;
   if(el.dataset.sugg==='pick'&&ui.modal) return;
-  if(e.key==='Escape'&&(ui.pop==='pick'||ui.pop==='msugg')){e.preventDefault();e.stopPropagation();ui.pop=null;render();return}const w=el.dataset.sugg;const q=suggQuery(w).trim();if(!q) return;
+  if(e.key==='Escape'&&(ui.pop==='pick'||ui.pop==='msugg'||ui.pop==='lsugg')){e.preventDefault();e.stopPropagation();ui.pop=null;render();return}const w=el.dataset.sugg;const q=suggQuery(w).trim();if(!q) return;
   const {list,exact}=suggItems(q);const max=list.length+(exact?0:1)-1;if(max<0) return;
-  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();ui.pop=w==='modal'?'msugg':'pick';ui.suggIx=Math.max(0,Math.min(max,(ui.suggIx||0)+(e.key==='ArrowDown'?1:-1)));render();
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();ui.pop=popOf(w);ui.suggIx=Math.max(0,Math.min(max,(ui.suggIx||0)+(e.key==='ArrowDown'?1:-1)));render();
     setTimeout(()=>{const on=document.querySelector('.sugg-pop .sugg.on');on&&on.scrollIntoView({block:'nearest'})},0)}
-  else if(e.key==='Enter'&&ui.pop===(w==='modal'?'msugg':'pick')){e.preventDefault();e.stopPropagation();A.suggPick({w,i:String(Math.min(ui.suggIx||0,max))})}
+  else if(e.key==='Enter'&&ui.pop===popOf(w)){e.preventDefault();e.stopPropagation();A.suggPick({w,i:String(Math.min(ui.suggIx||0,max))})}
 },true);
-document.addEventListener('input',e=>{const el=e.target;if(el&&el.dataset&&el.dataset.sugg){ui.suggIx=0;if(el.dataset.sugg==='modal'&&ui.modal&&ui.modal.d) ui.modal.d.newItem=false;ui.pop=el.dataset.sugg==='modal'?'msugg':'pick';schedule()}});
+document.addEventListener('input',e=>{const el=e.target;if(el&&el.dataset&&el.dataset.sugg){ui.suggIx=0;if(el.dataset.sugg==='modal'&&ui.modal&&ui.modal.d) ui.modal.d.newItem=false;ui.pop=popOf(el.dataset.sugg);schedule()}});
 
 // a new item created by someone who keeps the item catalogue goes straight into the catalogue
 {const add=A.addCustom;A.addCustom=async()=>{const d=ui.modal&&ui.modal.d;const nw=d&&d.newItem&&ui.role==='hq'&&!ui.preview&&can('masters_items')&&String(d.desc||'').trim()&&num(d.qty)>0&&!D.itemMap[slug(d.desc)];
@@ -354,3 +356,38 @@ document.addEventListener('input',e=>{const el=e.target;if(el&&el.dataset&&el.da
   confirmBox({title:'Also change past records?',body:`<p><b>${esc(it.desc)}</b> is now in <b>${esc(catName(nw))}</b>. ${rows.length} size${rows.length===1?'':'s'} of it in demands, orders or stock still show <b>${esc(catName(old))}</b>.</p><p>Change them too, so the procurement queue, vendors and reports use the new category?</p>`,yes:'Change them too',onYes:async()=>{
     const ok=await run(async()=>{let n=0;for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat:nw}});n+=j.docs}return n});
     if(ok!==false){closeModal();toast(`Category changed in ${ok} record${ok===1?'':'s'}.`)}}})}}
+
+
+/* ================= 6. APPROVER CHANGES THE ITEM WHILE APPROVING =================
+   e.g. the site asked for Cement OPC, the approver changes it to Cement PPC. The site's original
+   request is kept on the line and shown to the site with who changed it and why (the server stamps it). */
+Object.assign(ACT_PERM,{lineItem:'demands_approve',saveLineItem:'demands_approve'});
+const lineEditable=l=>!l.rfqId&&!l.poId&&!l.transferId&&!l.fromStock&&!l.pcRemoved&&l.status!=='rejected';
+A.lineItem=d=>{const i=S.indents.find(x=>x.id===d.ind);const l=i&&(i.lines||[]).find(x=>x.id===d.line);if(!l) return;
+  if(!lineEditable(l)){toast('This line is already being sourced (RFQ, PO, store or transfer). Change it there.','err');return}
+  const it=D.itemMap[slug(l.desc)];
+  openModal({type:'lineItem',ind:i.id,line:l.id,sizes:it&&norm(it.desc)===norm(l.desc)?(it.sizes||[]):[],d:{desc:l.desc,spec:l.spec||'',unit:l.unit,category:l.category||'others',qty:String(ui.draft.aq&&ui.draft.aq[l.id]!=null?ui.draft.aq[l.id]:(l.approvedQty??l.qty)),note:'',approve:true}})};
+function lineItemModal(m,busy){const i=S.indents.find(x=>x.id===m.ind);const l=i&&(i.lines||[]).find(x=>x.id===m.line);if(!l) return '';const d=m.d;const was=l.apprOrig||l;
+  const units=UNITS.includes(d.unit)?UNITS:UNITS.concat([d.unit]);
+  const changed=d.desc.trim()!==l.desc||String(d.spec).trim()!==(l.spec||'')||d.unit!==l.unit||d.category!==(l.category||'others');
+  return wrap('Change item · '+esc(i.no),`<div class="notice">${icon('inbox')}<span>Site asked for: <b>${esc(was.desc)}</b>${was.spec?' — '+esc(was.spec):''} · ${fq(was.qty)} ${esc(was.unit)}${l.siteNote?`<br><span class="small muted">Site note: ${esc(l.siteNote)}</span>`:''}</span></div>
+   <div class="fields"><div class="f span2 pop-wrap sugg-wrap"><label for="f-modal-d-desc">Item to supply</label>${inp('modal.d.desc',d.desc,'data-sugg="line" data-focus-pop="lsugg" data-rerender="1" autocomplete="off" role="combobox" placeholder="Start typing — e.g. Cement PPC"')}${ui.pop==='lsugg'?suggPanel(d.desc,'line'):''}</div>
+   ${(m.sizes||[]).length?`<div class="f full"><label>Size</label><div class="size-chips">${m.sizes.map(z=>`<button type="button" class="schip ${d.spec===z?'on':''}" data-act="mset" data-k="spec" data-val="${esc(z)}">${esc(z)}</button>`).join('')}</div></div>`:''}
+   ${field('Size / specification','modal.d.spec',d.spec,'data-rerender="1" placeholder="e.g. 53 grade, 50 kg bag"')}
+   <div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
+   <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div>
+   <div class="f"><label for="f-modal-d-qty">Quantity to approve</label>${stepperInp('modal.d.qty',d.qty)}</div></div>
+   <div class="f full"><label for="f-modal-d-note">Reason for the change (shown to the site)</label><textarea class="inp" id="f-modal-d-note" data-bind="modal.d.note" rows="2" placeholder="e.g. PPC is specified for this work as per approved mix design">${esc(d.note||'')}</textarea></div>
+   <label class="check"><input type="checkbox" id="f-modal-d-approve" data-bind="modal.d.approve" ${d.approve?'checked':''}> Approve the line with this change</label>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveLineItem" ${busy} ${changed?'':'disabled'}>${icon('check')} ${d.approve?'Change &amp; approve':'Change item'}</button>`,'wide')}
+A.saveLineItem=async()=>{const m=ui.modal,d=m.d;const desc=String(d.desc||'').trim();if(!desc){toast('Enter the item.','err');return}
+  const note=String(d.note||'').trim();if(!note){toast('Write the reason for the change, so the site knows why.','err');document.getElementById('f-modal-d-note')?.focus();return}
+  const q=num(d.qty);if(d.approve&&!(q>0)){toast('Enter the quantity to approve.','err');return}
+  const ok=await run(()=>patchLines(m.ind,ls=>{const l=ls.find(x=>x.id===m.line);if(!l) return;
+    Object.assign(l,{desc,spec:String(d.spec||'').trim(),unit:d.unit,category:d.category,catSrc:'manual',chgNote:note});
+    if(d.approve){l.status='approved';l.approvedQty=q;l.approvedAt=Date.now();l.approvalNote=note}}),d.approve?'Item changed and approved':'Item changed');
+  if(ok!==false){if(ui.draft.aq) delete ui.draft.aq[m.line];closeModal()}};
+// note on the line: what the site asked for and who changed it
+function apprChangeNote(l,site){const o=l.apprOrig;if(!o) return '';
+  return `<small class="pc-orig">${icon('edit','xs')} ${site?'You asked':'Site asked'}: ${esc(o.desc)}${o.spec?' '+esc(o.spec):''} · ${fq(o.qty)} ${esc(o.unit)} — changed to ${esc(l.desc)}${l.spec?' '+esc(l.spec):''} by ${esc(l.chgByName||'HQ')}${l.chgAt?' on '+fdt(l.chgAt):''}${l.chgNote?': “'+esc(l.chgNote)+'”':''}</small>`}
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='lineItem'?lineItemModal(m,busy):prev(m,busy)}
