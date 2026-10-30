@@ -847,3 +847,15 @@ pre.mail-body{white-space:pre-wrap;font:12.5px/1.45 var(--mono,monospace);backgr
 .sugg-spec{font-weight:500;color:var(--ink-2)}
 .sugg.create{border-top:1px solid var(--line);margin-top:4px;color:var(--brand,#1172C4)}
 .sugg .thumb.plus{display:grid;place-items:center}
+.vchips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.vchip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;cursor:pointer;background:var(--surface)}
+.vchip.on{border-color:var(--brand,#1172C4);background:var(--surface-3);font-weight:600}
+.vchip input{margin:0}
+tr.struck td{opacity:.5;text-decoration:line-through}
+tr.struck td:last-child{text-decoration:none;opacity:1}
+.am-lines{display:grid}
+.am-line{display:grid;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+.am-f{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.am-f label{display:grid;gap:3px;font-size:12px;color:var(--ink-3)}
+.am-f .am-q .inp{width:96px}.am-f .am-s{flex:1;min-width:160px}
+.am-line.struck .who{opacity:.5;text-decoration:line-through}

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.0.4"
+const appVersion = "6.1.0"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
@@ -829,6 +829,12 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 			}
 			return merged, nil
 		}
+		// sent back by HQ for amendment: the site amends and sends it again (checked in amendGuard)
+		if op == "update" && ex != nil && amendOpen(ex) && str(ex, "projectId") == u.ProjectID {
+			if _, has := patch["amend"]; has {
+				return merged, nil
+			}
+		}
 		if op == "update" || op == "set" {
 			return nil, errors.New("A demand can't be changed from site after it is sent. It is read-only here; ask HQ if something needs to change.")
 		}
@@ -1043,6 +1049,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		if err := receiptGuard(req.Col, exData, newData); err != nil {
 			fail(w, 403, err.Error())
 			return
+		}
+		if req.Col == "indents" && exData != nil {
+			if err := amendGuard(u, exData, req.Data, newData); err != nil {
+				fail(w, 403, err.Error())
+				return
+			}
 		}
 		if req.Col == "consumption" {
 			if err := consumptionGuard(u, exData, req.Data, newData); err != nil {

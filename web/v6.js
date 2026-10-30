@@ -391,3 +391,66 @@ A.saveLineItem=async()=>{const m=ui.modal,d=m.d;const desc=String(d.desc||'').tr
 function apprChangeNote(l,site){const o=l.apprOrig;if(!o) return '';
   return `<small class="pc-orig">${icon('edit','xs')} ${site?'You asked':'Site asked'}: ${esc(o.desc)}${o.spec?' '+esc(o.spec):''} · ${fq(o.qty)} ${esc(o.unit)} — changed to ${esc(l.desc)}${l.spec?' '+esc(l.spec):''} by ${esc(l.chgByName||'HQ')}${l.chgAt?' on '+fdt(l.chgAt):''}${l.chgNote?': “'+esc(l.chgNote)+'”':''}</small>`}
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='lineItem'?lineItemModal(m,busy):prev(m,busy)}
+
+/* ================= 7. PROCUREMENT QUEUE: BY REQUISITION, VENDORS ITEM BY ITEM ================= */
+Object.assign(ACT_PERM,{selAllQueue:'rfq_create',selMr:'rfq_create',rfqForMr:'rfq_create',rfqMode:'rfq_create',rfqLineVend:'rfq_create',rfqLineAddVend:'rfq_create',createRfqs:'rfq_create',
+  sendBack:['demands_approve','demands_precheck'],lineDelete:'demands_approve'});
+A.selAllQueue=()=>{const L=queueLines();const all=L.every(x=>ui.sel[x.k]);for(const x of L) ui.sel[x.k]=!all;render()};
+A.selMr=d=>{const g=queueLines().filter(x=>x.ind.id===d.id);const all=g.every(x=>ui.sel[x.k]);for(const x of g) ui.sel[x.k]=!all;render()};
+A.rfqForMr=d=>{ui.sel={};for(const x of queueLines()) if(x.ind.id===d.id) ui.sel[x.k]=true;A.newRfq()};
+{const open=A.newRfq;A.newRfq=()=>{open();const m=ui.modal;if(!m||m.type!=='newRfq') return;m.d.mode='same';
+  for(const l of m.d.lines) l.vids=S.vendors.filter(v=>(v.categories||[]).includes(l.cat)).map(v=>v.id);render()}}
+A.rfqMode=d=>{ui.modal.d.mode=d.val;render()};
+A.rfqLineVend=(d,el)=>{const l=ui.modal.d.lines.find(x=>x.key===d.key);if(!l) return;const s=new Set(l.vids||[]);el.checked?s.add(d.v):s.delete(d.v);l.vids=[...s];render()};
+CH.rfqLineAddVend=el=>{const l=ui.modal.d.lines.find(x=>x.key===el.dataset.key);if(!l||!el.value) return;l.vids=[...new Set([...(l.vids||[]),el.value])];render()};
+A.createRfqs=async()=>{const m=ui.modal.d;const groups={};
+  for(const l of m.lines){if(!(l.vids||[]).length){toast('Choose at least one vendor for '+l.desc+'.','err');return}const k=l.vids.slice().sort().join(',');(groups[k]=groups[k]||[]).push(l)}
+  const made=await run(async()=>{const out=[];for(const [k,ls] of Object.entries(groups)){const lines=ls.map((l,i)=>{const c=Object.assign({},l,{key:'L'+(i+1)});delete c.vids;return c});
+    out.push(await createRfq({lines,vendorIds:k.split(','),dueDate:m.dueDate,deliveryMode:m.deliveryMode,notes:m.notes}))}return out});
+  if(made){ui.sel={};closeModal();toast(made.map(r=>r.no).join(', ')+' created. Now send '+(made.length===1?'it':'them')+' to the vendors.');if(made.length===1) go('rfq',made[0].id);else{ui.f.rs='open';go('rfqs')}}};
+
+/* ================= 8. DEMAND SENT BACK TO THE RAISER FOR AMENDMENT ================= */
+const amendOk=i=>!i.cancelled&&!amendIsOpen(i)&&!(i.lines||[]).some(l=>l.status==='approved'||l.rfqId||l.poId||l.transferId||l.fromStock);
+function sendBackBtn(i,siteMode){if(siteMode||ui.role!=='hq'||!(can('demands_approve')||can('demands_precheck'))||!amendOk(i)) return '';
+  return `<button class="btn" data-act="sendBack" data-id="${i.id}" title="Return the demand to the person who raised it, to add or remove items or change quantities">${icon('back')} Send back to site</button>`}
+function amendCanEdit(i,siteMode){if(!amendIsOpen(i)) return false;return siteMode?ui.role==='site'&&!ui.preview:(ui.role==='hq'&&i.createdBy===ui.uid)}
+function amendBanner(i,siteMode){const a=i.amend;if(!a) return '';
+  if(a.status==='open') return `<div class="notice err">${icon('back')}<span><b>Sent back ${siteMode?'to you ':'to the site '}for amendment</b> by ${esc(a.byName||'HQ')} on ${fdt(a.at)} (${esc(a.stage==='pre-check'?'pre-check':'approval')}): “${esc(a.note||'')}”${siteMode?'<br>Add the items that are missing, remove items or change quantities below, then send it again.':'<br>Nothing in it can be approved until the site sends it again.'}</span></div>`;
+  if(a.status==='resubmitted') return `<p class="ro-note">${icon('check','xs')} <span><b>Amended and sent again</b> by ${esc(a.byName||'')} on ${fdt(a.at)}${a.note?': “'+esc(a.note)+'”':''} (it was sent back by ${esc(a.sentBackBy||'HQ')}: “${esc(a.sentBackNote||'')}”).</span></p>`;
+  return ''}
+function amendLogCard(i){const lg=i.amendLog||[];if(!lg.length) return '';
+  return `<section class="card"><div class="card-h"><h2>Sent back and amended</h2><span class="sub">${lg.length} entr${lg.length===1?'y':'ies'}</span></div><div class="list">${lg.slice().reverse().map(e=>`<div class="li"><span class="n-ic ${e.type==='sent back'?'red':'green'}">${icon(e.type==='sent back'?'back':'edit')}</span><div class="grow"><b>${e.type==='sent back'?'Sent back by':'Amended by'} ${esc(e.by||'')}</b> <small class="muted">${fdt(e.at)}${e.stage?' · at '+esc(e.stage):''}</small>${e.note?`<p class="rm-t">${esc(e.note)}</p>`:''}${e.added?`<small class="block t-green">Added: ${esc(e.added)}</small>`:''}${e.removed?`<small class="block t-red">Removed: ${esc(e.removed)}</small>`:''}${e.changed?`<small class="block">Changed: ${esc(e.changed)}</small>`:''}</div></div>`).join('')}</div></section>`}
+A.sendBack=d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;confirmBox({title:'Send '+i.no+' back to the site',body:`<p>The demand goes back to <b>${esc(i.requestedBy||i.createdByName||'the person who raised it')}</b> at ${esc(projName(i.projectId))}. They can add items, remove items or change quantities and then send it again${S.config&&S.config.precheck?'; it is then pre-checked again':''}. Nothing in it can be approved meanwhile.</p>`,noteArea:true,note:'What should be changed (required — the site sees this)',notePh:'e.g. Add 20 nos DI collars 150 mm for the same stretch; reduce cement to 200 bags',yes:'Send back',
+  onYes:async m=>{const n=String(m.noteVal||'').trim();if(!n){toast('Write what the site should change.','err');return}if(await run(()=>updDoc('indents',i.id,{amend:{status:'open',note:n}}),i.no+' sent back to the site')!==false){closeModal();go(ui.view==='indent'?'demands':ui.view)}}})};
+function amendDraft(i){const dd=ui.draft.am||(ui.draft.am={});return dd[i.id]||(dd[i.id]={note:'',remarks:i.remarks||'',lines:(i.lines||[]).filter(l=>!l.pcRemoved).map(l=>({id:l.id,desc:l.desc,spec:l.spec||'',unit:l.unit,qty:String(l.qty),category:l.category||'others',siteNote:l.siteNote||'',removed:false,rejected:l.status==='rejected'}))})}
+function amendEditor(i){const d=amendDraft(i);const n=d.lines.filter(l=>!l.removed).length;
+  return `<section class="card amend-ed"><div class="card-h"><h2>Amend the demand</h2><span class="sub">${n} item${n===1?'':'s'}</span><div class="acts"><button class="btn sm primary" data-act="amendAdd" data-id="${i.id}">${icon('plus')} Add item</button></div></div>
+  <div class="am-lines">${d.lines.map((l,ix)=>`<div class="am-line ${l.removed?'struck':''}"><div class="who">${lineThumb(l,'xs')}<span><b>${esc(l.desc)}</b>${l.id?'':' <span class="chip green plain">new</span>'}${l.rejected?' <span class="chip red plain">rejected by HQ</span>':''}</span></div>
+    <div class="am-f">${l.removed?`<span class="small">${fq(l.qty)} ${esc(l.unit)} ${esc(l.spec)} — will be removed</span>`:`<label class="am-q"><span>Qty</span>${inp('draft.am.'+i.id+'.lines.'+ix+'.qty',l.qty,'inputmode="decimal"')}</label>
+    <label><span>Unit</span><select class="inp sm" id="${fid('draft.am.'+i.id+'.lines.'+ix+'.unit')}" data-bind="draft.am.${i.id}.lines.${ix}.unit">${selOpts(UNITS.includes(l.unit)?UNITS:UNITS.concat([l.unit]),l.unit)}</select></label>
+    <label class="am-s"><span>Size / specification</span>${inp('draft.am.'+i.id+'.lines.'+ix+'.spec',l.spec,'placeholder="Size"')}</label>`}
+    <button class="btn sm ${l.removed?'':'ghost'}" data-act="amendRm" data-id="${i.id}" data-ix="${ix}">${l.removed?'Keep':icon('trash')+' Remove'}</button></div></div>`).join('')}</div>
+  <div class="card-b"><div class="f full"><label for="${fid('draft.am.'+i.id+'.note')}">Note for HQ about the changes</label><textarea class="inp" id="${fid('draft.am.'+i.id+'.note')}" data-bind="draft.am.${i.id}.note" rows="2" placeholder="e.g. Collars added as asked; cement reduced to 200 bags">${esc(d.note||'')}</textarea></div>
+  <div class="row end"><button class="btn" data-act="amendReset" data-id="${i.id}">Undo changes</button><button class="btn orange" data-act="amendSend" data-id="${i.id}" ${ui.busy?'disabled':''}>${icon('ul')} Send amended demand to HQ</button></div></div></section>`}
+A.amendRm=d=>{const l=amendDraft(S.indents.find(x=>x.id===d.id)).lines[+d.ix];if(!l) return;if(!l.id){amendDraft(S.indents.find(x=>x.id===d.id)).lines.splice(+d.ix,1)}else l.removed=!l.removed;render()};
+A.amendReset=d=>{delete ui.draft.am[d.id];render()};
+A.amendAdd=d=>openModal({type:'amendAdd',ind:d.id,sizes:[],d:{desc:'',spec:'',unit:'Nos',category:'others',qty:'',siteNote:''}});
+function amendAddModal(m,busy){const d=m.d;const units=UNITS.includes(d.unit)?UNITS:UNITS.concat([d.unit]);
+  return wrap('Add item to the demand',`<div class="fields"><div class="f span2 pop-wrap sugg-wrap"><label for="f-modal-d-desc">Item</label>${inp('modal.d.desc',d.desc,'data-sugg="line" data-focus-pop="lsugg" data-rerender="1" autocomplete="off" role="combobox" placeholder="Start typing — e.g. DI collar"')}${ui.pop==='lsugg'?suggPanel(d.desc,'line'):''}</div>
+   ${(m.sizes||[]).length?`<div class="f full"><label>Size</label><div class="size-chips">${m.sizes.map(z=>`<button type="button" class="schip ${d.spec===z?'on':''}" data-act="mset" data-k="spec" data-val="${esc(z)}">${esc(z)}</button>`).join('')}</div></div>`:''}
+   ${field('Size / specification','modal.d.spec',d.spec)}<div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
+   <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div><div class="f"><label for="f-modal-d-qty">Quantity</label>${stepperInp('modal.d.qty',d.qty)}</div>
+   ${field('Note for HQ (optional)','modal.d.siteNote',d.siteNote,'','full')}</div>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn orange" data-act="saveAmendAdd" ${busy}>${icon('plus')} Add</button>`,'wide')}
+A.saveAmendAdd=()=>{const m=ui.modal,d=m.d;if(!String(d.desc).trim()){toast('Enter the item.','err');return}if(!(num(d.qty)>0)){toast('Enter the quantity.','err');return}
+  const i=S.indents.find(x=>x.id===m.ind);amendDraft(i).lines.push({id:'',desc:d.desc.trim(),spec:String(d.spec||'').trim(),unit:d.unit,qty:String(num(d.qty)),category:d.category,siteNote:d.siteNote||'',removed:false});closeModal();toast('Added '+d.desc.trim()+'. Send the amended demand when you are done.')};
+A.amendSend=async d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;const dr=amendDraft(i);
+  const keep=dr.lines.filter(l=>!l.removed);if(!keep.length){toast('Keep at least one item, or ask HQ to cancel the demand.','err');return}
+  for(const l of keep) if(!(num(l.qty)>0)){toast('Enter the quantity for '+l.desc+'.','err');return}
+  const lines=keep.map(l=>l.id?{id:l.id,desc:l.desc,spec:String(l.spec||'').trim(),unit:l.unit,qty:num(l.qty),siteNote:l.siteNote}:{desc:l.desc,spec:l.spec,unit:l.unit,qty:num(l.qty),category:l.category,catSrc:'manual',siteNote:l.siteNote});
+  if(await run(()=>updDoc('indents',i.id,{lines,amend:{status:'resubmitted',note:String(dr.note||'').trim()}}),'Amended demand sent to HQ')!==false){delete ui.draft.am[i.id];render()}};
+A.lineDelete=d=>{const i=S.indents.find(x=>x.id===d.ind);const l=i&&(i.lines||[]).find(x=>x.id===d.line);if(!l) return;
+  confirmBox({title:'Delete '+l.desc+' from '+i.no+'?',body:'<p>The item is taken out of the demand and will not be bought. The site sees that you deleted it and why.</p>',noteArea:true,note:'Reason (required)',yes:'Delete item',danger:true,
+  onYes:async m=>{const r=String(m.noteVal||'').trim();if(!r){toast('Write the reason.','err');return}
+    if(await run(()=>patchLines(i.id,ls=>{const x=ls.find(y=>y.id===l.id);if(!x) return;x.status='rejected';x.approvalNote=r;x.deletedBy=(ui.me&&ui.me.name)||'HQ'}),'Item deleted from the demand')!==false) closeModal()}})};
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='amendAdd'?amendAddModal(m,busy):prev(m,busy)}

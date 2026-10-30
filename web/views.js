@@ -101,7 +101,7 @@ function vDemands(){
   if(f.dp) list=list.filter(i=>i.projectId===f.dp);
   list=list.filter(i=>{const s=indentStatus(i).label;if(st==='review') return s==='Awaiting review';if(st==='open') return !['Completed','Cancelled','Rejected'].includes(s);if(st==='closed') return ['Completed','Cancelled','Rejected'].includes(s);return true});
   if(q) list=list.filter(i=>norm(i.no+' '+(i.requestedBy||'')+' '+(i.lines||[]).map(l=>l.desc).join(' ')).includes(q));
-  const pendingAll=allLines().filter(x=>(!x.l.status||x.l.status==='pending')&&!pcPending(x.ind)&&!(x.ind.precheck&&x.ind.precheck.by===ui.uid)).length;const td=today();
+  const pendingAll=allLines().filter(x=>(!x.l.status||x.l.status==='pending')&&!pcPending(x.ind)&&!amendIsOpen(x.ind)&&!(x.ind.precheck&&x.ind.precheck.by===ui.uid)).length;const td=today();
   return `<div class="toolbar">${seg('ds',[['review','To review'],['open','Open'],['closed','Closed'],['all','All']],st)}
     <select class="inp auto" id="f-dp" data-act-change="setFsel" data-k="dp">${projOpts(f.dp||'','All projects')}</select>
     <div class="search-inp">${icon('search')}<input class="inp" id="f-dq" placeholder="Search item or MR no." data-bind="f.dq" data-rerender="1" value="${esc(f.dq||'')}"></div>
@@ -110,7 +110,7 @@ function vDemands(){
   ${waitingPc?`<div class="notice info">${icon('clock')}<span><b>${waitingPc} demand${waitingPc>1?'s are':' is'} waiting for pre-check</b> and ${waitingPc>1?'are':'is'} not shown here. ${waitingPc>1?'They appear':'It appears'} in this inbox for approval only after a pre-checker pre-approves ${waitingPc>1?'them':'it'}.${can('demands_precheck')?` <button class="linkish" data-act="go" data-v="precheck">Open Pre-check</button>`:''}</span></div>`:''}
   <section class="card">${list.length?`<div class="tw"><table class="t"><thead><tr><th>Requisition</th><th>Project</th><th>Items</th><th>Required by</th><th>Priority</th><th>Delivered</th><th>Status</th></tr></thead><tbody>${list.map(i=>{const s=indentStatus(i);const ls=i.lines||[];const pend=ls.filter(l=>!l.status||l.status==='pending').length;const p=proj(i.projectId);
     return `<tr class="click" data-act="openIndent" data-id="${i.id}"><td><span class="docno">${esc(i.no)}</span><small class="muted block">${fd(i.date)}</small></td>
-    <td><div class="who"><span class="mini-cover">${cover(p)}</span><span><b>${esc(projCode(i.projectId))}</b><small class="muted block">${esc(i.requestedBy||'')}${i.raisedByHQ?' · by HQ':''}</small></span></div></td>
+    <td><div class="who"><span class="mini-cover">${cover(p)}</span><span><b>${esc(projName(i.projectId))}</b><small class="muted block">${esc(projCode(i.projectId))}${i.requestedBy?' · '+esc(i.requestedBy):''}${i.raisedByHQ?' · by HQ':''}</small></span></div></td>
     <td><div class="thumbs">${ls.slice(0,4).map(l=>lineThumb(l,'xs')).join('')}<span class="small">${ls.length} item${ls.length>1?'s':''}${pend?` <span class="t-amber">· ${pend} new</span>`:''}</span></div></td>
     <td class="nowrap">${fd(i.requiredBy)}${i.requiredBy&&i.requiredBy<td&&s.label!=='Completed'?` <span class="t-red small">overdue</span>`:''}</td><td><span class="prio ${esc(i.priority||'Normal')}">${esc(i.priority||'Normal')}</span></td>
     <td style="min-width:110px">${bar(s.pct,'green')}</td><td>${chip(s)}</td></tr>`}).join('')}</tbody></table></div>`:emptyBox(ART.x('clip','e-art'),'No demands here',S.indents.length?'Try another filter.':'Demands raised by sites appear here for review.')}</section>`;
@@ -126,7 +126,7 @@ function lineCard(i,l,hq){
   const qty=hq&&pending?`<span class="lq-in">Approve ${stepperInp('draft.aq.'+l.id,ui.draft.aq&&ui.draft.aq[l.id]!=null?ui.draft.aq[l.id]:(l.approvedQty??l.qty),'aq-'+l.id)}</span>`:`<span>Approved <b>${l.status==='approved'?fq(needQty(l))+' '+esc(l.unit):'—'}</b></span>`;
   const cat=hq&&!l.rfqId&&!l.poId&&!l.transferId?`<select class="inp sm auto" id="cat-${l.id}" data-act-change="setLineCat" data-ind="${i.id}" data-line="${l.id}" aria-label="Category">${catOpts(l.category)}</select>`:catSw(l.category);
   let acts='';
-  if(hq){if(pending) acts=`<button class="btn sm primary" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="approved">${icon('check')} Approve</button><button class="btn sm" data-act="lineItem" data-ind="${i.id}" data-line="${l.id}" title="Change the item, e.g. Cement OPC to PPC">${icon('edit')} Change item</button><button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="hold">Hold</button><button class="btn sm danger" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="rejected">Reject</button>`;
+  if(hq){if(pending) acts=`<button class="btn sm primary" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="approved">${icon('check')} Approve</button><button class="btn sm" data-act="lineItem" data-ind="${i.id}" data-line="${l.id}" title="Change the item, e.g. Cement OPC to PPC">${icon('edit')} Change item</button><button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="hold">Hold</button><button class="btn sm danger" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="rejected">Reject</button><button class="btn sm ghost" data-act="lineDelete" data-ind="${i.id}" data-line="${l.id}" title="Delete this item from the demand">${icon('trash')} Delete</button>`;
     else if(l.status==='approved'&&!l.rfqId&&!l.poId&&!l.fromStock&&!l.transferId) acts=`<button class="btn sm" data-act="lineItem" data-ind="${i.id}" data-line="${l.id}">${icon('edit')} Change item</button><button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="pending">Reopen</button>`;
     else if(l.status==='rejected') acts=`<button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="pending">Reopen</button>`}
   return `<div class="line">${lineThumb(l,'md')}<div class="line-main">
@@ -176,14 +176,15 @@ function vIndent(siteMode){
      <h2>${esc(projLabel(i.projectId))}</h2>
      <div class="meta"><div><span>Raised on</span><b>${fd(i.date)}</b></div><div><span>Required by</span><b>${fd(i.requiredBy)}</b></div><div><span>Requested by</span><b>${esc(i.requestedBy||i.createdByName||'—')}</b></div><div><span>Delivered</span><b>${Math.round(s.pct*100)}%</b></div></div>
      ${i.remarks?`<p class="remark">${icon('chat')} <span><b>Site remarks:</b> ${esc(i.remarks)}</span></p>`:''}
-     ${siteMode?`<p class="ro-note">${icon('key','xs')} <span><b>View only.</b> This requisition was sent to HQ and can't be changed from site. Follow each item's progress below; ask HQ if something needs to change.</span></p>`:''}
+     ${amendBanner(i,siteMode)}
+     ${siteMode&&!amendIsOpen(i)?`<p class="ro-note">${icon('key','xs')} <span><b>View only.</b> This requisition was sent to HQ and can't be changed from site. Follow each item's progress below; ask HQ if something needs to change.</span></p>`:''}
      ${pcp&&!pcEdit?`<p class="ro-note">${icon('clock','xs')} <span><b>Waiting for pre-check.</b> ${siteMode?'HQ checks the demand before it goes for approval. You will see any change here.':'The approver can act on it after a pre-checker pre-approves it.'}</span></p>`:''}</div>
      ${selfPc&&!siteMode?`<p class="ro-note">${icon('key','xs')} <span><b>You pre-approved this demand,</b> so another person must approve it.</span></p>`:''}
-     <div class="doc-acts">${hq&&!pcp&&!selfPc&&(i.lines||[]).some(l=>!l.status||l.status==='pending'||l.status==='hold')?`<button class="btn primary" data-act="approveIndent" data-id="${i.id}">${icon('check')} Approve all lines</button>`:''}
+     <div class="doc-acts">${sendBackBtn(i,siteMode)}${hq&&!pcp&&!selfPc&&!amendIsOpen(i)&&(i.lines||[]).some(l=>!l.status||l.status==='pending'||l.status==='hold')?`<button class="btn primary" data-act="approveIndent" data-id="${i.id}">${icon('check')} Approve all lines</button>`:''}
      ${(hq&&!pcp&&allPending&&!i.cancelled)?`<button class="btn danger" data-act="cancelIndent" data-id="${i.id}">Cancel requisition</button>`:''}
      <button class="btn" data-act="printMR" data-id="${i.id}">${icon('print')} Print</button><button class="btn ghost" data-act="go" data-v="${siteMode?'s_list':'demands'}">${icon('back')} Back</button></div></section>
-  ${pcEdit?pcEditor(i):`<section class="card"><div class="card-h"><h2>Items</h2><span class="sub">${(i.lines||[]).length} lines</span></div><div class="lines">${(i.lines||[]).map(l=>lineCard(i,l,hq&&!pcp&&!selfPc)).join('')}</div></section>`}
-  ${pcLogCard(i)}${remarksCard(i,hq)}
+  ${amendCanEdit(i,siteMode)?amendEditor(i):pcEdit&&!amendIsOpen(i)?pcEditor(i):`<section class="card"><div class="card-h"><h2>Items</h2><span class="sub">${(i.lines||[]).length} lines</span></div><div class="lines">${(i.lines||[]).map(l=>lineCard(i,l,hq&&!pcp&&!selfPc&&!amendIsOpen(i))).join('')}</div></section>`}
+  ${amendLogCard(i)}${pcLogCard(i)}${remarksCard(i,hq)}
   ${hq?`<p class="muted small">${icon('help')} Changing a category teaches the catalogue, so the same item is filed correctly next time. Approved lines move to the procurement queue.</p>`:''}`;
 }
 
@@ -271,6 +272,7 @@ function vSiteHome(){
     <button class="kpi has-ph" data-act="go" data-v="s_list"><span class="kpi-ph">${ART.x('clock')}</span><span class="k">Overdue</span><span class="v">${od}</span><span class="d">past your required date</span></button>
     <button class="kpi has-ph" data-act="go" data-v="s_list"><span class="kpi-ph">${ART.x('check')}</span><span class="k">Delivered</span><span class="v">${L.filter(x=>x.info.st==='delivered').length}</span><span class="d">lines completed</span></button>
   </div>
+  ${(()=>{const sb=S.indents.filter(i=>i.projectId===pid&&amendIsOpen(i));return sb.length?`<div class="notice err">${icon('back')}<span><b>${sb.length} demand${sb.length===1?' was':'s were'} sent back to you for amendment:</b> ${sb.map(i=>`<button class="linkish docno" data-act="openIndent" data-id="${i.id}">${esc(i.no)}</button> — “${esc(i.amend.note||'')}”`).join('; ')}</span></div>`:''})()}
   ${toSend.length?`<section class="card"><div class="card-h"><h2>Material to send to other sites</h2><span class="sub">HQ asked you to transfer these</span></div><div class="list">${toSend.map(d=>dispCard(d,'from')).join('')}</div></section>`:''}
   ${inc.length?`<section class="card"><div class="card-h"><h2>On the way to your site</h2></div><div class="list">${inc.map(d=>dispCard(d)).join('')}</div></section>`:''}
   <div class="grid g2">
@@ -365,24 +367,32 @@ function queueLines(){return allLines().filter(x=>x.info.st==='source')}
 function vQueue(){
   const L=queueLines();
   if(!L.length) return emptyBox(ART.x('ok','e-art'),'Nothing waiting to be sourced','Approved demand lines land here, grouped by material, ready to send out for quotation.',`<button class="btn" data-act="go" data-v="demands">Go to demand inbox</button>`);
+  const by=ui.f.qg||'cat';const nSel=Object.values(ui.sel).filter(Boolean).length;const fc=ui.f.qc||'';
+  const row=x=>{const ik=itemKey(x.l.desc,x.l.spec,x.l.unit);const st=D.stock[ik];const bal=st?st.bal:0;
+      const others=Object.entries(D.site).filter(([p,m])=>p!==x.ind.projectId&&m[ik]&&m[ik].free>0);
+      return `<tr><td><input type="checkbox" id="sel-${x.k.replace('|','-')}" data-act="toggleSel" data-k="${x.k}" ${ui.sel[x.k]?'checked':''} aria-label="Select line"></td>
+      <td><div class="who">${lineThumb(x.l,'sm')}<span><b>${esc(x.l.desc)}</b><small class="muted block">${esc(x.l.spec||'')}${by==='cat'?` · <span class="docno">${esc(x.ind.no)}</span>`:` · ${esc(catName(x.l.category||'others'))}`}</small></span></div></td>
+      ${by==='cat'?`<td class="small"><b>${esc(projName(x.ind.projectId))}</b></td>`:''}<td class="num mono nowrap">${fq(x.info.need)} ${esc(x.l.unit)}</td>
+      <td class="nowrap">${fd(x.ind.requiredBy)}${x.ind.requiredBy&&x.ind.requiredBy<today()?' <span class="t-red small">overdue</span>':''} <span class="prio ${esc(x.ind.priority||'Normal')}">${x.ind.priority&&x.ind.priority!=='Normal'?esc(x.ind.priority):''}</span></td>
+      <td><div class="src">${bal>0?`<button class="src-btn" data-act="issueStock" data-k="${x.k}">${icon('box')} Store has ${fq(bal)} · Issue</button>`:''}${others.length?`<button class="src-btn alt" data-act="newTransfer" data-k="${x.k}">${icon('swap')} ${others.map(([p,m])=>esc(projCode(p))+': '+fq(m[ik].free)).slice(0,2).join(', ')} · Transfer</button>`:''}${!bal&&!others.length?'<span class="muted small">Buy new</span>':''}</div></td></tr>`};
+  const head=`<thead><tr><th></th><th>Item</th>${by==='cat'?'<th>Project</th>':''}<th class="num">Qty</th><th>Needed by</th><th>Other sources</th></tr></thead>`;
+  const top=`<div class="toolbar">${seg('qg',[['cat','By category'],['mr','By requisition']],by)}<span class="spacer"></span><button class="btn sm" data-act="selAllQueue">${L.every(x=>ui.sel[x.k])?'Unselect all':'Select all '+L.length+' lines'}</button></div>
+  ${nSel?`<div class="sel-bar"><b>${nSel} line${nSel>1?'s':''} selected</b><span class="muted">Identical items from different sites are merged into one enquiry line. In the next step choose the same vendors for all, or different vendors for each item.</span><span class="spacer"></span><button class="btn" data-act="clearSel">Clear</button><button class="btn primary" data-act="newRfq">${icon('quote')} Create RFQ</button></div>`:''}`;
+  if(by==='mr'){
+    const groups={};for(const x of L)(groups[x.ind.id]=groups[x.ind.id]||[]).push(x);
+    const order=Object.keys(groups).sort((a,b)=>(groups[a][0].ind.requiredBy||'').localeCompare(groups[b][0].ind.requiredBy||'')||String(groups[a][0].ind.no).localeCompare(groups[b][0].ind.no));
+    return top+order.map(id=>{const g=groups[id];const ind=g[0].ind;const p=proj(ind.projectId)||{};const allSel=g.every(x=>ui.sel[x.k]);
+      return `<section class="card"><div class="q-banner">${`<span class="mini-cover">${cover(p)}</span>`}<div class="grow"><h2><button class="linkish docno" data-act="openIndent" data-id="${ind.id}">${esc(ind.no)}</button> · ${esc(projName(ind.projectId))}</h2><small>${g.length} line${g.length===1?'':'s'} to source · raised ${fd(ind.date)}${ind.requestedBy?' by '+esc(ind.requestedBy):''} · needed by ${fd(ind.requiredBy)}${ind.priority&&ind.priority!=='Normal'?' · <span class="prio '+esc(ind.priority)+'">'+esc(ind.priority)+'</span>':''}</small></div>
+      <div class="acts"><button class="btn sm" data-act="selMr" data-id="${ind.id}">${allSel?'Unselect all':'Select all'}</button><button class="btn sm primary" data-act="rfqForMr" data-id="${ind.id}">${icon('quote')} RFQ for all</button></div></div>
+      <div class="tw"><table class="t">${head}<tbody>${g.map(row).join('')}</tbody></table></div></section>`}).join('')}
   const groups={};for(const x of L)(groups[x.l.category||'others']=groups[x.l.category||'others']||[]).push(x);
-  const nSel=Object.values(ui.sel).filter(Boolean).length;const fc=ui.f.qc||'';
   const order=CATS.map(c=>c.id).filter(c=>groups[c]&&(!fc||fc===c));
-  return `<div class="cat-chips"><button class="cchip ${!fc?'on':''}" data-act="setF" data-k="qc" data-val="">All <b>${L.length}</b></button>${CATS.filter(c=>groups[c.id]).map(c=>`<button class="cchip ${fc===c.id?'on':''}" data-act="setF" data-k="qc" data-val="${c.id}"><span class="tint" style="--h:${c.h}">${ART.cat(c.id)}</span>${esc(c.name)} <b>${groups[c.id].length}</b></button>`).join('')}</div>
-  ${nSel?`<div class="sel-bar"><b>${nSel} line${nSel>1?'s':''} selected</b><span class="muted">Identical items from different sites are merged into one enquiry line.</span><span class="spacer"></span><button class="btn" data-act="clearSel">Clear</button><button class="btn primary" data-act="newRfq">${icon('quote')} Create RFQ</button></div>`:''}
+  return `${top}<div class="cat-chips"><button class="cchip ${!fc?'on':''}" data-act="setF" data-k="qc" data-val="">All <b>${L.length}</b></button>${CATS.filter(c=>groups[c.id]).map(c=>`<button class="cchip ${fc===c.id?'on':''}" data-act="setF" data-k="qc" data-val="${c.id}"><span class="tint" style="--h:${c.h}">${ART.cat(c.id)}</span>${esc(c.name)} <b>${groups[c.id].length}</b></button>`).join('')}</div>
   ${order.map(c=>{const g=groups[c].sort((a,b)=>(a.ind.requiredBy||'').localeCompare(b.ind.requiredBy||''));const vs=S.vendors.filter(v=>(v.categories||[]).includes(c));const allSel=g.every(x=>ui.sel[x.k]);
     return `<section class="card"><div class="q-banner tint" style="--h:${catH(c)}">${ART.cat(c)}<div class="grow"><h2>${esc(catName(c))}</h2><small>${g.length} lines · ${new Set(g.map(x=>x.ind.projectId)).size} projects · ${vs.length?vs.length+' vendor'+(vs.length>1?'s':'')+': '+vs.slice(0,3).map(v=>esc(v.name)).join(', ')+(vs.length>3?'…':''):'<span class="t-red">no vendor assigned</span>'}</small></div>
     <div class="acts"><button class="btn sm" data-act="selCat" data-c="${c}">${allSel?'Unselect all':'Select all'}</button><button class="btn sm primary" data-act="rfqForCat" data-c="${c}">${icon('quote')} RFQ for all</button></div></div>
     ${vs.length?'':`<div class="card-b"><div class="notice warn">${icon('alert')}<span>No vendor supplies ${esc(catName(c))} yet.</span><button class="btn sm" data-act="go" data-v="vendors">Assign vendors</button></div></div>`}
-    <div class="tw"><table class="t"><thead><tr><th></th><th>Item</th><th>Project</th><th class="num">Qty</th><th>Needed by</th><th>Other sources</th></tr></thead><tbody>
-    ${g.map(x=>{const ik=itemKey(x.l.desc,x.l.spec,x.l.unit);const st=D.stock[ik];const bal=st?st.bal:0;
-      const others=Object.entries(D.site).filter(([p,m])=>p!==x.ind.projectId&&m[ik]&&m[ik].free>0);
-      return `<tr><td><input type="checkbox" id="sel-${x.k.replace('|','-')}" data-act="toggleSel" data-k="${x.k}" ${ui.sel[x.k]?'checked':''} aria-label="Select line"></td>
-      <td><div class="who">${lineThumb(x.l,'sm')}<span><b>${esc(x.l.desc)}</b><small class="muted block">${esc(x.l.spec||'')} · <span class="docno">${esc(x.ind.no)}</span></small></span></div></td>
-      <td class="small">${esc(projCode(x.ind.projectId))}</td><td class="num mono nowrap">${fq(x.info.need)} ${esc(x.l.unit)}</td>
-      <td class="nowrap">${fd(x.ind.requiredBy)}${x.ind.requiredBy&&x.ind.requiredBy<today()?' <span class="t-red small">overdue</span>':''} <span class="prio ${esc(x.ind.priority||'Normal')}">${x.ind.priority&&x.ind.priority!=='Normal'?esc(x.ind.priority):''}</span></td>
-      <td><div class="src">${bal>0?`<button class="src-btn" data-act="issueStock" data-k="${x.k}">${icon('box')} Store has ${fq(bal)} · Issue</button>`:''}${others.length?`<button class="src-btn alt" data-act="newTransfer" data-k="${x.k}">${icon('swap')} ${others.map(([p,m])=>esc(projCode(p))+': '+fq(m[ik].free)).slice(0,2).join(', ')} · Transfer</button>`:''}${!bal&&!others.length?'<span class="muted small">Buy new</span>':''}</div></td></tr>`}).join('')}
-    </tbody></table></div></section>`}).join('')}`;
+    <div class="tw"><table class="t">${head}<tbody>${g.map(row).join('')}</tbody></table></div></section>`}).join('')}`;
 }
 
 /* ================= RFQs ================= */

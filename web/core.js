@@ -255,10 +255,13 @@ function derive(){
   for(const k in d.stock) d.stock[k].bal=d.stock[k].inQ-d.stock[k].outQ;
 }
 function needQty(l){return l.approvedQty!=null?num(l.approvedQty):num(l.qty)}
+const amendIsOpen=ind=>!!(ind&&!ind.cancelled&&ind.amend&&ind.amend.status==='open');
 const pcPending=ind=>!!(ind&&!ind.cancelled&&ind.precheck&&ind.precheck.status==='pending');
 function lineInfo(ind,l){
   const k=ind.id+'|'+l.id,need=needQty(l),del=D.delivered[k]||0,tr=D.transit[k]||0;
   if(l.pcRemoved) return {st:'rejected',label:'Removed at pre-check',tone:'red',del,need};
+  if(l.status==='rejected'&&l.deletedBy) return {st:'rejected',label:'Deleted by '+l.deletedBy,tone:'red',del,need};
+  if(amendIsOpen(ind)&&l.status!=='rejected') return {st:'review',label:'Sent back for amendment',tone:'red',del,need};
   if(pcPending(ind)) return {st:'precheck',label:'Awaiting pre-check',tone:'violet',del,need};
   if(l.status==='rejected') return {st:'rejected',label:'Rejected',tone:'red',del,need};
   if(l.status==='hold') return {st:'review',label:'On hold',tone:'amber',del,need,hold:true};
@@ -292,6 +295,7 @@ function stepper(steps,rej,rejText){if(rej) return `<div class="steps rej"><span
 function allLines(projectId){const o=[];for(const ind of S.indents){if(ind.cancelled) continue;if(projectId&&ind.projectId!==projectId) continue;for(const l of ind.lines||[]) o.push({ind,l,k:ind.id+'|'+l.id,info:lineInfo(ind,l)})}return o}
 function indentStatus(ind){
   if(ind.cancelled) return {label:ind.pcDeleted?'Deleted at pre-check':'Cancelled',tone:'red',pct:0};
+  if(amendIsOpen(ind)) return {label:'Sent back to site',tone:'red',pct:0};
   if(pcPending(ind)) return {label:'Awaiting pre-check',tone:'violet',pct:0};
   const ls=(ind.lines||[]).map(l=>lineInfo(ind,l));const act=ls.filter(x=>x.st!=='rejected');
   const need=sum(act,x=>x.need),del=sum(act,x=>Math.min(x.del,x.need));const pct=need?del/need:0;
@@ -417,7 +421,7 @@ function navItems(){
     ].filter(n=>n.g||viewAllowed(n.v)).filter((n,i,a)=>!n.g||(a[i+1]&&!a[i+1].g));
   }
   const p=siteProject();const inc=S.dispatches.filter(d=>(d.projectId===p&&(d.status==='in_transit'||d.status==='ordered'))||(d.fromProjectId===p&&d.status==='to_send')).length;
-  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox'},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{v:'s_cons',l:'Consumption',i:'doc',b:consWaiting()},{v:'s_find',l:'Find items',i:'search'},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
+  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox',b:S.indents.filter(i=>i.projectId===p&&amendIsOpen(i)).length},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{v:'s_cons',l:'Consumption',i:'doc',b:consWaiting()},{v:'s_find',l:'Find items',i:'search'},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
 }
 function isActive(v){const map={indent:'demands',rfq:'rfqs',po:'pos',s_indent:'s_list',done:ui.role==='hq'?'demands':'s_new'};return ui.view===v||map[ui.view]===v}
 const TITLES={precheck:['Pre-check','New site demands waiting to be checked before approval'],dashboard:['Dashboard','Headquarters'],demands:['Demand inbox','Requests from all sites'],indent:['Material requisition','Demand inbox'],queue:['Procurement queue','Approved demand, grouped by category'],rfqs:['Quotations','Requests for quotation'],rfq:['Request for quotation','Quotations'],pos:['Purchase orders','Procurement'],po:['Purchase order','Purchase orders'],grn:['HQ store','Inward, stock in store and material sent to sites'],dispatch:['Dispatch to sites','Demand-wise challans from HQ store, transfers between sites'],jobwork:['With job workers','Material sent to vendors for job work and what they have used'],sitestock:['Site stock','Material at every project'],reports:['Reports','Spend and performance'],projects:['Projects','Masters'],vendors:['Vendors','Masters'],items:['Item catalogue','Masters'],settings:['Settings & backup','Users, site logins, company, email and backups'],account:['My account','Profile and password'],help:['Help & guide','How ProcureHub works'],s_home:['Home','My site'],s_new:['Raise demand','Pick what your site needs'],s_list:['My demands','Live status from HQ'],s_indent:['Material requisition','My demands'],s_incoming:['Receive material','Incoming and outgoing'],s_stock:['Site stock','Material at my site'],done:['Demand sent','Raise demand']};

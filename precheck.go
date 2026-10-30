@@ -87,7 +87,7 @@ func precheckGuard(u *User, op string, ex, patch, merged map[string]any) error {
 	// The demand is waiting for pre-check.
 	for k := range patch {
 		switch k {
-		case "precheck", "lines", "pcLog", "cancelled", "cancelledAt", "cancelReason", "cancelledByName", "pcDeleted", "at":
+		case "precheck", "lines", "pcLog", "cancelled", "cancelledAt", "cancelReason", "cancelledByName", "pcDeleted", "at", "amend":
 		default:
 			return errors.New("This demand is waiting for pre-check. Pre-check it first.")
 		}
