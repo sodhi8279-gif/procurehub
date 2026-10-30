@@ -5,8 +5,9 @@ package main
 // The pre-checker or the approver may send a demand back with a remark, so the
 // site adds items it forgot, removes items or changes quantities. While it is
 // back with the site nothing in it can be approved. The site (or the HQ person
-// who raised it) amends it and sends it again; if pre-check is switched on it
-// is pre-checked again. Every round is kept in amendLog.
+// who raised it) amends it and sends it again. It returns to whoever sent it
+// back: to pre-check if the pre-checker sent it back, otherwise straight to the
+// approver. Every round is kept in amendLog.
 
 import (
 	"errors"
@@ -170,8 +171,10 @@ func amendGuard(u *User, ex, patch, nd map[string]any) error {
 				"sentBackBy": str(ex["amend"].(map[string]any), "byName"), "sentBackNote": str(ex["amend"].(map[string]any), "note")}
 			log(map[string]any{"type": "amended", "by": u.Name, "at": now, "note": clip(str(req, "note"), 1000),
 				"added": strings.Join(added, "; "), "removed": strings.Join(removed, "; "), "changed": strings.Join(changed, "; ")})
-			// checked again from the start
-			if precheckOn() {
+			// it goes back to whoever sent it back: the pre-checker or the approver
+			stage := str(ex["amend"].(map[string]any), "stage")
+			nd["amend"].(map[string]any)["sentBackStage"] = stage
+			if stage == "pre-check" && precheckOn() {
 				nd["precheck"] = map[string]any{"status": "pending", "since": now, "again": true}
 			}
 			return nil

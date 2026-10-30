@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.1.0"
+const appVersion = "6.1.1"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
