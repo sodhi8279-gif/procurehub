@@ -14,13 +14,13 @@ pre{background:#14212A;color:#e2ecef;padding:12px 14px;border-radius:8px;overflo
 ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:#e9eeec}
 .opt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 </style></head><body><main>
-<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.0.2</small></h1>
+<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.0.3</small></h1>
 <p class="sub">Procurement for multi-site water supply &amp; sewerage projects: site demands → categorise → RFQ to vendors → comparative → PO → receipt → dispatch → site confirmation.</p>
 
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.0.2</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.0.3</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -108,6 +108,7 @@ sudo systemctl restart caddy</pre></li>
 <li><b>One item:</b> Find items → search the item → <b>Edit</b> → choose the new <b>Category</b> (name, size and unit can be corrected in the same window) → <b>Save everywhere</b>. The category is changed in every demand, quotation, PO, receipt, challan, stock and consumption entry of that item, and (ticked by default) in the item catalogue. The procurement queue, vendor lists and reports follow the new category.</li>
 <li><b>Several items together:</b> Find items → tick the items → choose the new category at the top of the list → <b>Change category</b>.</li>
 <li><b>From the Item catalogue:</b> when an administrator changes an item's category there, ProcureHub asks whether to change the past demands, orders and stock of that item too.</li>
+<li><b>Catalogue items</b> (Find items → “In the item catalogue” → Edit) also show the <b>Default specification</b> and the <b>Sizes sites can pick</b>. The size written on a past demand or stock line is corrected from that line under “Items found”. (6.0.3)</li>
 <li>Only administrators can do this. To add, rename or hide categories themselves, use Item catalogue → Categories, as before.</li></ol></div>
 <div class="card tip"><b>New in 6.0.1 — item list while typing a demand</b><ol style="margin:6px 0 0">
 <li>While raising a demand, start typing the item in the search box (or in <i>Type an item</i>). Every matching item in the database drops down below the box: items from the catalogue (with their sizes) and items already used in demands, orders and stock (with their size and unit). Use the mouse, or the arrow keys and Enter, to pick one.</li>

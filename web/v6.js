@@ -241,18 +241,19 @@ function vFind(){
   ${cat.length?`<section class="card"><div class="card-h"><h2>In the item catalogue</h2><span class="sub">What sites can pick when raising a demand</span></div><div class="tw"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Sizes</th>${adm?'<th></th>':''}</tr></thead><tbody>${cat.map(i=>`<tr><td><div class="who">${thumb({category:i.category||i.cat,desc:i.desc},'sm')}<span><b>${esc(i.desc)}</b><small class="muted block">${esc(i.spec||'')}</small></span></div></td><td>${esc(catName(i.category||i.cat))}</td><td>${esc(i.unit||'')}</td><td class="small">${esc((i.sizes||[]).join(', '))}</td>${adm?`<td><button class="btn sm" data-act="itemFix" data-cat="${esc(i.id)}">${icon('edit')} Edit</button></td>`:''}</tr>`).join('')}</tbody></table></div></section>`:''}`}
 
 A.itemFix=d=>{let from;
-  if(d.cat){const it=D.itemMap[d.cat];if(!it) return;from={desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',catOnly:true,catId:it.id}}
+  if(d.cat){const it=D.itemMap[d.cat];if(!it) return;from={desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',catOnly:true,catId:it.id,dspec:it.spec||'',sizes:(it.sizes||[]).join(', ')}}
   else{const o=itemIndex().find(x=>x.key===d.k);if(!o) return;from={desc:o.desc,spec:o.spec||'',unit:o.unit,cat:o.cat||'others'}}
   const cid=from.catId||slug(from.desc);
-  openModal({type:'itemFix',from,d:{desc:from.desc,spec:from.spec,unit:from.unit,category:CAT[from.cat]?from.cat:'others',alsoCat:!!D.itemMap[cid]},catId:cid,count:null});itemFixCount()};
-async function itemFixCount(){const m=ui.modal;if(!m||m.type!=='itemFix') return;try{const j=await api('/api/items/rename',{from:m.from,to:{desc:m.from.desc,spec:m.from.spec,unit:m.from.unit},dry:true});if(ui.modal===m){m.count=j;render()}}catch(e){}}
+  openModal({type:'itemFix',from,d:{desc:from.desc,spec:from.spec,unit:from.unit,dspec:from.dspec||'',sizes:from.sizes||'',category:CAT[from.cat]?from.cat:'others',alsoCat:!!D.itemMap[cid]},catId:cid,count:null});itemFixCount()};
+async function itemFixCount(){const m=ui.modal;if(!m||m.type!=='itemFix') return;try{if(m.from.catOnly){let docs=0,lines=0;for(const o of itemIndex().filter(o=>norm(o.desc)===norm(m.from.desc))){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit},dry:true});docs+=j.docs;lines+=j.lines}if(ui.modal===m){m.count={docs,lines};render()}return}const j=await api('/api/items/rename',{from:m.from,to:{desc:m.from.desc,spec:m.from.spec,unit:m.from.unit},dry:true});if(ui.modal===m){m.count=j;render()}}catch(e){}}
 function itemFixModal(m,busy){const d=m.d,f=m.from;const it=D.itemMap[m.catId];const units=UNITS.includes(d.unit)?UNITS:UNITS.concat([d.unit]);
-  const named=d.desc.trim()!==f.desc||String(d.spec).trim()!==(f.spec||'')||d.unit!==f.unit;const catChg=d.category!==f.cat;const changed=named||catChg;
+  const named=d.desc.trim()!==f.desc||String(d.spec).trim()!==(f.spec||'')||d.unit!==f.unit;const catEdit=f.catOnly&&(String(d.dspec).trim()!==(f.dspec||'')||sizeList(d.sizes).join(', ')!==sizeList(f.sizes).join(', '));const catChg=d.category!==f.cat;const changed=named||catChg||catEdit;
   const toKey=itemKey(d.desc,d.spec,d.unit);const merge=named&&toKey!==itemKey(f.desc,f.spec,f.unit)&&itemIndex().some(o=>o.key===toKey);
   return wrap('Edit item',`<div class="notice">${icon('tag')}<span>Now: <b>${esc(f.desc)}</b>${f.spec?' — '+esc(f.spec):''} · ${esc(f.unit)} · ${esc(catName(f.cat))}${m.count?`<br><span class="small muted">Used in ${m.count.docs} record${m.count.docs===1?'':'s'} (${m.count.lines} line${m.count.lines===1?'':'s'}).</span>`:''}</span></div>
    <div class="fields">${field('Item name','modal.d.desc',d.desc,'data-rerender="1"','span2')}${f.catOnly?'':field('Specification / size','modal.d.spec',d.spec,'data-rerender="1"')}
    <div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
-   <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div></div>
+   <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div>
+   ${f.catOnly?`${field('Default specification','modal.d.dspec',d.dspec,'data-rerender="1" placeholder="e.g. 50 kg bag, IS 1489"','span2')}<div class="f full"><label for="f-modal-d-sizes">Sizes sites can pick (separate with commas)</label><textarea class="inp" id="f-modal-d-sizes" data-bind="modal.d.sizes" data-rerender="1" rows="2" placeholder="e.g. 43 grade, 53 grade">${esc(d.sizes||'')}</textarea><small class="muted">This is the catalogue entry, shared by all its sizes. To correct the size or specification written in past demands and stock, edit that line under “Items found” above.</small></div>`:''}</div>
    ${catChg?`<div class="notice info">${icon('grid')}<span>The category changes from <b>${esc(catName(f.cat))}</b> to <b>${esc(catName(d.category))}</b> in every demand, order and stock entry of this item${f.catOnly?' (all its sizes)':''}. The procurement queue, vendor lists and reports follow the new category.</span></div>`:''}
    ${merge?`<div class="notice warn">${icon('alert')}<span>An item with this name, specification and unit already exists. The two will be <b>merged</b>: their stock and history are added together.</span></div>`:''}
    ${d.unit!==f.unit?`<div class="notice warn">${icon('alert')}<span>The unit is only relabelled from <b>${esc(f.unit)}</b> to <b>${esc(d.unit)}</b>; quantities are not converted. Use this to correct a wrongly chosen unit.</span></div>`:''}
@@ -264,11 +265,12 @@ A.saveItemFix=async()=>{const m=ui.modal,d=m.d,f=m.from;const catChg=d.category!
   const ok=await run(async()=>{let n=0;
     if(!f.catOnly){const j=await api('/api/items/rename',{from:{desc:f.desc,spec:f.spec,unit:f.unit},to});n=j.docs}
     else{for(const o of itemIndex().filter(o=>norm(o.desc)===norm(f.desc))){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:to.desc,spec:o.spec,unit:o.unit===f.unit?to.unit:o.unit,cat:to.cat}});n+=j.docs}}
+    if(f.catOnly){to.spec=String(d.dspec||'').trim();to.sizes=sizeList(d.sizes)}
     if(f.catOnly||d.alsoCat) await fixCatalog(m.catId,to);
     return n});
   if(ok!==false){closeModal();toast(`Saved${ok?' in '+ok+' record'+(ok===1?'':'s'):''}.`)}};
 async function fixCatalog(oldId,to){const it=D.itemMap[oldId];if(!it) return;const newId=slug(to.desc);
-  const base={desc:to.desc,spec:it.spec||'',unit:to.unit||it.unit,sizes:it.sizes||[],category:to.cat||it.category||it.cat,at:Date.now()};for(const k of ['photo','gst','hsn','hidden','kw']) if(it[k]!=null) base[k]=it[k];
+  const base={desc:to.desc,spec:to.spec!=null&&to.sizes?to.spec:(it.spec||''),unit:to.unit||it.unit,sizes:to.sizes||it.sizes||[],category:to.cat||it.category||it.cat,at:Date.now()};for(const k of ['photo','gst','hsn','hidden','kw']) if(it[k]!=null) base[k]=it[k];
   if(newId===oldId){await setDoc('catalog',oldId,base);return}
   if(!D.itemMap[newId]) await setDoc('catalog',newId,base);else if(to.cat) await setDoc('catalog',newId,Object.assign({},S.catalog[newId]||{desc:D.itemMap[newId].desc,unit:D.itemMap[newId].unit,sizes:D.itemMap[newId].sizes||[]},{category:to.cat,at:Date.now()}));
   if(STD[oldId]) await setDoc('catalog',oldId,{desc:'',replacedBy:newId,at:Date.now()});else await delDoc('catalog',oldId)}
@@ -281,6 +283,8 @@ A.fiBulkCat=async()=>{const cat=ui.f.fiCat;const keys=Object.keys(ui.sel.fi||{})
     const ok=await run(async()=>{let n=0;const done=new Set();for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat}});n+=j.docs;
       const cid=slug(o.desc);if(D.itemMap[cid]&&!done.has(cid)){done.add(cid);await fixCatalog(cid,{desc:D.itemMap[cid].desc,unit:D.itemMap[cid].unit,cat})}}return n});
     if(ok!==false){ui.sel.fi={};closeModal();toast(`Category changed to ${catName(cat)}${ok?' in '+ok+' record'+(ok===1?'':'s'):''}.`)}}})};
+
+const sizeList=t=>String(t||'').split(',').map(x=>x.trim()).filter(Boolean);
 
 /* ================= MODALS ================= */
 function v6Modal(m,busy){switch(m.type){
