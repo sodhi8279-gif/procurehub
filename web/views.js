@@ -670,7 +670,7 @@ ${adm?teamCard(users)+auditCard():''}
    
    <div class="f full"><label for="f-draft-cfg-poTerms">Standard PO terms</label><textarea class="inp" id="f-draft-cfg-poTerms" data-bind="draft.cfg.poTerms" rows="6">${esc(c.poTerms)}</textarea></div></div>
    <div class="row end"><button class="btn primary" data-act="saveConfig">Save details</button></div></div></section>
-  ${storeCard()}${precheckCard()}${poApprovalSettingCard()}
+  ${httpsCard()}${storeCard()}${precheckCard()}${poApprovalSettingCard()}
   <section class="card"><div class="card-h"><h2>Email for RFQs and POs</h2>${sm.configured?'<span class="chip green">Set up</span>':'<span class="chip amber">Not set up</span>'}</div><div class="card-b">
    <p class="small muted" style="max-width:80ch">ProcureHub sends RFQs and POs from your company mailbox. For Gmail or Google Workspace: turn on 2-Step Verification, create an <b>App password</b> at myaccount.google.com/apppasswords, then use server smtp.gmail.com, port 587, STARTTLS, your full email as username and the 16-letter app password.</p>
    <div class="fields">${field('Mail server (SMTP)','draft.smtp.host',d.host,'placeholder="smtp.gmail.com"')}${field('Port','draft.smtp.port',d.port,'inputmode="numeric"')}

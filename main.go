@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.3.0"
+const appVersion = "6.4.0"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
@@ -102,6 +102,7 @@ type State struct {
 	SMTP     SMTPConf                   `json:"smtp"`
 	Backup   BackupConf                 `json:"backup"`
 	MailIn   MailInConf                 `json:"mailIn"`
+	HTTPS    HTTPSConf                  `json:"https"`
 	Audit    []AuditEntry               `json:"audit,omitempty"`
 	// fields written by other versions are kept as they are
 	Extra map[string]json.RawMessage `json:"-"`
@@ -1857,6 +1858,7 @@ func main() {
 	mux.HandleFunc("/api/xlsx", authed(hXLSX))
 	mux.HandleFunc("/api/restore", adminOnly(hRestore))
 	mux.HandleFunc("/api/smtp", permOnly(hSMTP, "settings"))
+	mux.HandleFunc("/api/https", adminOnly(hHTTPS))
 	mux.HandleFunc("/api/smtp/test", permOnly(hSMTPTest, "settings"))
 	mux.HandleFunc("/api/mail", permOnly(hMail, "rfq_create", "po_issue"))
 	mux.HandleFunc("/api/mailin", permOnly(hMailIn, "settings"))
@@ -1896,6 +1898,9 @@ func main() {
 	if fwStatus != "" {
 		fmt.Printf("  Windows Firewall:      %s\n", fwStatus)
 	}
+	if hc := httpsConf(); hc.On && scheme == "http" {
+		fmt.Printf("  Secure (internet):     https://%s:%d\n", hc.Domain, *port)
+	}
 	fmt.Printf("  Data folder:           %s\n", dataDir)
 	fmt.Printf("  Daily Excel backups:   %s\n", filepath.Join(dataDir, "backups", "excel"))
 	fmt.Println("  Keep this window open. Closing it stops ProcureHub for everyone.")
@@ -1931,9 +1936,11 @@ func main() {
 	}
 	srv := &http.Server{Handler: secure(mux), ReadHeaderTimeout: 15 * time.Second}
 	if scheme == "https" {
+		manualTLS = true
 		err = srv.ServeTLS(ln, *cert, *key)
 	} else {
-		err = srv.Serve(ln)
+		// plain http, and https with a free certificate once Settings → Secure connection is on
+		err = serveBoth(ln, secure(mux))
 	}
 	die("server stopped: %v", err)
 }

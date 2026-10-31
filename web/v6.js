@@ -648,3 +648,25 @@ function cashDoc(c){const b='border:1px solid #c9d3d6;padding:6px 8px;font-size:
   <table style="width:100%;margin-top:40px;font-size:12px"><tr><td style="vertical-align:bottom">Bought / entered by<br><br><b>${esc(c.byName||'')}</b><br>${fdt(c.enteredAt||c.at)}</td><td style="text-align:center;vertical-align:bottom">Approved by<br><br><b>${esc(c.appr?c.appr.byName:'')}</b><br>${c.appr?fdt(c.appr.at):''}</td>
   <td style="text-align:right;vertical-align:bottom">${fin&&fin.sign?`<img src="/files/${esc(fin.sign)}" alt="" style="height:70px;max-width:200px;object-fit:contain"><br>`:'<br><br>'}Final approval<br><b>${esc(fin?fin.byName:'')}</b><br>${fin?esc(fin.designation||'')+'<br>'+fdt(fin.at):''}</td></tr></table></div>`}
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='cashNew'?cashModal(m,busy):m.type==='cashUse'?cashUseModal(m,busy):prev(m,busy)}
+
+/* ================= 11. SECURE CONNECTION (https) ================= */
+async function loadHttps(){if(!isAdm()) return;try{ui.https=await api('/api/https');if(!ui.draft.https) ui.draft.https={domain:ui.https.domain||(/[a-z]/i.test(location.hostname)&&location.hostname.includes('.')?location.hostname:''),email:ui.https.email||''};schedule()}catch(e){}}
+function httpsCard(){if(!isAdm()) return '';const h=ui.https;if(!h){if(!ui._httpsLoading){ui._httpsLoading=1;loadHttps()}return ''}const d=ui.draft.https||{};
+  const onHttps=location.protocol==='https:';
+  const state=h.manual?`<span class="chip green">On (own certificate)</span>`:h.on&&h.ready?`<span class="chip green">On</span>`:h.on?`<span class="chip amber">Waiting for certificate</span>`:`<span class="chip plain">Off</span>`;
+  return `<section class="card" id="https-set"><div class="card-h"><h2>Secure connection (https)</h2>${state}<span class="sub">Removes “Not secure” in the browser</span></div><div class="card-b grid" style="gap:12px">
+   ${h.manual?`<p class="small">ProcureHub was started with its own certificate (--tls-cert), so the connection is already secure.</p>`:`
+   <p class="small muted">Sites reach ProcureHub through an internet name such as <b>rgsit.ddnsking.com</b>. Enter it here and ProcureHub gets a free certificate from Let's Encrypt and renews it by itself. Everyone then opens <b>https://</b>name<b>:${h.port}</b>; old http links are sent there automatically. Inside the office, addresses with the computer's IP keep working.</p>
+   <div class="notice info">${icon('help')}<span><b>One step in the router first:</b> forward <b>port 80</b> (TCP) to this computer, the same way port ${h.port} is already forwarded. Let's Encrypt checks the name through port 80. Nothing else needs to be installed.</span></div>
+   <div class="fields">${field('Internet name (without http://)','draft.https.domain',d.domain,'placeholder="rgsit.ddnsking.com" autocapitalize="none" spellcheck="false"')}${field('Email for certificate notices (optional)','draft.https.email',d.email,'type="email"')}</div>
+   ${h.on?`<div class="small">${h.ready?`${icon('check','xs')} <b class="t-green">Certificate active</b>${h.expires?' · renews automatically before '+fd(msDate(h.expires)):''} · open <a href="${esc(h.url)}">${esc(h.url)}</a>`:`${icon('clock','xs')} No certificate yet.`}</div>`:''}
+   ${h.port80Error?`<div class="notice err">${icon('alert')}<span>${esc(h.port80Error)}</span></div>`:''}
+   ${h.error?`<div class="notice err">${icon('alert')}<span>${esc(h.error)}</span></div>`:''}
+   <div class="row end">${h.on?`<button class="btn" data-act="httpsOff">Switch off</button>`:''}<button class="btn primary" data-act="httpsOn" ${ui.busy?'disabled':''}>${icon('key')} ${h.on?'Save &amp; check again':'Switch on &amp; get certificate'}</button></div>
+   ${onHttps?'':h.on&&h.ready?`<p class="small">You are on plain http now. Open <a href="${esc(h.url)}">${esc(h.url)}</a> and sign in again there.</p>`:''}`}</div></section>`}
+A.httpsOn=async()=>{const d=ui.draft.https||{};if(!String(d.domain||'').trim()){toast('Enter the internet name, e.g. rgsit.ddnsking.com.','err');return}
+  toast('Getting the certificate from Let\'s Encrypt — this can take up to a minute…');
+  await run(async()=>{ui.https=await api('/api/https',{on:true,domain:d.domain,email:d.email||''})});
+  if(ui.https&&ui.https.ready) toast('Secure connection is on. Open '+ui.https.url);else if(ui.https&&ui.https.error) toast('Certificate not issued yet — see the message in Settings.','err')};
+A.httpsOff=()=>confirmBox({title:'Switch off the secure connection?',body:'Browsers will show “Not secure” again for the internet name.',yes:'Switch off',danger:true,onYes:async()=>{const d=ui.draft.https||{};await run(async()=>{ui.https=await api('/api/https',{on:false,domain:d.domain||'',email:d.email||''})},'Secure connection switched off');closeModal()}});
+Object.assign(ACT_PERM,{httpsOn:'__admin',httpsOff:'__admin'});
