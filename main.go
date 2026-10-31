@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.2.0"
+const appVersion = "6.3.0"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
@@ -69,6 +69,9 @@ type User struct {
 	Designation string `json:"designation,omitempty"`
 	// site login of the site head / project manager, who authenticates consumption
 	SiteHead bool `json:"siteHead,omitempty"`
+	// site login allowed to make cash (counter) purchases; limit per bill in rupees (0 = no limit, HQ users too)
+	CashSpend bool    `json:"cashSpend,omitempty"`
+	CashLimit float64 `json:"cashLimit,omitempty"`
 	// fields written by other versions are kept as they are
 	Extra map[string]json.RawMessage `json:"-"`
 }
@@ -113,7 +116,7 @@ var (
 	filesDir string
 )
 
-var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true}
+var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true, "cashbuys": true}
 
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]{1,200}$`)
@@ -319,7 +322,7 @@ func hqOnly(h handler) http.HandlerFunc {
 
 func publicUser(u *User) map[string]any {
 	return map[string]any{"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role, "projectId": u.ProjectID, "active": u.Active, "created": u.Created, "phone": u.Phone, "mustChange": u.MustChange, "lastLogin": u.LastLogin, "access": u.Access, "admin": isAdmin(u),
-		"sign": u.Sign, "designation": u.Designation, "siteHead": u.SiteHead}
+		"sign": u.Sign, "designation": u.Designation, "siteHead": u.SiteHead, "cashSpend": u.CashSpend, "cashLimit": u.CashLimit}
 }
 
 func startSession(w http.ResponseWriter, r *http.Request, u *User) {
@@ -533,6 +536,8 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 			ID, Username, Name, Role, ProjectID, Password, Phone string
 			Active                                               *bool
 			SiteHead                                             *bool
+			CashSpend                                            *bool
+			CashLimit                                            *float64
 			Access                                               *Access
 		}
 		if !readJSON(w, r, &req, 1<<16) {
@@ -637,8 +642,14 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 			if req.SiteHead != nil {
 				target.SiteHead = *req.SiteHead
 			}
+			if req.CashSpend != nil {
+				target.CashSpend = *req.CashSpend
+			}
 		} else {
-			target.SiteHead = false
+			target.SiteHead, target.CashSpend = false, false
+		}
+		if req.CashLimit != nil && *req.CashLimit >= 0 {
+			target.CashLimit = *req.CashLimit
 		}
 		if req.Password != "" {
 			if len(req.Password) < 6 {
@@ -728,7 +739,7 @@ func visible(u *User, col, id string, d *Doc) bool {
 			return inScope(u, id)
 		case "indents", "sitelog", "stocklvl", "consumption":
 			return inScope(u, str(d.Data, "projectId"))
-		case "vreturns":
+		case "vreturns", "cashbuys":
 			return str(d.Data, "projectId") == "" || inScope(u, str(d.Data, "projectId"))
 		case "dispatches":
 			return inScope(u, str(d.Data, "projectId")) || inScope(u, str(d.Data, "fromProjectId"))
@@ -743,6 +754,8 @@ func visible(u *User, col, id string, d *Doc) bool {
 		return true
 	case "indents", "sitelog", "stocklvl", "consumption", "vreturns":
 		return str(d.Data, "projectId") == u.ProjectID
+	case "cashbuys":
+		return str(d.Data, "projectId") == u.ProjectID && str(d.Data, "location") == "site"
 	case "dispatches":
 		return str(d.Data, "projectId") == u.ProjectID || str(d.Data, "fromProjectId") == u.ProjectID
 	}
@@ -943,6 +956,11 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 			delete(merged, "value")
 			return merged, nil
 		}
+	case "cashbuys": // checked in cashGuard
+		if str(merged, "projectId") != u.ProjectID || (ex != nil && str(ex, "projectId") != u.ProjectID) {
+			return nil, errors.New("You can only enter cash purchases for your own site.")
+		}
+		return merged, nil
 	case "vreturns": // material returned to the vendor from the site
 		if op != "set" || ex != nil || str(merged, "projectId") != u.ProjectID {
 			return nil, errors.New("You can only record a return from your own site.")
@@ -1065,6 +1083,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				return
 			}
 		}
+		if req.Col == "cashbuys" {
+			if err := cashGuard(u, exData, req.Data, newData); err != nil {
+				fail(w, 403, err.Error())
+				return
+			}
+		}
 		if req.Col == "vreturns" && exData == nil {
 			ls := anyList(newData["lines"])
 			if len(ls) == 0 || strings.TrimSpace(str(newData, "vendorName")) == "" {
@@ -1147,12 +1171,12 @@ func hCounter(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Invalid number series.")
 		return
 	}
-	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" {
+	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" && req.Prefix != "CP" {
 		fail(w, 403, "Not allowed.")
 		return
 	}
 	if u.Role == "hq" {
-		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}, "STI": {"store", "po_issue"}, "CR": {"sitestock_edit"}, "OS": {"store", "sitestock_edit"}, "RTV": {"store", "sitestock_edit", "po_issue"}}[req.Prefix]
+		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}, "STI": {"store", "po_issue"}, "CR": {"sitestock_edit"}, "OS": {"store", "sitestock_edit"}, "RTV": {"store", "sitestock_edit", "po_issue"}, "CP": {"cash_spend"}}[req.Prefix]
 		if perm != nil {
 			if err := need(u, perm...); err != nil {
 				fail(w, 403, err.Error())

@@ -124,7 +124,7 @@ function taxLines(lines,intra){let taxable=0,cgst=0,sgst=0,igst=0;const out=line
   return {lines:out,taxable:r(taxable),cgst:r(cgst),sgst:r(sgst),igst:r(igst),total:r(taxable+cgst+sgst+igst)}}
 
 /* ================= STATE ================= */
-const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],vreturns:[],catalog:{},catalogList:[],config:{}};
+const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],vreturns:[],cashbuys:[],catalog:{},catalogList:[],config:{}};
 const ui={view:'loading',param:null,modal:null,f:{},sel:{},draft:{},loaded:{},role:null,preview:'',uid:null,fatal:null,tab:{},busy:false,online:true,me:null,users:[],smtp:null,pop:null,q:'',drawer:false,uploading:0,pickCat:null,pickQ:'',cartOpen:false};
 let D={};
 const app=document.getElementById('app');
@@ -151,7 +151,7 @@ async function api(path,body,method){
 function applyDoc(d){const c=store.cols[d.col]||(store.cols[d.col]={});if(d.deleted) delete c[d.id];else c[d.id]=d.data}
 function rebuild(){
   const L=c=>Object.entries(store.cols[c]||{}).map(([id,d])=>Object.assign({},d,{id}));
-  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns']) S[k]=L(k);
+  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns','cashbuys']) S[k]=L(k);
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
@@ -246,6 +246,8 @@ function derive(){
   for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const r=siteRow(c.projectId,l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(c.status==='authenticated'){r.cons+=num(l.qty);r.last=Math.max(r.last,(c.auth&&c.auth.at)||0)}else r.pcons+=num(l.qty)}}
   // material returned to vendors (rejected, wrong specification, damaged…)
   d.vretRepl={};for(const v of S.vreturns){if(v.status==='cancelled') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(v.from==='site'&&v.projectId){const r=siteRow(v.projectId,k,l);r.vret+=num(l.qty);r.last=Math.max(r.last,v.at||0)}if(v.replace&&v.poId&&l.poKey) d.vretRepl[v.poId+'|'+l.poKey]=(d.vretRepl[v.poId+'|'+l.poKey]||0)+num(l.qty)}}
+  // cash (counter) purchases count once finally approved, with what was consumed from them
+  for(const c of S.cashbuys){if(c.status!=='final'||c.location!=='site') continue;const ls=c.lines||[];const fu=cashUsedFinal(c);ls.forEach((l,i)=>{const r=siteRow(c.projectId,itemKey(l.desc,l.spec,l.unit),l);r.recv+=num(l.qty);r.cons+=fu[i]||0;r.last=Math.max(r.last,(c.fin&&c.fin.at)||0)})}
   d.lvl={};for(const v of S.stocklvl){(d.lvl[v.projectId]=d.lvl[v.projectId]||{})[v.itemKey]=v;const r=d.site[v.projectId]&&d.site[v.projectId][v.itemKey];if(r) r.min=num(v.min)}
   for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.cons-r.vret-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-r.pcons-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
   for(const g of S.grns){for(const l of g.lines||[]){const s=d.stock[l.itemKey]||(d.stock[l.itemKey]={itemKey:l.itemKey,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,inQ:0,outQ:0});s.inQ+=num(l.acc)}}
@@ -255,6 +257,7 @@ function derive(){
   for(const e of S.jobwork){if(e.status==='cancelled') continue;const out=e.type==='in'&&e.source==='store',back=e.type==='return';if(!out&&!back) continue;
     for(const l of e.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||'others',inQ:0,outQ:0});if(out) s.outQ+=num(l.qty);else s.inQ+=num(l.qty)}}
   for(const v of S.vreturns){if(v.status==='cancelled'||v.from==='site') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||'others',inQ:0,outQ:0});s.outQ+=num(l.qty)}}
+  for(const c of S.cashbuys){if(c.status!=='final'||c.location!=='hq') continue;const fu=cashUsedFinal(c);(c.lines||[]).forEach((l,i)=>{const k=itemKey(l.desc,l.spec,l.unit);const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||'others',inQ:0,outQ:0});s.inQ+=num(l.qty);s.outQ+=fu[i]||0})}
   for(const k in d.stock) d.stock[k].bal=d.stock[k].inQ-d.stock[k].outQ;
 }
 function needQty(l){return l.approvedQty!=null?num(l.approvedQty):num(l.qty)}
@@ -412,6 +415,7 @@ function navItems(){
       {v:'jobwork',l:'With job workers',i:'tool',b:jwOpenCount()},
       {v:'sitestock',l:'Site stock',i:'layers'},
       {v:'consumption',l:'Consumption',i:'doc',b:consWaiting()},
+      {v:'cash',l:'Cash purchases',i:'tag',b:cashWaiting()},
       {g:'Masters'},
       {v:'projects',l:'Projects',i:'proj'},
       {v:'vendors',l:'Vendors',i:'vend'},
@@ -425,7 +429,7 @@ function navItems(){
     ].filter(n=>n.g||viewAllowed(n.v)).filter((n,i,a)=>!n.g||(a[i+1]&&!a[i+1].g));
   }
   const p=siteProject();const inc=S.dispatches.filter(d=>(d.projectId===p&&(d.status==='in_transit'||d.status==='ordered'))||(d.fromProjectId===p&&d.status==='to_send')).length;
-  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox',b:S.indents.filter(i=>i.projectId===p&&amendIsOpen(i)).length},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{v:'s_cons',l:'Consumption',i:'doc',b:consWaiting()},{v:'s_find',l:'Find items',i:'search'},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
+  return [{g:'My site'},{v:'s_home',l:'Home',i:'home'},{v:'s_new',l:'Raise demand',i:'plus'},{v:'s_list',l:'My demands',i:'inbox',b:S.indents.filter(i=>i.projectId===p&&amendIsOpen(i)).length},{v:'s_incoming',l:'Receive material',i:'truck',b:inc},{v:'s_stock',l:'Site stock',i:'layers',b:Object.values(D.site[p]||{}).filter(r=>r.low).length},{v:'s_cons',l:'Consumption',i:'doc',b:consWaiting()},...(ui.me&&ui.me.cashSpend||S.cashbuys.some(c=>c.projectId===p)?[{v:'s_cash',l:'Cash purchases',i:'tag',b:S.cashbuys.filter(c=>c.projectId===p&&c.status==='returned'&&c.by===ui.uid).length}]:[]),{v:'s_find',l:'Find items',i:'search'},{g:'Support'},{v:'help',l:'Help & guide',i:'help'},{v:'account',l:'My account',i:'key'}];
 }
 function isActive(v){const map={indent:'demands',rfq:'rfqs',po:'pos',s_indent:'s_list',done:ui.role==='hq'?'demands':'s_new'};return ui.view===v||map[ui.view]===v}
 const TITLES={precheck:['Pre-check','New site demands waiting to be checked before approval'],dashboard:['Dashboard','Headquarters'],demands:['Demand inbox','Requests from all sites'],indent:['Material requisition','Demand inbox'],queue:['Procurement queue','Approved demand, grouped by category'],rfqs:['Quotations','Requests for quotation'],rfq:['Request for quotation','Quotations'],pos:['Purchase orders','Procurement'],po:['Purchase order','Purchase orders'],grn:['HQ store','Inward, stock in store and material sent to sites'],dispatch:['Dispatch to sites','Demand-wise challans from HQ store, transfers between sites'],jobwork:['With job workers','Material sent to vendors for job work and what they have used'],sitestock:['Site stock','Material at every project'],reports:['Reports','Spend and performance'],projects:['Projects','Masters'],vendors:['Vendors','Masters'],items:['Item catalogue','Masters'],settings:['Settings & backup','Users, site logins, company, email and backups'],account:['My account','Profile and password'],help:['Help & guide','How ProcureHub works'],s_home:['Home','My site'],s_new:['Raise demand','Pick what your site needs'],s_list:['My demands','Live status from HQ'],s_indent:['Material requisition','My demands'],s_incoming:['Receive material','Incoming and outgoing'],s_stock:['Site stock','Material at my site'],done:['Demand sent','Raise demand']};

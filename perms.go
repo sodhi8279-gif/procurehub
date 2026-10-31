@@ -39,6 +39,8 @@ var permLabels = map[string]string{
 	"settings":         "change company, email and backup settings",
 	"po_approve":       "approve purchase orders and site transfer indents",
 	"consume_auth":     "authenticate site consumption reports",
+	"cash_spend":       "make cash (counter) purchases",
+	"cash_approve":     "approve cash purchases and their consumption",
 }
 
 func isAdmin(u *User) bool { return u != nil && u.Role == "hq" && (u.Access == nil || u.Access.Admin) }
@@ -138,7 +140,7 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		if !inScope(u, str(src, "projectId")) || (ex != nil && !inScope(u, str(ex, "projectId"))) {
 			return errors.New("This project is not one of the sites assigned to you.")
 		}
-	case "vreturns":
+	case "vreturns", "cashbuys":
 		if p := str(src, "projectId"); p != "" && !inScope(u, p) {
 			return errors.New("This project is not one of the sites assigned to you.")
 		}
@@ -177,6 +179,11 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		return need(u, "settings")
 	case "sitelog", "stocklvl":
 		return need(u, "sitestock_edit")
+	case "cashbuys": // the steps are checked in cashGuard
+		if op == "delete" {
+			return errors.New("Only administrators can delete cash purchases.")
+		}
+		return nil
 	case "vreturns":
 		if op == "delete" {
 			return errors.New("Only administrators can delete returns. Cancel it instead.")

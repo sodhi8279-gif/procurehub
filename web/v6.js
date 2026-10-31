@@ -532,3 +532,119 @@ function vretDoc(v){const c=S.config;const b='border:1px solid #c9d3d6;padding:6
   <p style="font-size:12px;color:#465A6D">${(v.photos||[]).length?(v.photos.length+' photo(s) / document(s) kept in ProcureHub.'):''}</p>
   <table style="width:100%;margin-top:40px;font-size:12px"><tr><td style="vertical-align:bottom">Prepared by<br><br><b>${esc(v.createdByName||'')}</b></td><td style="text-align:center;vertical-align:bottom">For ${esc(company())}<br><br><br>Authorised signatory</td><td style="text-align:right;vertical-align:bottom;width:34%"><div style="border:1px dashed #9aa8b1;height:60px;margin-bottom:4px"></div>Received by vendor (sign &amp; stamp)</td></tr></table></div>`}
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='vret'?vretModal(m,busy):prev(m,busy)}
+
+/* ================= 10. CASH (COUNTER) PURCHASES =================
+   Entered by people with the right to spend (within their limit per bill), approved by the approver
+   (right "Approve cash purchases") and finally by the person who grants purchase orders (Director).
+   Consumption from a cash purchase — at once or later — goes through the same two approvals.
+   Stock counts them once finally approved. The server checks every step (cash.go). */
+HQ_VIEWS.push('cash');SITE_VIEWS.push('s_cash');
+Object.assign(VIEW_PERM,{cash:['cash_spend','cash_approve','po_approve','rates_view','reports']});
+Object.assign(TITLES,{cash:['Cash purchases','Bought at the counter — approved by the approver and the PO-granting authority'],s_cash:['Cash purchases','Items bought for cash at your site']});
+PERM_GROUPS[1][1].push(['cash_spend','Make cash purchases','Enter items bought for cash (counter purchases) at HQ or for a site, within the limit per bill'],['cash_approve','Approve cash purchases','First approval of cash purchases and of consumption from them (final approval is by the person who approves purchase orders)']);
+for(const p of PERM_GROUPS[1][1].slice(-2)) PERM_LABEL[p[0]]=p[1];
+ROLE_PRESETS[0][2].push('cash_approve');
+Object.assign(ACT_PERM,{cashApprove:'cash_approve',cashFinal:'po_approve',cashNew:'cash_spend',saveCash:['cash_spend','cash_approve','po_approve']});
+const CASH_ST={pending:['Waiting for approver','amber'],approved:['Waiting for final approval','violet'],final:['Approved','green'],returned:['Returned for correction','red'],rejected:['Rejected','red']};
+const cashChip=s=>chip({label:(CASH_ST[s]||[s])[0],tone:(CASH_ST[s]||[0,'plain'])[1]});
+// quantity consumed per line, counting only finally approved consumption
+function cashUsedFinal(c){const u={};if(c.status!=='final') return u;(c.lines||[]).forEach((l,i)=>u[i]=num(l.usedNow));for(const x of c.uses||[]) if(x.status==='final') for(const k in x.qty||{}) u[+k]=(u[+k]||0)+num(x.qty[k]);return u}
+function cashUsedAll(c){const u={};(c.lines||[]).forEach((l,i)=>u[i]=num(l.usedNow));for(const x of c.uses||[]) if(x.status!=='rejected') for(const k in x.qty||{}) u[+k]=(u[+k]||0)+num(x.qty[k]);return u}
+const cashMaySpend=()=>ui.role==='site'?!!(ui.me&&ui.me.cashSpend)&&!ui.preview:can('cash_spend');
+function cashCanStep(t,c){if(ui.role!=='hq'||!t||t.by===ui.uid) return '';if(t.status==='pending'&&can('cash_approve')) return 'approve';
+  if(t.status==='approved'&&can('po_approve')&&!(t.appr&&t.appr.by===ui.uid)) return 'final';return ''}
+function cashWaiting(){let n=0;for(const c of S.cashbuys){if(cashCanStep(c,c)) n++;for(const u of c.uses||[]) if(cashCanStep(u,c)) n++}return n}
+const cashWhere=c=>c.location==='hq'?'HQ store'+(c.projectId?' · for '+projName(c.projectId):''):projName(c.projectId);
+function vCash(){const site=ui.role==='site';const pid=site?siteProject():(ui.f.cpp||'');const mine=cashWaiting();
+  const f=ui.f.cpf||(mine?'todo':'open');const q=norm(ui.f.cpq);
+  let list=S.cashbuys.filter(c=>!pid||c.projectId===pid);
+  list=list.filter(c=>f==='all'?true:f==='todo'?(cashCanStep(c,c)||(c.uses||[]).some(u=>cashCanStep(u,c))||(c.status==='returned'&&c.by===ui.uid)):f==='open'?['pending','approved','returned'].includes(c.status)||(c.uses||[]).some(u=>u.status==='pending'||u.status==='approved'):c.status===f);
+  if(q) list=list.filter(c=>norm([c.no,c.shop,c.purpose,c.byName,...(c.lines||[]).map(l=>l.desc+' '+l.spec)].join(' ')).includes(q));
+  list.sort((a,b)=>(b.at||0)-(a.at||0));
+  const tot=sum(list.filter(c=>c.status!=='rejected'),c=>num(c.total));
+  return `<div class="toolbar">${seg('cpf',[['todo',`For me${mine?' ('+mine+')':''}`],['open','Open'],['final','Approved'],['rejected','Rejected'],['all','All']],f)}
+   ${site?'':`<select class="inp auto" id="f-cpp" data-act-change="setFsel" data-k="cpp">${projOpts(pid,'All sites and HQ')}</select>`}<div class="search-inp">${icon('search')}<input class="inp" id="f-cpq" placeholder="Search shop, item, CP no." data-bind="f.cpq" data-rerender="1" value="${esc(ui.f.cpq||'')}"></div>
+   <span class="spacer"></span><span class="muted small">${list.length} entr${list.length===1?'y':'ies'} · ${money0(tot)}</span>${cashMaySpend()?`<button class="btn orange" data-act="cashNew">${icon('plus')} New cash purchase</button>`:''}</div>
+  ${!cashMaySpend()&&site?`<div class="notice info">${icon('help')}<span>Cash purchases are entered by the people HQ has given the right to spend. Ask HQ if you need it.</span></div>`:''}
+  ${list.length?list.map(cashCard).join(''):`<section class="card">${emptyBox(ART.x('po','e-art'),'No cash purchases here','Items bought for cash at the counter are entered here with the bill, approved by the approver and finally by the PO-granting authority.',cashMaySpend()?`<button class="btn orange" data-act="cashNew">${icon('plus')} New cash purchase</button>`:'')}</section>`}`}
+function cashSteps(t){const s=t.status;return `<div class="steps ${s==='rejected'?'rej':''}"><span class="step on"><i></i><b>Entered</b><em>${esc(firstName(t.byName||''))}</em></span><span class="step ${s==='approved'||s==='final'?'on':''}"><i></i><b>Approver</b>${t.appr?`<em>${esc(firstName(t.appr.byName))}</em>`:''}</span><span class="step ${s==='final'?'on':''}"><i></i><b>Final</b>${t.fin?`<em>${esc(firstName(t.fin.byName))}</em>`:''}</span></div>`}
+function cashStepBtns(t,c){const k=cashCanStep(t,c);const u=t===c?'':` data-use="${t.id}"`;if(!k) return '';
+  return `<button class="btn sm primary" data-act="cashStep" data-id="${c.id}"${u} data-a="${k==='approve'?'approve':'final'}">${icon('check')} ${k==='approve'?'Approve':'Final approval'}</button>${t===c?`<button class="btn sm" data-act="cashStep" data-id="${c.id}" data-a="return">Return for correction</button>`:''}<button class="btn sm danger" data-act="cashStep" data-id="${c.id}"${u} data-a="reject">Reject</button>`}
+function cashCard(c){const usedAll=cashUsedAll(c);const left=(c.lines||[]).some((l,i)=>num(l.qty)-(usedAll[i]||0)>1e-9);const me=c.by===ui.uid;
+  return `<section class="card cash-card"><div class="card-h"><span class="n-ic ${(CASH_ST[c.status]||[])[1]||''}">${icon('tag')}</span><div><h2><span class="docno">${esc(c.no)}</span> · ${esc(c.shop||'')} · ${money(num(c.total))}</h2><span class="sub">${fd(c.date)} · ${esc(cashWhere(c))} · ${esc(c.payMode||'Cash')}${c.billNo?' · bill '+esc(c.billNo):''} · entered by ${esc(c.byName||'')}</span></div>${cashChip(c.status)}
+   <div class="acts">${cashStepBtns(c,c)}${me&&(c.status==='returned'||c.status==='pending')?`<button class="btn sm" data-act="cashNew" data-id="${c.id}">${icon('edit')} ${c.status==='returned'?'Correct &amp; send again':'Correct'}</button>`:''}${c.status!=='rejected'&&left?`<button class="btn sm" data-act="cashUse" data-id="${c.id}">${icon('minus')} Record consumption</button>`:''}<button class="btn sm ghost" data-act="cashPrint" data-id="${c.id}">${icon('print')}</button></div></div>
+   <div class="card-b">${cashSteps(c)}
+   ${c.returnNote&&(c.status==='returned'||c.status==='rejected')?`<div class="notice err">${icon('alert')}<span><b>${c.status==='returned'?'Returned for correction':'Rejected'} by ${esc(c.returnNote.byName)}</b> · ${fdt(c.returnNote.at)}: “${esc(c.returnNote.remark)}”</span></div>`:''}
+   <p class="small"><b>Purpose:</b> ${esc(c.purpose||'')}${c.useRemarks?` · <b>Consumed at once:</b> ${esc(c.useRemarks)}`:''}</p>
+   <div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">GST %</th><th class="num">Amount</th><th class="num">Consumed</th><th class="num">Left</th></tr></thead><tbody>${(c.lines||[]).map((l,i)=>`<tr><td><div class="who">${lineThumb(l,'xs')}<span><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></span></div></td><td class="num mono">${fq(l.qty)} ${esc(l.unit)}</td><td class="num mono">${fq(l.rate)}</td><td class="num mono">${fq(l.gst)}</td><td class="num mono">${money(num(l.amount))}</td><td class="num mono">${fq(usedAll[i]||0)}</td><td class="num mono">${fq(num(l.qty)-(usedAll[i]||0))}</td></tr>`).join('')}</tbody></table></div>
+   ${photoStrip(c.photos)}
+   ${(c.uses||[]).length?`<div class="lbl">Consumption from this purchase</div><div class="list">${c.uses.map(u=>`<div class="li"><span class="n-ic ${(CASH_ST[u.status]||[])[1]||''}">${icon('minus')}</span><div class="grow"><b><span class="docno">${esc(u.no)}</span> · ${fd(u.date)} · ${Object.entries(u.qty||{}).map(([k,v])=>{const l=c.lines[+k]||{};return `${fq(v)} ${esc(l.unit||'')} ${esc(l.desc||'')}`}).join(', ')}</b><small>${esc(u.remarks||'')} · by ${esc(u.byName||'')}${u.appr?' · approved by '+esc(u.appr.byName):''}${u.fin?' · final by '+esc(u.fin.byName):''}${u.returnNote?' · '+esc(u.returnNote.byName)+': “'+esc(u.returnNote.remark)+'”':''}</small></div>${cashChip(u.status)}<div class="row tight">${cashStepBtns(u,c)}</div></div>`).join('')}</div>`:''}</div></section>`}
+
+const cashLine=()=>({desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'18',usedNow:''});
+A.cashNew=d=>{const c=d.id?S.cashbuys.find(x=>x.id===d.id):null;
+  const loc=c?c.location:(ui.role==='site'?'site':'hq');const pid=c?c.projectId:(ui.role==='site'?siteProject():(ui.f.cpp||''));
+  openModal({type:'cashNew',id:c?c.id:null,d:c?{location:c.location,projectId:c.projectId,date:c.date,shop:c.shop,shopGstin:c.shopGstin||'',billNo:c.billNo||'',billDate:c.billDate||'',payMode:c.payMode||'Cash',purpose:c.purpose,useRemarks:c.useRemarks||'',photos:(c.photos||[]).slice(),
+    lines:c.lines.map(l=>({desc:l.desc,spec:l.spec||'',unit:l.unit,qty:String(l.qty),rate:String(l.rate),gst:String(l.gst),usedNow:l.usedNow?String(l.usedNow):''}))}
+    :{location:loc,projectId:pid,date:today(),shop:'',shopGstin:'',billNo:'',billDate:today(),payMode:'Cash',purpose:'',useRemarks:'',photos:[],lines:[cashLine(),cashLine()]}})};
+A.cashAdd=()=>{ui.modal.d.lines.push(cashLine());render()};A.cashRm=d=>{const ls=ui.modal.d.lines;ls.splice(+d.i,1);if(!ls.length) ls.push(cashLine());render()};
+A.cashLoc=d=>{ui.modal.d.location=d.val;render()};A.cashPay=d=>{ui.modal.d.payMode=d.val;render()};
+const cashAmt=l=>num(l.qty)*num(l.rate)*(1+num(l.gst)/100);
+function cashModal(m,busy){const d=m.d;const site=ui.role==='site';const tot=sum(d.lines,cashAmt);const lim=num(ui.me&&ui.me.cashLimit);const anyUsed=d.lines.some(l=>num(l.usedNow)>0);
+  return wrap(m.id?'Correct cash purchase':'New cash purchase',`<datalist id="dl-cash">${D.items.slice(0,800).map(c=>`<option value="${esc(c.desc)}">`).join('')}</datalist>
+   <div class="fields">${site?`<div class="f span2"><label>Bought for</label><b>${esc(projName(d.projectId))}</b></div>`:`<div class="f"><label>Bought for</label>${seg('cploc',[['site','A site'],['hq','HQ store']],d.location,'cashLoc')}</div>
+     <div class="f"><label for="f-modal-d-projectId">${d.location==='hq'?'For project (optional)':'Site'}</label><select class="inp" id="f-modal-d-projectId" data-bind="modal.d.projectId">${projOpts(d.projectId,d.location==='hq'?'— HQ use —':'Choose site')}</select></div>`}
+   ${field('Date of purchase','modal.d.date',d.date,'type="date"')}${field('Shop / seller','modal.d.shop',d.shop,'placeholder="Name of the shop"')}${field('Shop GSTIN (if on bill)','modal.d.shopGstin',d.shopGstin)}
+   ${field('Bill / cash memo no.','modal.d.billNo',d.billNo)}${field('Bill date','modal.d.billDate',d.billDate,'type="date"')}<div class="f"><label>Paid by</label>${seg('cppay',[['Cash','Cash'],['UPI','UPI'],['Card','Card']],d.payMode,'cashPay')}</div></div>
+   <div class="f full"><label for="f-modal-d-purpose">Purpose — why it was bought for cash (required)</label>${inp('modal.d.purpose',d.purpose,'placeholder="e.g. Urgent repair of pump at SPS-2; not in stock"')}</div>
+   <div class="lbl">Items bought</div><div class="am-lines cash-lines">${d.lines.map((l,i)=>`<div class="am-line"><div class="am-f">
+    <label class="am-s"><span>Item</span>${inp('modal.d.lines.'+i+'.desc',l.desc,'list="dl-cash" placeholder="Item"')}</label><label class="am-s"><span>Size / spec</span>${inp('modal.d.lines.'+i+'.spec',l.spec)}</label></div><div class="am-f">
+    <label class="am-q"><span>Qty</span>${inp('modal.d.lines.'+i+'.qty',l.qty,'inputmode="decimal" data-rerender="1"')}</label>
+    <label><span>Unit</span><select class="inp sm" id="${fid('modal.d.lines.'+i+'.unit')}" data-bind="modal.d.lines.${i}.unit">${selOpts(UNITS.includes(l.unit)?UNITS:UNITS.concat([l.unit]),l.unit)}</select></label>
+    <label class="am-q"><span>Rate (₹)</span>${inp('modal.d.lines.'+i+'.rate',l.rate,'inputmode="decimal" data-rerender="1"')}</label>
+    <label><span>GST %</span><select class="inp sm" id="${fid('modal.d.lines.'+i+'.gst')}" data-bind="modal.d.lines.${i}.gst">${selOpts(GST_SLABS.map(String),l.gst)}</select></label>
+    <label class="am-q"><span>Used at once</span>${inp('modal.d.lines.'+i+'.usedNow',l.usedNow,'inputmode="decimal" data-rerender="1" placeholder="0"')}</label>
+    <span class="mono"><b>${cashAmt(l)?money(cashAmt(l)):''}</b></span><button type="button" class="btn sm ghost" data-act="cashRm" data-i="${i}">${icon('trash')} Remove</button></div></div>`).join('')}</div>
+   <div class="row"><button type="button" class="btn sm" data-act="cashAdd">${icon('plus')} Add item</button><span class="spacer"></span><b>Total ${money(tot)}</b>${lim?`<span class="small ${tot>lim?'t-red':'muted'}">· your limit ${money0(lim)} per bill</span>`:''}</div>
+   ${anyUsed?`<div class="f full"><label for="f-modal-d-useRemarks">Remarks about what was used at once (required)</label>${inp('modal.d.useRemarks',d.useRemarks,'placeholder="e.g. Used in pump repair at SPS-2 on the same day"')}</div>`:''}
+   <div class="f full"><label>Bill / cash memo (photo or PDF)</label>${photoPicker('modal.d.photos',d.photos,{doc:true})}</div>
+   <p class="small muted">Goes to the approver, then to the person who grants purchase orders for final approval. Quantities not used at once are added to ${d.location==='hq'?'the HQ store':'site stock'} after final approval.</p>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn orange" data-act="saveCash" ${busy}>${icon('ul')} ${m.id?(S.cashbuys.find(x=>x.id===m.id)||{}).status==='returned'?'Send again for approval':'Save correction':'Send for approval'}</button>`,'wide')}
+A.saveCash=async()=>{const m=ui.modal,d=m.d;const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
+  if(d.location==='site'&&!d.projectId){toast('Choose the site.','err');return}
+  if(!String(d.shop).trim()){toast('Enter the shop.','err');return}if(!String(d.purpose).trim()){toast('Enter the purpose.','err');return}
+  if(!lines.length){toast('Enter at least one item.','err');return}
+  for(const l of lines){if(!String(l.desc).trim()||!(num(l.qty)>0)){toast('Enter item and quantity on every line.','err');return}if(num(l.usedNow)>num(l.qty)){toast('Used at once cannot be more than bought for '+l.desc+'.','err');return}}
+  if(lines.some(l=>num(l.usedNow)>0)&&!String(d.useRemarks||'').trim()){toast('Write remarks about what was used at once.','err');return}
+  if(!(d.photos||[]).length){toast('Attach the bill or cash memo.','err');return}
+  const body={date:d.date,shop:String(d.shop).trim(),shopGstin:String(d.shopGstin||'').trim(),billNo:String(d.billNo||'').trim(),billDate:d.billDate||'',payMode:d.payMode,purpose:String(d.purpose).trim(),useRemarks:String(d.useRemarks||'').trim(),photos:d.photos,
+    lines:lines.map(l=>{const desc=String(l.desc).trim(),spec=String(l.spec||'').trim();return {desc,spec,unit:l.unit,cat:classify(desc,spec).cat,itemKey:itemKey(desc,spec,l.unit),qty:num(l.qty),rate:num(l.rate),gst:num(l.gst),usedNow:num(l.usedNow)}})};
+  const ok=await run(async()=>{if(m.id){const c=S.cashbuys.find(x=>x.id===m.id);await updDoc('cashbuys',m.id,Object.assign(body,c.status==='returned'?{resubmit:true}:{}));return c.no}
+    const no=await allocNo('CP',S.cashbuys);await setDoc('cashbuys',newId(),Object.assign({no,location:d.location,projectId:d.projectId||'',at:Date.now()},body));return no});
+  if(ok){closeModal();toast(ok+(m.id?' saved':' sent to the approver'))}};
+A.cashStep=d=>{const c=S.cashbuys.find(x=>x.id===d.id);if(!c) return;const t=d.use?(c.uses||[]).find(u=>u.id===d.use):c;const lbl={approve:'Approve',final:'Final approval',return:'Return for correction',reject:'Reject'}[d.a];
+  const need=d.a==='return'||d.a==='reject';
+  confirmBox({title:lbl+' · '+(t.no||c.no),body:`<p><b>${esc(c.shop)}</b> · ${money(num(c.total))} · ${esc(cashWhere(c))}</p><p class="small">${d.use?Object.entries(t.qty||{}).map(([k,v])=>`${fq(v)} ${esc((c.lines[+k]||{}).unit||'')} ${esc((c.lines[+k]||{}).desc||'')}`).join(', ')+' — '+esc(t.remarks||''):esc(c.purpose||'')}</p>`,noteArea:true,note:need?'Reason (required)':'Remark (optional)',yes:lbl,danger:d.a==='reject',
+   onYes:async m=>{const r=String(m.noteVal||'').trim();if(need&&!r){toast('Write the reason.','err');return}
+     if(await run(()=>updDoc('cashbuys',c.id,{step:{action:d.a,remark:r,useId:d.use||''}}),lbl+' done')!==false) closeModal()}})};
+A.cashUse=d=>{const c=S.cashbuys.find(x=>x.id===d.id);if(!c) return;openModal({type:'cashUse',id:c.id,d:{date:today(),remarks:'',qty:{}}})};
+function cashUseModal(m,busy){const c=S.cashbuys.find(x=>x.id===m.id);if(!c) return '';const u=cashUsedAll(c);
+  return wrap('Record consumption · '+esc(c.no),`<p class="small muted">From the cash purchase at ${esc(c.shop)} on ${fd(c.date)}. It is counted after the approver and the PO-granting authority approve it.</p>
+   <div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Left</th><th class="num">Consumed now</th></tr></thead><tbody>${(c.lines||[]).map((l,i)=>{const left=num(l.qty)-(u[i]||0);return `<tr><td><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></td><td class="num mono">${fq(left)} ${esc(l.unit)}</td><td>${left>1e-9?inp('modal.d.qty.'+i,m.d.qty[i]||'','inputmode="decimal" style="width:100px"'):'—'}</td></tr>`}).join('')}</tbody></table></div>
+   <div class="fields two">${field('Date','modal.d.date',m.d.date,'type="date"')}</div>
+   <div class="f full"><label for="f-modal-d-remarks">Remarks about the consumption (required)</label><textarea class="inp" id="f-modal-d-remarks" data-bind="modal.d.remarks" rows="2" placeholder="Where and for what work it was used">${esc(m.d.remarks||'')}</textarea></div>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn orange" data-act="saveCashUse" ${busy}>${icon('ul')} Send for approval</button>`)}
+A.saveCashUse=async()=>{const m=ui.modal;const qty={};for(const [k,v] of Object.entries(m.d.qty||{})) if(num(v)>0) qty[k]=num(v);
+  if(!Object.keys(qty).length){toast('Enter the quantity consumed.','err');return}if(!String(m.d.remarks||'').trim()){toast('Write the remarks about the consumption.','err');return}
+  if(await run(()=>updDoc('cashbuys',m.id,{addUse:{qty,remarks:String(m.d.remarks).trim(),date:m.d.date}}),'Consumption sent for approval')!==false) closeModal()};
+A.cashPrint=d=>{const c=S.cashbuys.find(x=>x.id===d.id);if(c) printHtml(c.no,cashDoc(c))};
+function cashDoc(c){const b='border:1px solid #c9d3d6;padding:6px 8px;font-size:12.5px;vertical-align:top';const conf=S.config;const fin=c.fin;
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;padding:28px;max-width:900px;margin:0 auto">${c.status!=='final'?`<div style="border:2px solid #C0392B;color:#C0392B;font-weight:800;text-align:center;padding:8px;margin-bottom:12px">${c.status==='rejected'?'REJECTED':'NOT YET FULLY APPROVED'}</div>`:''}
+  <table style="width:100%"><tr><td>${conf.logo?`<img src="/files/${esc(conf.logo)}" style="height:50px;max-width:150px;object-fit:contain" alt=""><br>`:''}<b style="font-size:19px">${esc(company())}</b></td><td style="text-align:right"><div style="font-size:20px;font-weight:800;color:#1172C4">CASH PURCHASE VOUCHER</div><b>${esc(c.no)}</b><br>Date: ${fd(c.date)}</td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:14px"><tr><td style="${b};width:50%"><b>Bought from</b><br>${esc(c.shop)}${c.shopGstin?'<br>GSTIN: '+esc(c.shopGstin):''}<br>Bill ${esc(c.billNo||'—')} dt. ${fd(c.billDate)} · paid by ${esc(c.payMode||'Cash')}</td><td style="${b}"><b>Bought for</b><br>${esc(cashWhere(c))}<br><b>Purpose:</b> ${esc(c.purpose||'')}</td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:14px"><thead><tr style="background:#e9eef2"><th style="${b}">#</th><th style="${b};text-align:left">Item</th><th style="${b};text-align:right">Qty</th><th style="${b}">Unit</th><th style="${b};text-align:right">Rate</th><th style="${b};text-align:right">GST %</th><th style="${b};text-align:right">Amount (₹)</th><th style="${b};text-align:right">Used at once</th></tr></thead>
+  <tbody>${(c.lines||[]).map((l,i)=>`<tr><td style="${b}">${i+1}</td><td style="${b}"><b>${esc(l.desc)}</b>${l.spec?'<br><span style="color:#465A6D">'+esc(l.spec)+'</span>':''}</td><td style="${b};text-align:right">${fq(l.qty)}</td><td style="${b}">${esc(l.unit)}</td><td style="${b};text-align:right">${fq(l.rate)}</td><td style="${b};text-align:right">${fq(l.gst)}</td><td style="${b};text-align:right">${fq(l.amount)}</td><td style="${b};text-align:right">${l.usedNow?fq(l.usedNow):''}</td></tr>`).join('')}
+  <tr><td colspan="6" style="${b};text-align:right"><b>Total</b></td><td style="${b};text-align:right"><b>${fq(c.total)}</b></td><td style="${b}"></td></tr><tr><td colspan="8" style="${b}"><b>In words:</b> ${inWords(num(c.total))}</td></tr></tbody></table>
+  ${c.useRemarks?`<p style="font-size:12px"><b>Used at once:</b> ${esc(c.useRemarks)}</p>`:''}
+  <table style="width:100%;margin-top:40px;font-size:12px"><tr><td style="vertical-align:bottom">Bought / entered by<br><br><b>${esc(c.byName||'')}</b><br>${fdt(c.enteredAt||c.at)}</td><td style="text-align:center;vertical-align:bottom">Approved by<br><br><b>${esc(c.appr?c.appr.byName:'')}</b><br>${c.appr?fdt(c.appr.at):''}</td>
+  <td style="text-align:right;vertical-align:bottom">${fin&&fin.sign?`<img src="/files/${esc(fin.sign)}" alt="" style="height:70px;max-width:200px;object-fit:contain"><br>`:'<br><br>'}Final approval<br><b>${esc(fin?fin.byName:'')}</b><br>${fin?esc(fin.designation||'')+'<br>'+fdt(fin.at):''}</td></tr></table></div>`}
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='cashNew'?cashModal(m,busy):m.type==='cashUse'?cashUseModal(m,busy):prev(m,busy)}

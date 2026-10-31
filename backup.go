@@ -187,6 +187,17 @@ func siteStockLocked() map[string]map[string]*stockRow {
 			r.Adj += q
 		}
 	}
+	for _, x := range liveLocked("cashbuys") {
+		if str(x.D, "status") != "final" || str(x.D, "location") != "site" {
+			continue
+		}
+		used := cashUsedFinal(x.D)
+		for i, l := range subList(x.D, "lines") {
+			r := row(str(x.D, "projectId"), itemKeyOf(l), l)
+			r.Recv += fnum(l["qty"])
+			r.Cons += used[i]
+		}
+	}
 	for _, x := range liveLocked("vreturns") {
 		if str(x.D, "status") == "cancelled" || str(x.D, "from") != "site" {
 			continue
@@ -514,6 +525,21 @@ func buildWorkbookLocked() []xSheet {
 		}
 	}
 	sheets = append(sheets, xSheet{"Returns to vendors", rows})
+	// Cash purchases
+	rows = [][]any{{"Voucher", "Date", "Bought for", "Shop", "Shop GSTIN", "Bill no.", "Paid by", "Purpose", "Item", "Specification", "Unit", "Qty", "Rate", "GST %", "Amount", "Used at once", "Entered by", "Status", "Approved by", "Final approval by"}}
+	for _, x := range liveLocked("cashbuys") {
+		d := x.D
+		where := "HQ store"
+		if str(d, "location") == "site" {
+			where = pcode(str(d, "projectId"))
+		}
+		a, _ := d["appr"].(map[string]any)
+		f, _ := d["fin"].(map[string]any)
+		for _, l := range subList(d, "lines") {
+			rows = append(rows, []any{str(d, "no"), str(d, "date"), where, str(d, "shop"), str(d, "shopGstin"), str(d, "billNo"), str(d, "payMode"), str(d, "purpose"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), fnum(l["rate"]), fnum(l["gst"]), fnum(l["amount"]), fnum(l["usedNow"]), str(d, "byName"), str(d, "status"), str(a, "byName"), str(f, "byName")})
+		}
+	}
+	sheets = append(sheets, xSheet{"Cash purchases", rows})
 	// Central store
 	type cs struct {
 		desc, spec, unit, cat string
@@ -552,6 +578,17 @@ func buildWorkbookLocked() []xSheet {
 		}
 		for _, l := range subList(x.D, "lines") {
 			get(itemKeyOf(l), l).out += fnum(l["qty"])
+		}
+	}
+	for _, x := range liveLocked("cashbuys") {
+		if str(x.D, "status") != "final" || str(x.D, "location") != "hq" {
+			continue
+		}
+		used := cashUsedFinal(x.D)
+		for i, l := range subList(x.D, "lines") {
+			s := get(itemKeyOf(l), l)
+			s.in += fnum(l["qty"])
+			s.out += used[i]
 		}
 	}
 	rows = [][]any{{"Item", "Specification", "Category", "Unit", "Received", "Issued", "Balance"}}

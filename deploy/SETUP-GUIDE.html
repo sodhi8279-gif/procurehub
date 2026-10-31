@@ -14,13 +14,13 @@ pre{background:#14212A;color:#e2ecef;padding:12px 14px;border-radius:8px;overflo
 ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:#e9eeec}
 .opt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 </style></head><body><main>
-<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.2</small></h1>
+<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.3</small></h1>
 <p class="sub">Procurement for multi-site water supply &amp; sewerage projects: site demands → categorise → RFQ to vendors → comparative → PO → receipt → dispatch → site confirmation.</p>
 
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.2.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.3.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -104,6 +104,14 @@ sudo systemctl restart caddy</pre></li>
 <li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
 <li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
 <li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 6.3 — cash (counter) purchases with two approvals</b><ol style="margin:6px 0 0">
+<li><b>Who may spend:</b> the administrator gives the right in <i>Settings → HQ team &amp; permissions</i>. For an HQ person tick <b>Make cash purchases</b>; for a site login tick <b>May make cash (counter) purchases</b>. For each person you can set a <b>cash purchase limit per bill</b> (₹; 0 = no limit) — a bill above it is refused.</li>
+<li><b>Who approves:</b> first the <b>approver</b> (new right <i>Approve cash purchases</i>, also part of the Purchase manager role), then the <b>final approval</b> by the person who grants purchase orders (right <i>Approve purchase orders</i> — the Director (Procurement)). Nobody approves an entry they made, and the final approver must be a different person from the approver.</li>
+<li><b>Entering:</b> <i>Cash purchases → New cash purchase</i> (sites see it in their menu): bought for a site or the HQ store, date, shop, shop GSTIN, bill no. and date, paid by cash / UPI / card, the purpose, the items with quantity, rate and GST %, and the photo or PDF of the bill (required). If part was <b>used at once</b>, enter that quantity and remarks about the use. The voucher number is CP/….</li>
+<li><b>Approval:</b> the approver and then the final approver find it under <i>Cash purchases → For me</i> (with a count in the menu) and click <b>Approve</b> / <b>Final approval</b>, or <b>Return for correction</b> / <b>Reject</b> with a reason. A returned entry is corrected by the person who made it and sent again.</li>
+<li><b>Stock:</b> after the final approval the items not used at once are added to the site stock (or the HQ store).</li>
+<li><b>Consumption later:</b> on the entry click <b>Record consumption</b>, enter the quantity of each item and the remarks. It goes through the same two approvals and is taken out of stock after the final approval.</li>
+<li>Print the <b>Cash Purchase Voucher</b> with the names of who entered and approved it and the final approver's signature. The backup Excel has a sheet “Cash purchases”.</li></ol></div>
 <div class="card tip"><b>New in 6.2 — return material to the vendor</b><ol style="margin:6px 0 0">
 <li><b>Where:</b> <i>HQ store → Return to vendor</i> (and the tab <i>Returned to vendors</i>), on a purchase order (<b>Return to vendor</b>, filled with that PO's items), or at a site (<i>Site stock → Return to vendor</i>; site staff can do this themselves).</li>
 <li><b>Fill in:</b> where it goes back from (HQ store or a site), the vendor and, if any, the PO (at site: the delivery it came with), the reason — <i>Rejected on inspection, Specification mismatch, Damaged / defective, Wrong item, Excess / not ordered, Other</i> — the quantity of each item (never more than was received and is in stock), details of the problem, vehicle / LR and photos or the inspection report.</li>
