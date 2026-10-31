@@ -213,7 +213,8 @@ async function createRfq(m,extra){
   const cats=[...new Set(m.lines.map(l=>l.cat))];const no=await allocNo('RFQ',S.rfqs);const id=newId();
   await setDoc('rfqs',id,Object.assign({no,date:today(),dueDate:m.dueDate,deliveryMode:m.deliveryMode,notes:m.notes||'',category:cats.length===1?cats[0]:'mixed',vendorIds:m.vendorIds.slice(),lines:m.lines,quotes:{},award:{},status:'draft',sentLog:[],at:Date.now(),createdBy:ui.uid||null},extra||{}));
   const byInd={};for(const l of m.lines) for(const s of l.srcs)(byInd[s.indentId]=byInd[s.indentId]||[]).push(s.lineId);
-  for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const l of ls) if(lids.includes(l.id)){l.rfqId=id;l.rfqNo=no;l.rfqAt=Date.now()}});
+  try{for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const l of ls) if(lids.includes(l.id)){l.rfqId=id;l.rfqNo=no;l.rfqAt=Date.now()}})}
+  catch(e){try{await updDoc('rfqs',id,{status:'cancelled',cancelNote:'Could not link to the demands: '+errMsg(e)})}catch(_){}throw {message:no+' was not created: '+errMsg(e)}}
   return {id,no};
 }
 A.createRfq=async()=>{const m=ui.modal.d;const r=await run(()=>createRfq(m));if(r){ui.sel={};toast(r.no+' created. Now send it to the vendors.');go('rfq',r.id)}};
