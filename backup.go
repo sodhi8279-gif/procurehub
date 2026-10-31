@@ -130,10 +130,11 @@ type stockRow struct {
 	Desc, Spec, Unit, Cat                     string
 	Open, Recv, Out, Used, Dmg, Ret, Adj, Min float64
 	Cons                                      float64 // authenticated consumption reports
+	VRet                                      float64 // returned to vendors
 }
 
 func (r *stockRow) bal() float64 {
-	return r.Open + r.Recv - r.Out - r.Used - r.Cons - r.Dmg - r.Ret + r.Adj
+	return r.Open + r.Recv - r.Out - r.Used - r.Cons - r.VRet - r.Dmg - r.Ret + r.Adj
 }
 
 // siteStockLocked mirrors the client's derive(): balance per project and item.
@@ -184,6 +185,14 @@ func siteStockLocked() map[string]map[string]*stockRow {
 			r.Ret += q
 		case "adjust":
 			r.Adj += q
+		}
+	}
+	for _, x := range liveLocked("vreturns") {
+		if str(x.D, "status") == "cancelled" || str(x.D, "from") != "site" {
+			continue
+		}
+		for _, l := range subList(x.D, "lines") {
+			row(str(x.D, "projectId"), itemKeyOf(l), l).VRet += fnum(l["qty"])
 		}
 	}
 	for _, x := range liveLocked("consumption") {
@@ -447,7 +456,7 @@ func buildWorkbookLocked() []xSheet {
 	}
 	sheets = append(sheets, xSheet{"Outward register (GST)", rows})
 	// Site stock
-	rows = [][]any{{"Project code", "Project", "Item", "Specification", "Category", "Unit", "Opening", "Received", "Sent to other sites", "Issued / used", "Consumed (authenticated)", "Damaged / lost", "Returned to store", "Count adjustment", "Balance", "Minimum level", "Below minimum"}}
+	rows = [][]any{{"Project code", "Project", "Item", "Specification", "Category", "Unit", "Opening", "Received", "Sent to other sites", "Issued / used", "Consumed (authenticated)", "Returned to vendors", "Damaged / lost", "Returned to store", "Count adjustment", "Balance", "Minimum level", "Below minimum"}}
 	site := siteStockLocked()
 	pids := make([]string, 0, len(site))
 	for p := range site {
@@ -466,7 +475,7 @@ func buildWorkbookLocked() []xSheet {
 			if r.Min > 0 && r.bal() < r.Min {
 				low = "Yes"
 			}
-			rows = append(rows, []any{pcode(p), pname(p), r.Desc, r.Spec, catName(r.Cat), r.Unit, r.Open, r.Recv, r.Out, r.Used, r.Cons, r.Dmg, r.Ret, r.Adj, r.bal(), r.Min, low})
+			rows = append(rows, []any{pcode(p), pname(p), r.Desc, r.Spec, catName(r.Cat), r.Unit, r.Open, r.Recv, r.Out, r.Used, r.Cons, r.VRet, r.Dmg, r.Ret, r.Adj, r.bal(), r.Min, low})
 		}
 	}
 	sheets = append(sheets, xSheet{"Site stock", rows})
@@ -488,6 +497,23 @@ func buildWorkbookLocked() []xSheet {
 		}
 	}
 	sheets = append(sheets, xSheet{"Consumption", rows})
+	// Returns to vendors
+	rows = [][]any{{"Return note", "Date", "From", "Vendor", "PO", "Reason", "Details", "Item", "Specification", "Unit", "Qty", "Rate", "GST %", "Replacement / debit note", "Status", "Made by"}}
+	for _, x := range liveLocked("vreturns") {
+		d := x.D
+		from := "HQ store"
+		if str(d, "from") == "site" {
+			from = pcode(str(d, "projectId"))
+		}
+		next := "Debit note"
+		if d["replace"] == true {
+			next = "Vendor to replace"
+		}
+		for _, l := range subList(d, "lines") {
+			rows = append(rows, []any{str(d, "no"), str(d, "date"), from, str(d, "vendorName"), str(d, "poNo"), str(d, "reason"), str(d, "remarks"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), l["rate"], l["gst"], next, str(d, "status"), str(d, "createdByName")})
+		}
+	}
+	sheets = append(sheets, xSheet{"Returns to vendors", rows})
 	// Central store
 	type cs struct {
 		desc, spec, unit, cat string
@@ -514,6 +540,14 @@ func buildWorkbookLocked() []xSheet {
 	}
 	for _, x := range liveLocked("dispatches") {
 		if str(x.D, "type") != "store" || str(x.D, "status") == "cancelled" {
+			continue
+		}
+		for _, l := range subList(x.D, "lines") {
+			get(itemKeyOf(l), l).out += fnum(l["qty"])
+		}
+	}
+	for _, x := range liveLocked("vreturns") {
+		if str(x.D, "from") == "site" || str(x.D, "status") == "cancelled" {
 			continue
 		}
 		for _, l := range subList(x.D, "lines") {

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.1.2"
+const appVersion = "6.2.0"
 const appName = "RGS Infra ProcureHub"
 
 type Doc struct {
@@ -113,7 +113,7 @@ var (
 	filesDir string
 )
 
-var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true}
+var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true}
 
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]{1,200}$`)
@@ -728,6 +728,8 @@ func visible(u *User, col, id string, d *Doc) bool {
 			return inScope(u, id)
 		case "indents", "sitelog", "stocklvl", "consumption":
 			return inScope(u, str(d.Data, "projectId"))
+		case "vreturns":
+			return str(d.Data, "projectId") == "" || inScope(u, str(d.Data, "projectId"))
 		case "dispatches":
 			return inScope(u, str(d.Data, "projectId")) || inScope(u, str(d.Data, "fromProjectId"))
 		}
@@ -739,7 +741,7 @@ func visible(u *User, col, id string, d *Doc) bool {
 	switch col {
 	case "projects", "catalog", "config":
 		return true
-	case "indents", "sitelog", "stocklvl", "consumption":
+	case "indents", "sitelog", "stocklvl", "consumption", "vreturns":
 		return str(d.Data, "projectId") == u.ProjectID
 	case "dispatches":
 		return str(d.Data, "projectId") == u.ProjectID || str(d.Data, "fromProjectId") == u.ProjectID
@@ -941,6 +943,13 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 			delete(merged, "value")
 			return merged, nil
 		}
+	case "vreturns": // material returned to the vendor from the site
+		if op != "set" || ex != nil || str(merged, "projectId") != u.ProjectID {
+			return nil, errors.New("You can only record a return from your own site.")
+		}
+		merged["from"], merged["status"] = "site", "returned"
+		merged["createdBy"], merged["createdByName"] = u.ID, u.Name
+		return merged, nil
 	case "consumption":
 		if str(merged, "projectId") != u.ProjectID || (ex != nil && str(ex, "projectId") != u.ProjectID) {
 			return nil, errors.New("You can only report consumption for your own project.")
@@ -1056,6 +1065,24 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				return
 			}
 		}
+		if req.Col == "vreturns" && exData == nil {
+			ls := anyList(newData["lines"])
+			if len(ls) == 0 || strings.TrimSpace(str(newData, "vendorName")) == "" {
+				fail(w, 400, "Choose the vendor and the material to return.")
+				return
+			}
+			for _, li := range ls {
+				m, _ := li.(map[string]any)
+				if q, _ := m["qty"].(float64); m == nil || !(q > 0) {
+					fail(w, 400, "Enter the quantity to return.")
+					return
+				}
+			}
+			newData["status"], newData["createdBy"], newData["createdByName"] = "returned", u.ID, u.Name
+			if u.Role == "hq" && str(newData, "from") != "site" {
+				newData["from"], newData["projectId"] = "hq", ""
+			}
+		}
 		if req.Col == "consumption" {
 			if err := consumptionGuard(u, exData, req.Data, newData); err != nil {
 				fail(w, 403, err.Error())
@@ -1120,12 +1147,12 @@ func hCounter(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Invalid number series.")
 		return
 	}
-	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" {
+	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" {
 		fail(w, 403, "Not allowed.")
 		return
 	}
 	if u.Role == "hq" {
-		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}, "STI": {"store", "po_issue"}, "CR": {"sitestock_edit"}, "OS": {"store", "sitestock_edit"}}[req.Prefix]
+		perm := map[string][]string{"MR": {"raise_demand"}, "RFQ": {"rfq_create"}, "PO": {"po_issue"}, "DD": {"po_issue"}, "GRN": {"store"}, "DC": {"store"}, "TR": {"store"}, "JW": {"store", "po_issue"}, "JC": {"store", "po_issue"}, "STI": {"store", "po_issue"}, "CR": {"sitestock_edit"}, "OS": {"store", "sitestock_edit"}, "RTV": {"store", "sitestock_edit", "po_issue"}}[req.Prefix]
 		if perm != nil {
 			if err := need(u, perm...); err != nil {
 				fail(w, 403, err.Error())

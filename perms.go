@@ -138,6 +138,10 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		if !inScope(u, str(src, "projectId")) || (ex != nil && !inScope(u, str(ex, "projectId"))) {
 			return errors.New("This project is not one of the sites assigned to you.")
 		}
+	case "vreturns":
+		if p := str(src, "projectId"); p != "" && !inScope(u, p) {
+			return errors.New("This project is not one of the sites assigned to you.")
+		}
 	case "dispatches":
 		if !inScope(u, str(src, "projectId")) && !inScope(u, str(src, "fromProjectId")) {
 			return errors.New("This project is not one of the sites assigned to you.")
@@ -173,6 +177,19 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		return need(u, "settings")
 	case "sitelog", "stocklvl":
 		return need(u, "sitestock_edit")
+	case "vreturns":
+		if op == "delete" {
+			return errors.New("Only administrators can delete returns. Cancel it instead.")
+		}
+		if ex != nil {
+			for k := range patch {
+				if k != "status" && k != "cancelNote" {
+					return errors.New("A return note cannot be changed. Cancel it and make a new one.")
+				}
+			}
+			return need(u, "store")
+		}
+		return need(u, "store", "sitestock_edit", "po_issue")
 	case "consumption":
 		if op == "delete" {
 			return errors.New("Only administrators can delete consumption reports.")
@@ -313,6 +330,21 @@ func sanitizeFor(u *User, col string, data map[string]any) map[string]any {
 			out["lines"] = ls
 		}
 		delete(out, "amount")
+		out["ratesHidden"] = true
+		return out
+	}
+	if col == "vreturns" {
+		out := shallowCopy(data)
+		var ls []any
+		for _, l := range subList(data, "lines") {
+			c := shallowCopy(l)
+			delete(c, "rate")
+			delete(c, "gst")
+			ls = append(ls, c)
+		}
+		if ls != nil {
+			out["lines"] = ls
+		}
 		out["ratesHidden"] = true
 		return out
 	}

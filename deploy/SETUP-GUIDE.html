@@ -14,13 +14,13 @@ pre{background:#14212A;color:#e2ecef;padding:12px 14px;border-radius:8px;overflo
 ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:#e9eeec}
 .opt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 </style></head><body><main>
-<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.1</small></h1>
+<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.2</small></h1>
 <p class="sub">Procurement for multi-site water supply &amp; sewerage projects: site demands → categorise → RFQ to vendors → comparative → PO → receipt → dispatch → site confirmation.</p>
 
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.1.2</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.2.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -104,6 +104,11 @@ sudo systemctl restart caddy</pre></li>
 <li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
 <li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
 <li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 6.2 — return material to the vendor</b><ol style="margin:6px 0 0">
+<li><b>Where:</b> <i>HQ store → Return to vendor</i> (and the tab <i>Returned to vendors</i>), on a purchase order (<b>Return to vendor</b>, filled with that PO's items), or at a site (<i>Site stock → Return to vendor</i>; site staff can do this themselves).</li>
+<li><b>Fill in:</b> where it goes back from (HQ store or a site), the vendor and, if any, the PO (at site: the delivery it came with), the reason — <i>Rejected on inspection, Specification mismatch, Damaged / defective, Wrong item, Excess / not ordered, Other</i> — the quantity of each item (never more than was received and is in stock), details of the problem, vehicle / LR and photos or the inspection report.</li>
+<li><b>Against a PO choose what happens next:</b> <b>Vendor will replace</b> — the quantity becomes due again on the PO, which shows <i>Part received</i> until the replacement is received; or <b>No replacement — debit note</b>.</li>
+<li>Stock goes down at once (HQ store or site). A <b>Material Return Note</b> (with debit note value for people who see rates) prints for the vendor's signature. Only the HQ store can cancel a return note, for example if the vendor did not take the material; stock is then restored. The backup Excel has a new sheet “Returns to vendors”. (Number series RTV/…)</li></ol></div>
 <div class="card tip"><b>New in 6.1 — procurement queue by requisition, vendors item by item, demands sent back for amendment</b><ol style="margin:6px 0 0">
 <li><b>Procurement queue — By category / By requisition:</b> switch at the top. <i>By requisition</i> shows each MR with its project name, who raised it and when it is needed, with <b>Select all</b> and <b>RFQ for all</b> for that MR. <b>Select all … lines</b> at the top ticks every line in the queue.</li>
 <li><b>Vendors item by item:</b> after selecting lines click <b>Create RFQ</b>. Choose <i>Same vendors for all items</i> (one RFQ, as before) or <i>Choose vendors item by item</i>: tick the vendors for each item (vendors of its category are ticked; “+ other vendor” adds anyone else). Items going to the same vendors are put in one RFQ, so each vendor only receives the items meant for him.</li>

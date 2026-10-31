@@ -124,7 +124,7 @@ function taxLines(lines,intra){let taxable=0,cgst=0,sgst=0,igst=0;const out=line
   return {lines:out,taxable:r(taxable),cgst:r(cgst),sgst:r(sgst),igst:r(igst),total:r(taxable+cgst+sgst+igst)}}
 
 /* ================= STATE ================= */
-const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],catalog:{},catalogList:[],config:{}};
+const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],vreturns:[],catalog:{},catalogList:[],config:{}};
 const ui={view:'loading',param:null,modal:null,f:{},sel:{},draft:{},loaded:{},role:null,preview:'',uid:null,fatal:null,tab:{},busy:false,online:true,me:null,users:[],smtp:null,pop:null,q:'',drawer:false,uploading:0,pickCat:null,pickQ:'',cartOpen:false};
 let D={};
 const app=document.getElementById('app');
@@ -151,7 +151,7 @@ async function api(path,body,method){
 function applyDoc(d){const c=store.cols[d.col]||(store.cols[d.col]={});if(d.deleted) delete c[d.id];else c[d.id]=d.data}
 function rebuild(){
   const L=c=>Object.entries(store.cols[c]||{}).map(([id,d])=>Object.assign({},d,{id}));
-  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption']) S[k]=L(k);
+  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns']) S[k]=L(k);
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
@@ -221,7 +221,7 @@ function photoStrip(ids){ids=(ids||[]).filter(Boolean);return ids.length?`<div c
 function derive(){
   const d={delivered:{},transit:{},storeOut:{},storeDisp:{},stock:{},directRecv:{},poDispatches:{},site:{},reserved:{},lineDisp:{}};
   D=d;d.items=catalogItems();d.itemMap=Object.fromEntries(d.items.map(x=>[x.id,x]));
-  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,open:0,dmg:0,ret:0,adj:0,bal:0,min:0,last:0})};
+  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,vret:0,open:0,dmg:0,ret:0,adj:0,bal:0,min:0,last:0})};
   d.rate={};for(const p of S.pos){if(p.status==='cancelled') continue;for(const l of p.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const r=d.rate[k];if(!r||(p.at||0)>r.at) d.rate[k]={rate:num(l.rate)*(1+num(l.gst)/100),at:p.at||0}}}
   // value of existing stock entered with a rate (used when there is no PO rate)
   d.orate={};const oat={};const orate=(k,r,at)=>{if(num(r)>0&&(!(k in oat)||at>=oat[k])){d.orate[k]=num(r);oat[k]=at}};
@@ -244,14 +244,17 @@ function derive(){
     if(e.type==='use') r.used+=q;else if(e.type==='damage') r.dmg+=q;else if(e.type==='return'){r.ret+=q;retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}else if(e.type==='adjust') r.adj+=q;else r.open+=q}
   // consumption reported by sites: counts once the site head / project manager authenticates it
   for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const r=siteRow(c.projectId,l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(c.status==='authenticated'){r.cons+=num(l.qty);r.last=Math.max(r.last,(c.auth&&c.auth.at)||0)}else r.pcons+=num(l.qty)}}
+  // material returned to vendors (rejected, wrong specification, damaged…)
+  d.vretRepl={};for(const v of S.vreturns){if(v.status==='cancelled') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(v.from==='site'&&v.projectId){const r=siteRow(v.projectId,k,l);r.vret+=num(l.qty);r.last=Math.max(r.last,v.at||0)}if(v.replace&&v.poId&&l.poKey) d.vretRepl[v.poId+'|'+l.poKey]=(d.vretRepl[v.poId+'|'+l.poKey]||0)+num(l.qty)}}
   d.lvl={};for(const v of S.stocklvl){(d.lvl[v.projectId]=d.lvl[v.projectId]||{})[v.itemKey]=v;const r=d.site[v.projectId]&&d.site[v.projectId][v.itemKey];if(r) r.min=num(v.min)}
-  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.cons-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-r.pcons-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
+  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.cons-r.vret-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-r.pcons-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
   for(const g of S.grns){for(const l of g.lines||[]){const s=d.stock[l.itemKey]||(d.stock[l.itemKey]={itemKey:l.itemKey,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,inQ:0,outQ:0});s.inQ+=num(l.acc)}}
   for(const k in retIn){const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:retIn[k].l.desc,spec:retIn[k].l.spec,unit:retIn[k].l.unit,cat:retIn[k].l.cat,inQ:0,outQ:0});s.inQ+=retIn[k].q}
   for(const k in d.storeOut){const s=d.stock[k];if(s) s.outQ+=d.storeOut[k];else d.stock[k]={itemKey:k,desc:k.split('|')[0],spec:'',unit:k.split('|')[2],cat:'others',inQ:0,outQ:d.storeOut[k]}}
   // material sent from the HQ store to job workers, and unused material they return
   for(const e of S.jobwork){if(e.status==='cancelled') continue;const out=e.type==='in'&&e.source==='store',back=e.type==='return';if(!out&&!back) continue;
     for(const l of e.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||'others',inQ:0,outQ:0});if(out) s.outQ+=num(l.qty);else s.inQ+=num(l.qty)}}
+  for(const v of S.vreturns){if(v.status==='cancelled'||v.from==='site') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||'others',inQ:0,outQ:0});s.outQ+=num(l.qty)}}
   for(const k in d.stock) d.stock[k].bal=d.stock[k].inQ-d.stock[k].outQ;
 }
 function needQty(l){return l.approvedQty!=null?num(l.approvedQty):num(l.qty)}
@@ -308,7 +311,8 @@ function poTotals(po){const basic=sum(po.lines||[],l=>num(l.qty)*num(l.rate));co
 // PO delivered to the HQ store (not direct to sites, not to a job worker)
 const toStore=p=>p.deliveryMode!=='site'&&p.deliveryMode!=='vendor';
 const delivLabel=p=>p.deliveryMode==='site'?'Direct to sites':p.deliveryMode==='vendor'?'To job worker '+((vend(p.shipToVendorId)||{}).name||p.shipToVendorName||''):'Central store';
-function poRecv(po,key){return po.deliveryMode==='site'?(D.directRecv[po.id+'|'+key]||0):num((po.received||{})[key])}
+// received against the PO, less material returned to the vendor for replacement
+function poRecv(po,key){return Math.max(0,(po.deliveryMode==='site'?(D.directRecv[po.id+'|'+key]||0):num((po.received||{})[key]))-((D.vretRepl||{})[po.id+'|'+key]||0))}
 function poProgress(po){const o=sum(po.lines||[],l=>num(l.qty));const r=sum(po.lines||[],l=>Math.min(num(l.qty),poRecv(po,l.key)));return {o,r,pct:o?r/o:0}}
 function poStatus(po){if(po.status==='cancelled') return {label:'Cancelled',tone:'red'};const ap=po.approval;if(ap&&ap.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(ap&&ap.status==='returned') return {label:'Sent back',tone:'red'};const p=poProgress(po);if(p.pct>=1-1e-9) return {label:'Completed',tone:'green'};if(p.r>0) return {label:'Part received',tone:'amber'};return {label:'Open',tone:'blue'}}
 function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;

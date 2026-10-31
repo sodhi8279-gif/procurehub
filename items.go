@@ -26,7 +26,7 @@ type itemName struct{ Desc, Spec, Unit, Cat string }
 
 var catIDRe = regexp.MustCompile(`^[a-z0-9_-]{1,60}$`)
 
-var renameLineCols = []string{"indents", "rfqs", "pos", "grns", "dispatches", "jobwork", "consumption", "mailquotes"}
+var renameLineCols = []string{"indents", "rfqs", "pos", "grns", "dispatches", "jobwork", "consumption", "mailquotes", "vreturns"}
 var renameDocCols = []string{"sitelog", "stocklvl"}
 
 func hItemRename(w http.ResponseWriter, r *http.Request, u *User) {
