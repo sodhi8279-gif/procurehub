@@ -1,0 +1,772 @@
+"use strict";
+function view(){
+  if(ui.role==='site'){
+    if(!siteProject()) return emptyBox(ART.x('clip','e-art'),'No project linked to your account','Ask HQ to assign your project in Settings → Users, then sign in again.',`<button class="btn" data-act="logout">Sign out</button>`);
+    switch(ui.view){case 's_new':return vNewDemand();case 's_list':return vSiteList();case 's_indent':return vIndent(true);case 's_incoming':return vIncoming();case 's_stock':return vSiteStock();case 'done':return vDone();case 'help':return vHelp();case 'account':return vAccount();default:return vSiteHome()}
+  }
+  switch(ui.view){
+    case 'precheck':return vPrecheck();case 'demands':return vDemands();case 'indent':return vIndent(false);case 'queue':return vQueue();case 'rfqs':return vRfqs();case 'rfq':return vRfq();
+    case 'pos':return vPos();case 'po':return vPo();case 'grn':return vGrn();case 'dispatch':return vDispatch();case 'jobwork':return vJobwork();case 'sitestock':return vHQStock();case 'reports':return vReports();
+    case 'projects':return vProjects();case 'vendors':return vVendors();case 'items':return vItems();case 'settings':return vSettings();case 's_new':return vNewDemand();case 'done':return vDone();case 'help':return vHelp();case 'account':return vAccount();
+    default:return vDashboard();
+  }
+}
+function greet(){const h=new Date().getHours();return h<12?'Good morning':h<17?'Good afternoon':'Good evening'}
+
+/* ================= HQ DASHBOARD ================= */
+function dataNoteBox(){if(!isAdm()||!(ui.dataNotes||[]).length) return '';
+  return ui.dataNotes.map(n=>`<div class="notice warn data-note">${icon('alert')}<span><b>Another ProcureHub data folder on this computer has more records than the one in use.</b><br>${esc(n.dir)} — ${n.records} records, last changed ${fdt(n.changed)}.<br>If that is your real data: close the ProcureHub black window, copy the new RGS-ProcureHub.exe into the folder that contains it (replace the old one), and start it from there.</span></div>`).join('')}
+function vDashboard(){
+  if(!S.projects.length&&!S.indents.length) return dataNoteBox()+startHere();
+  const L=allLines(),td=today(),cnt=st=>L.filter(x=>x.info.st===st).length;
+  const rev=L.filter(x=>x.info.st==='review'&&!x.info.hold),revSites=new Set(rev.map(x=>x.ind.projectId)).size;
+  const rfqOpen=S.rfqs.filter(r=>r.status==='sent'||r.status==='draft');
+  const poOpen=S.pos.filter(p=>p.status!=='cancelled'&&poProgress(p).pct<1),poVal=sum(poOpen,p=>poTotals(p).total);
+  const transit=S.dispatches.filter(d=>d.status==='in_transit');
+  const overdue=L.filter(x=>x.ind.requiredBy&&x.ind.requiredBy<td&&!['delivered','rejected'].includes(x.info.st));
+  const monthPO=S.pos.filter(p=>p.status!=='cancelled'&&String(p.date||'').slice(0,7)===td.slice(0,7));
+  const parts=[];if(rev.length) parts.push(`<b>${rev.length}</b> new demand line${rev.length>1?'s':''} from ${revSites} site${revSites>1?'s':''} waiting for review`);
+  if(cnt('source')) parts.push(`<b>${cnt('source')}</b> approved line${cnt('source')>1?'s':''} ready for quotation`);
+  if(overdue.length) parts.push(`<b>${overdue.length}</b> past the required date`);
+  const kpis=[
+    {k:'To review',v:rev.length,d:'demand lines from sites',go:'demands',i:'inbox',tone:'amber'},
+    {k:'To source',v:cnt('source'),d:'approved, no RFQ yet',go:'queue',i:'queue',tone:'violet'},
+    {k:'Quotes awaited',v:rfqOpen.length,d:'open RFQs',go:'rfqs',i:'quote',tone:'blue'},
+    {k:'Open POs',v:seeRates()?lakh(poVal):poOpen.length,d:poOpen.length+' orders pending supply',go:'pos',i:'po',tone:'blue'},
+    {k:'On the road',v:transit.length,d:'consignments in transit',go:'dispatch',i:'truck',tone:'orange'},
+    {k:'Overdue',v:overdue.length,d:'lines past required date',go:'demands',i:'clock',tone:overdue.length?'red':'green'},
+  ];
+  const flow=[['review','Review','demands','amber'],['source','To source','queue','violet'],['rfq','Quotation','rfqs','blue'],['po','Ordered','pos','blue'],['transit','On the way','dispatch','orange'],['delivered','Delivered','demands','green']];
+  const open=L.filter(x=>!['delivered','rejected'].includes(x.info.st));
+  const byCat={};for(const x of open){const c=x.l.category||'others';(byCat[c]=byCat[c]||{n:0,s:new Set()}).n++;byCat[c].s.add(x.ind.projectId)}
+  const cats=Object.entries(byCat).sort((a,b)=>b[1].n-a[1].n);
+  const projs=S.projects.filter(p=>p.active!==false);
+  const att=overdue.concat(open.filter(x=>x.ind.priority&&x.ind.priority!=='Normal'&&!overdue.includes(x))).filter(x=>can('demands_precheck')||!pcPending(x.ind)).slice(0,7);
+  return `${dataNoteBox()}<section class="hero">
+    <div class="hero-text"><span class="eyebrow">${fdLong(td)}</span><h2>${greet()}, ${esc(firstName(ui.me.name))}</h2>
+      <p>${parts.length?parts.join(' · ')+'.':'Everything is moving. No demand is waiting for you right now.'}</p>
+      <div class="row">${rev.length?`<button class="btn orange" data-act="go" data-v="demands">${icon('inbox')} Review demands</button>`:''}<button class="btn glass" data-act="go" data-v="queue">${icon('queue')} Procurement queue</button><button class="btn glass" data-act="go" data-v="s_new">${icon('plus')} Demand for a site</button></div></div>
+    <div class="hero-art">${ART.hero()}</div></section>
+  <div class="kpis">${kpis.map(k=>`<button class="kpi has-ph" data-tone="${k.tone}" data-act="go" data-v="${k.go}"><span class="kpi-ph">${ART.x(k.i)}</span><span class="k">${k.k}</span><span class="v">${k.v}</span><span class="d">${k.d}</span></button>`).join('')}</div>
+  <section class="card"><div class="card-h"><h2>Demand pipeline</h2><span class="sub">Every line across all sites, by where it stands now</span></div>
+    <div class="flow">${flow.map(([s,l,go,t],i)=>`${i?`<span class="flow-arrow">${icon('chev')}</span>`:''}<button class="flow-st ${t}" data-act="go" data-v="${go}"><span class="flow-n">${cnt(s)}</span><span class="flow-l">${l}</span></button>`).join('')}</div></section>
+  <section class="card"><div class="card-h"><h2>Open demand by material</h2><span class="sub">Tap a category to source it</span><div class="acts"><button class="btn sm" data-act="go" data-v="queue">Open queue</button></div></div>
+    ${cats.length?`<div class="cat-grid">${cats.map(([c,o])=>`<button class="cat-tile" data-act="queueCat" data-c="${c}"><span class="tint cat-art" style="--h:${catH(c)}">${ART.cat(c)}</span><b>${esc(catName(c))}</b><small>${o.n} open line${o.n>1?'s':''} · ${o.s.size} site${o.s.size>1?'s':''}</small></button>`).join('')}</div>`:`<div class="card-b muted">No open demand right now.</div>`}</section>
+  <section class="card"><div class="card-h"><h2>Projects</h2><span class="sub">${projs.length} active sites</span><div class="acts"><button class="btn sm" data-act="go" data-v="projects">Manage projects</button></div></div>
+    <div class="proj-grid pad">${projs.map(p=>projCard(p,L)).join('')||'<p class="muted">No projects yet.</p>'}</div></section>
+  <div class="grid g2">
+    <section class="card"><div class="card-h"><h2>Needs attention</h2><span class="sub">Overdue or urgent</span></div>
+      <div class="list">${att.length?att.map(x=>`<button class="li" data-act="openIndent" data-id="${x.ind.id}">${lineThumb(x.l,'sm')}<div class="grow"><b>${esc(x.l.desc)}</b><small>${fq(x.info.need)} ${esc(x.l.unit)} · ${esc(projCode(x.ind.projectId))} · ${esc(x.ind.no)}</small></div><span class="small ${x.ind.requiredBy<td?'t-red':'t-amber'}">${x.ind.requiredBy<td?'Overdue '+(-daysFrom(x.ind.requiredBy))+'d':esc(x.ind.priority)}</span>${chip(x.info)}</button>`).join(''):`<div class="empty sm">${ART.x('ok','e-art sm')}<p>Nothing overdue or urgent.</p></div>`}</div></section>
+    <section class="card"><div class="card-h"><h2>Recent activity</h2></div><div class="list">${activityList(activity(null,8))}</div></section>
+  </div>`;
+}
+function projCard(p,L){
+  const td=today();const pl=L.filter(x=>x.ind.projectId===p.id);const op=pl.filter(x=>!['delivered','rejected'].includes(x.info.st));
+  const od=op.filter(x=>x.ind.requiredBy&&x.ind.requiredBy<td).length;const urg=op.filter(x=>x.ind.priority&&x.ind.priority!=='Normal').length;
+  const need=sum(pl.filter(x=>x.info.st!=='rejected'),x=>x.info.need),del=sum(pl,x=>Math.min(x.info.del,x.info.need));
+  const inc=S.dispatches.filter(d=>d.projectId===p.id&&d.status==='in_transit').length;
+  return `<article class="proj-card" data-act="projDemands" data-id="${p.id}" tabindex="0"><div class="proj-cover">${cover(p)}<span class="proj-code">${esc(p.code||'')}</span>${od?`<span class="proj-flag">${od} overdue</span>`:''}</div>
+   <div class="proj-b"><b>${esc(p.name)}</b><small>${icon('pin')}${esc([p.city,p.state].filter(Boolean).join(', ')||'—')} · ${esc(p.scheme||'')}</small>
+   <div class="proj-stats"><span><b>${op.length}</b>open</span><span><b class="${urg?'t-amber':''}">${urg}</b>urgent</span><span><b>${inc}</b>on the way</span></div>
+   ${bar(need?del/need:0,'green')}<small class="muted">${need?Math.round(del/need*100):0}% of demand delivered</small></div></article>`;
+}
+function activity(pid,limit){
+  const ev=[];const mine=x=>!pid||x===pid;
+  for(const i of S.indents) if(i.at&&mine(i.projectId)) ev.push({at:i.at,i:'inbox',tone:'amber',t:`${pid?'You':projCode(i.projectId)} raised ${i.no}`,s:`${(i.lines||[]).length} items${i.priority&&i.priority!=='Normal'?' · '+i.priority:''}`,act:`data-act="openIndent" data-id="${i.id}"`});
+  if(!pid){for(const r of S.rfqs) if(r.at) ev.push({at:r.at,i:'quote',tone:'violet',t:`${r.no} created`,s:`${(r.lines||[]).length} items to ${(r.vendorIds||[]).length} vendors`,act:`data-act="openRfq" data-id="${r.id}"`});
+    for(const p of S.pos) if(p.at) ev.push({at:p.at,i:'po',tone:'blue',t:`${p.no} issued to ${p.vendorName}`,s:seeRates()?money0(poTotals(p).total):'',act:`data-act="openPo" data-id="${p.id}"`});
+    for(const g of S.grns) if(g.at) ev.push({at:g.at,i:'grn',tone:'green',t:`${g.no} received at central store`,s:g.vendorName||'Opening stock'})}
+  for(const d of S.dispatches){
+    if(d.at&&d.type!=='direct'&&(mine(d.projectId)||mine(d.fromProjectId))) ev.push({at:d.at,i:d.type==='transfer'?'swap':'truck',tone:'orange',t:d.type==='transfer'?`${d.no}: transfer ${projCode(d.fromProjectId)} → ${projCode(d.projectId)}`:`${d.no} dispatched to ${projCode(d.projectId)}`,s:`${(d.lines||[]).length} items`,act:`data-act="viewDispatch" data-id="${d.id}"`});
+    if(d.receivedAt&&mine(d.projectId)) ev.push({at:d.receivedAt,i:'check',tone:d.status==='short'?'red':'green',t:`${pid?'You':projCode(d.projectId)} received ${d.no}`,s:d.status==='short'?'Shortage reported':(d.receivedByName||'Confirmed by site'),act:`data-act="viewDispatch" data-id="${d.id}"`});
+  }
+  return ev.sort((a,b)=>b.at-a.at).slice(0,limit);
+}
+function activityList(ev){return ev.length?ev.map(e=>`<${e.act?'button':'div'} class="li" ${e.act||''}><span class="n-ic ${e.tone}">${icon(e.i)}</span><div class="grow"><b>${esc(e.t)}</b><small>${esc(e.s)}</small></div><span class="small muted nowrap">${timeAgo(e.at)}</span></${e.act?'button':'div'}>`).join(''):`<div class="empty sm"><p>No activity yet.</p></div>`}
+function startHere(){
+  return `<section class="hero tall"><div class="hero-text"><span class="eyebrow">Welcome to ProcureHub</span><h2>Let's connect ${esc(company())}'s sites</h2>
+    <p>Sites raise demands from their phones. HQ reviews them, groups them by material, sends RFQs to the vendors assigned to each category, compares quotes, issues POs and tracks every item until the site confirms receipt.</p>
+    <div class="row"><button class="btn orange" data-act="editProject">${icon('plus')} Add first project</button><button class="btn glass" data-act="loadSample">Try it with sample data</button></div></div><div class="hero-art">${ART.hero()}</div></section>
+  <div class="setup-grid">
+    ${[['1','Add your projects','Each running site, with its delivery address and a site photo.','editProject','proj','water'],['2','Add vendors','Tick the material categories each vendor supplies, so RFQs go to the right people automatically.','editVendor','vend','pipes'],['3','Create site logins','One login per site. Engineers open the address on their phone and start raising demands.','go','user','safety']].map(([n,h,p,a,i,art])=>`<article class="setup-card"><span class="tint setup-art" style="--h:${catH(art)}">${art==='water'?ART.scene('water',1):ART.cat(art)}</span><span class="step-n">${n}</span><h3>${h}</h3><p>${p}</p><button class="btn" data-act="${a}" ${a==='go'?'data-v="settings"':''}>${icon(i)} ${h}</button></article>`).join('')}
+  </div>`;
+}
+
+/* ================= DEMANDS (HQ) ================= */
+function vDemands(){
+  const f=ui.f;const q=norm(f.dq);const st=f.ds||'open';
+  const waitingPc=S.indents.filter(pcPending).length;
+  let list=S.indents.filter(i=>!pcPending(i)).sort((a,b)=>(b.at||0)-(a.at||0));
+  if(f.dp) list=list.filter(i=>i.projectId===f.dp);
+  list=list.filter(i=>{const s=indentStatus(i).label;if(st==='review') return s==='Awaiting review';if(st==='open') return !['Completed','Cancelled','Rejected'].includes(s);if(st==='closed') return ['Completed','Cancelled','Rejected'].includes(s);return true});
+  if(q) list=list.filter(i=>norm(i.no+' '+(i.requestedBy||'')+' '+(i.lines||[]).map(l=>l.desc).join(' ')).includes(q));
+  const pendingAll=allLines().filter(x=>(!x.l.status||x.l.status==='pending')&&!pcPending(x.ind)&&!(x.ind.precheck&&x.ind.precheck.by===ui.uid)).length;const td=today();
+  return `<div class="toolbar">${seg('ds',[['review','To review'],['open','Open'],['closed','Closed'],['all','All']],st)}
+    <select class="inp auto" id="f-dp" data-act-change="setFsel" data-k="dp">${projOpts(f.dp||'','All projects')}</select>
+    <div class="search-inp">${icon('search')}<input class="inp" id="f-dq" placeholder="Search item or MR no." data-bind="f.dq" data-rerender="1" value="${esc(f.dq||'')}"></div>
+    <span class="spacer"></span>${pendingAll&&!pcOnly()?`<button class="btn primary" data-act="approveAllPending">${icon('check')} Approve all ${pendingAll} new lines</button>`:''}<button class="btn" data-act="go" data-v="s_new">${icon('plus')} Demand for a site</button></div>
+  ${S.config&&S.config.precheck?'':`<div class="notice warn">${icon('alert')}<span><b>Demand pre-check is OFF</b> — new demands come straight here for approval.${can('settings')?' Switch it on in <button class="linkish" data-act="go" data-v="settings">Settings → Demand pre-check</button>.':''}</span></div>`}
+  ${waitingPc?`<div class="notice info">${icon('clock')}<span><b>${waitingPc} demand${waitingPc>1?'s are':' is'} waiting for pre-check</b> and ${waitingPc>1?'are':'is'} not shown here. ${waitingPc>1?'They appear':'It appears'} in this inbox for approval only after a pre-checker pre-approves ${waitingPc>1?'them':'it'}.${can('demands_precheck')?` <button class="linkish" data-act="go" data-v="precheck">Open Pre-check</button>`:''}</span></div>`:''}
+  <section class="card">${list.length?`<div class="tw"><table class="t"><thead><tr><th>Requisition</th><th>Project</th><th>Items</th><th>Required by</th><th>Priority</th><th>Delivered</th><th>Status</th></tr></thead><tbody>${list.map(i=>{const s=indentStatus(i);const ls=i.lines||[];const pend=ls.filter(l=>!l.status||l.status==='pending').length;const p=proj(i.projectId);
+    return `<tr class="click" data-act="openIndent" data-id="${i.id}"><td><span class="docno">${esc(i.no)}</span><small class="muted block">${fd(i.date)}</small></td>
+    <td><div class="who"><span class="mini-cover">${cover(p)}</span><span><b>${esc(projCode(i.projectId))}</b><small class="muted block">${esc(i.requestedBy||'')}${i.raisedByHQ?' · by HQ':''}</small></span></div></td>
+    <td><div class="thumbs">${ls.slice(0,4).map(l=>lineThumb(l,'xs')).join('')}<span class="small">${ls.length} item${ls.length>1?'s':''}${pend?` <span class="t-amber">· ${pend} new</span>`:''}</span></div></td>
+    <td class="nowrap">${fd(i.requiredBy)}${i.requiredBy&&i.requiredBy<td&&s.label!=='Completed'?` <span class="t-red small">overdue</span>`:''}</td><td><span class="prio ${esc(i.priority||'Normal')}">${esc(i.priority||'Normal')}</span></td>
+    <td style="min-width:110px">${bar(s.pct,'green')}</td><td>${chip(s)}</td></tr>`}).join('')}</tbody></table></div>`:emptyBox(ART.x('clip','e-art'),'No demands here',S.indents.length?'Try another filter.':'Demands raised by sites appear here for review.')}</section>`;
+}
+function decisionNote(l){if(!l.status||l.status==='pending'||(!l.approvalNote&&!l.decidedByName)) return '';
+  const t=l.pcRemoved?['red','x','Removed at pre-check']:{approved:['green','check','Approved'],rejected:['red','x','Rejected'],hold:['amber','clock','On hold']}[l.status]||['blue','chat','HQ'];
+  return `<div class="decision ${t[0]}">${icon(t[1],'xs')}<div><b>${t[2]}${l.decidedByName?' by '+esc(l.decidedByName):''}</b>${l.decidedAt?` <span class="muted">· ${fdt(l.decidedAt)}</span>`:''}${l.approvalNote?`<p>${esc(l.approvalNote)}</p>`:''}</div></div>`}
+function remarksCard(i,hq){const rs=(i.hqRemarks||[]).slice().sort((a,b)=>(b.at||0)-(a.at||0));if(!rs.length&&!hq) return '';
+  return `<section class="card"><div class="card-h"><h2>HQ remarks</h2><span class="sub">${hq?'Visible to the site. Kept with name and time.':'Messages from HQ about this requisition'}</span>${hq?`<div class="acts"><button class="btn sm" data-act="hqRemark" data-id="${i.id}">${icon('plus')} Add remark</button></div>`:''}</div>
+  ${rs.length?`<div class="list">${rs.map(r=>`<div class="li"><span class="avatar" style="--h:${hash(r.name||'')%360}">${esc(initials(r.name||'HQ'))}</span><div class="grow"><b>${esc(r.name||'HQ')}${r.action?` <span class="chip green plain">${esc(r.action)}</span>`:''}</b><small class="muted">${fdt(r.at)}</small><p class="rm-t">${esc(r.text)}</p></div></div>`).join('')}</div>`:'<div class="empty sm"><p>No remarks yet.</p></div>'}</section>`}
+function lineCard(i,l,hq){
+  const inf=lineInfo(i,l);const pending=!l.status||l.status==='pending'||l.status==='hold';
+  const qty=hq&&pending?`<span class="lq-in">Approve ${stepperInp('draft.aq.'+l.id,ui.draft.aq&&ui.draft.aq[l.id]!=null?ui.draft.aq[l.id]:(l.approvedQty??l.qty),'aq-'+l.id)}</span>`:`<span>Approved <b>${l.status==='approved'?fq(needQty(l))+' '+esc(l.unit):'—'}</b></span>`;
+  const cat=hq&&!l.rfqId&&!l.poId&&!l.transferId?`<select class="inp sm auto" id="cat-${l.id}" data-act-change="setLineCat" data-ind="${i.id}" data-line="${l.id}" aria-label="Category">${catOpts(l.category)}</select>`:catSw(l.category);
+  let acts='';
+  if(hq){if(pending) acts=`<button class="btn sm primary" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="approved">${icon('check')} Approve</button><button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="hold">Hold</button><button class="btn sm danger" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="rejected">Reject</button>`;
+    else if(l.status==='approved'&&!l.rfqId&&!l.poId&&!l.fromStock&&!l.transferId) acts=`<button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="pending">Reopen</button>`;
+    else if(l.status==='rejected') acts=`<button class="btn sm" data-act="lineStatus" data-ind="${i.id}" data-line="${l.id}" data-s="pending">Reopen</button>`}
+  return `<div class="line">${lineThumb(l,'md')}<div class="line-main">
+    <div class="line-t"><b>${esc(l.desc)}</b>${chip(inf)}</div>
+    ${l.orig?`<small class="pc-orig">${icon('edit','xs')} Site asked: ${esc(l.orig.desc)} ${esc(l.orig.spec||'')} · ${fq(l.orig.qty)} ${esc(l.orig.unit)} — changed at pre-check</small>`:''}${l.pcAdded?`<small class="pc-orig">${icon('plus','xs')} Added at pre-check</small>`:''}
+    <small class="muted">${esc(l.spec||'')}${l.siteNote?` · ${esc(l.siteNote)}`:''}${l.hqNote?` · HQ: ${esc(l.hqNote)}`:''}${hq&&l.vendorName?` · ${esc(l.vendorName)}`:''}</small>
+    <div class="line-q">${cat}<span>Asked <b>${fq(l.qty)} ${esc(l.unit)}</b></span>${qty}<span>Received <b>${fq(inf.del)}</b></span></div>
+    ${stepper(lineSteps(i,l,inf),inf.st==='rejected',l.pcRemoved?'Removed at pre-check':'')}
+    ${decisionNote(l)}
+    ${hq&&pending&&can('demands_approve')?`<div class="ar-row">${icon('chat')}<input class="inp sm" id="ar-${l.id}" data-bind="draft.ar.${l.id}" placeholder="Remark for the site — optional when approving, needed to reject" value="${esc((ui.draft.ar&&ui.draft.ar[l.id])||'')}" maxlength="500"></div>`:''}
+    ${l.photo?photoStrip([l.photo]):''}
+  </div>${acts?`<div class="line-acts">${acts}</div>`:''}</div>`;
+}
+const pcOnly=()=>can('demands_precheck')&&!can('demands_approve');
+function vPrecheck(){
+  const pend=S.indents.filter(pcPending).sort((a,b)=>(a.at||0)-(b.at||0));
+  const done=S.indents.filter(i=>i.precheck&&i.precheck.status==='passed'||i.pcDeleted).sort((a,b)=>((b.precheck&&b.precheck.at)||b.cancelledAt||0)-((a.precheck&&a.precheck.at)||a.cancelledAt||0)).slice(0,30);
+  const on=!!(S.config&&S.config.precheck);const td=today();
+  return `${!can('demands_precheck')?`<div class="notice info">${icon('key')}<span>You can see this list, but pre-checking is done only by persons with the “Demand pre-checker” role — not by administrators or approvers. Each demand reaches the Demand inbox after it is pre-approved.</span></div>`:''}${on?'':`<div class="notice warn">${icon('alert')}<span>Pre-check is switched off, so new demands go straight to the approver. ${can('settings')?'Switch it on in <b>Settings → Demand pre-check</b>.':'An administrator can switch it on in Settings.'}</span></div>`}
+  <section class="card"><div class="card-h"><h2>Waiting for pre-check</h2><span class="sub">${pend.length} demand${pend.length===1?'':'s'} · check items and quantities, correct or delete, then pre-approve for the approver</span></div>
+  ${pend.length?`<div class="list">${pend.map(i=>{const p=proj(i.projectId);const ls=i.lines||[];const age=Math.floor((Date.now()-(i.at||Date.now()))/36e5);return `<button class="li" data-act="openIndent" data-id="${i.id}"><span class="mini-cover">${cover(p)}</span><div class="grow"><b><span class="docno">${esc(i.no)}</span> · ${esc(projCode(i.projectId))}</b><small>${ls.length} item${ls.length>1?'s':''} · raised by ${esc(i.requestedBy||i.createdByName||'site')} · ${age<24?age+' h ago':Math.floor(age/24)+' days ago'}${i.requiredBy?' · needed by '+fd(i.requiredBy)+(i.requiredBy<td?' <span class="t-red">overdue</span>':''):''}</small><div class="thumbs">${ls.slice(0,6).map(l=>lineThumb(l,'xs')).join('')}</div></div><span class="prio ${esc(i.priority||'Normal')}">${esc(i.priority||'Normal')}</span>${icon('chev')}</button>`}).join('')}</div>`:emptyBox(ART.x('ok','e-art'),'Nothing to pre-check','New site demands appear here before they go to the approver.')}</section>
+  ${done.length?`<section class="card"><div class="card-h"><h2>Recently pre-checked</h2></div><div class="list">${done.map(i=>`<button class="li" data-act="openIndent" data-id="${i.id}"><div class="grow"><b><span class="docno">${esc(i.no)}</span> · ${esc(projCode(i.projectId))}</b><small>${i.pcDeleted?`Deleted by ${esc(i.cancelledByName||'')} · ${esc(i.cancelReason||'')}`:`Pre-approved by ${esc(i.precheck.byName||'')} · ${fdt(i.precheck.at)}${i.precheck.note?' · '+esc(i.precheck.note):''}`}</small></div>${chip(indentStatus(i))}</button>`).join('')}</div></section>`:''}`;
+}
+function pcLogCard(i){const log=(i.pcLog||[]).slice().reverse();const pc=i.precheck;if(!pc&&!log.length) return '';
+  return `<section class="card"><div class="card-h"><h2>Pre-check</h2>${pc?(pc.status==='passed'?`<span class="chip green">Pre-approved</span>`:i.pcDeleted?'<span class="chip red">Deleted</span>':'<span class="chip violet">Waiting</span>'):''}</div><div class="card-b">
+  ${pc&&pc.status==='passed'?`<p>${icon('check','xs')} Pre-approved by <b>${esc(pc.byName||'')}</b> on ${fdt(pc.at)}${pc.note?`<br><span class="muted">Note:</span> ${esc(pc.note)}`:''}</p>`:''}
+  ${i.pcDeleted?`<p class="t-red">${icon('x','xs')} Deleted at pre-check by <b>${esc(i.cancelledByName||'')}</b> on ${fdt(i.cancelledAt)}${i.cancelReason?' · '+esc(i.cancelReason):''}</p>`:''}
+  ${pc&&pc.status==='pending'&&!i.pcDeleted?`<p class="muted">${icon('clock','xs')} Waiting for pre-check since ${fdt(pc.since||i.at)}.${log.length?' Changes saved so far are listed below.':''}</p>`:''}
+  ${log.length?`<div class="lbl">Changes made at pre-check</div><ul class="pc-log">${log.map(e=>`<li><b>${esc(e.name||'')}</b> <span class="muted small">${fdt(e.at)}</span><br>${esc(e.text)}</li>`).join('')}</ul>`:''}</div></section>`}
+function pcEditor(i){const d=ui.draft.pc&&ui.draft.pc[i.id];
+  const rows=d.lines.map((l,ix)=>{const o=(i.lines||[]).find(x=>x.id===l.id)||{};return `<tr class="${l.removed?'pc-removed':''}"><td>${lineThumb(o.id?o:l,'xs')}</td><td><input class="inp sm" id="pc-d-${ix}" data-bind="draft.pc.${i.id}.lines.${ix}.desc" value="${esc(l.desc)}" ${l.removed?'disabled':''}></td><td><input class="inp sm" id="pc-s-${ix}" data-bind="draft.pc.${i.id}.lines.${ix}.spec" value="${esc(l.spec||'')}" ${l.removed?'disabled':''}></td><td class="num"><input class="inp sm qty" id="pc-q-${ix}" data-bind="draft.pc.${i.id}.lines.${ix}.qty" value="${esc(l.qty)}" inputmode="decimal" ${l.removed?'disabled':''}></td><td><select class="inp sm auto" id="pc-u-${ix}" data-bind="draft.pc.${i.id}.lines.${ix}.unit" ${l.removed?'disabled':''}>${selOpts(UNITS,l.unit)}</select></td>
+    <td class="small muted">${o.id&&(String(o.desc)!==String(l.desc)||String(o.spec||'')!==String(l.spec||'')||num(o.qty)!==num(l.qty)||o.unit!==l.unit)?`site asked: ${esc(o.desc)} ${esc(o.spec||'')} · ${fq(o.qty)} ${esc(o.unit)}`:o.siteNote?esc(o.siteNote):''}</td>
+    <td>${l.removed?`<button class="btn sm" data-act="pcRm" data-id="${i.id}" data-i="${ix}">Restore</button>`:`<button class="icon-btn sm" data-act="pcRm" data-id="${i.id}" data-i="${ix}" title="Remove this item" aria-label="Remove item">${icon('trash')}</button>`}</td></tr>`}).join('');
+  return `<section class="card pc-card"><div class="card-h"><h2>${icon('check')} Pre-check this demand</h2><span class="sub">Correct items, sizes or quantities, remove items that are not needed, then pre-approve. The approver sees it only after that. The site sees every change.</span></div>
+  <div class="tw"><table class="t"><thead><tr><th></th><th>Item</th><th>Size / specification</th><th class="num">Qty</th><th>Unit</th><th>Original / site note</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="card-b"><div class="row"><button class="btn sm" data-act="pcAdd" data-id="${i.id}">${icon('plus')} Add an item</button></div>
+  <div class="f full" style="margin-top:12px"><label for="f-pc-note">Note for the approver and the site (optional)</label><textarea class="inp" id="f-pc-note" data-bind="draft.pc.${i.id}.note" rows="2" placeholder="e.g. Quantity reduced as per drawing; 150 mm valve changed to 200 mm">${esc(d.note||'')}</textarea></div></div>
+  <div class="card-f"><button class="btn danger" data-act="pcDelete" data-id="${i.id}">${icon('trash')} Delete demand</button><span class="spacer"></span><button class="btn" data-act="pcSave" data-id="${i.id}">Save changes</button><button class="btn primary" data-act="pcPass" data-id="${i.id}" ${ui.busy?'disabled':''}>${icon('check')} Pre-approve &amp; send to approver</button></div></section>`}
+function vIndent(siteMode){
+  const i=S.indents.find(x=>x.id===ui.param);if(!i) return emptyBox(ART.x('clip','e-art'),'Requisition not found','It may have been removed.',`<button class="btn" data-act="go" data-v="${siteMode?'s_list':'demands'}">Back</button>`);
+  const s=indentStatus(i);const hq=!siteMode&&ui.role==='hq';const p=proj(i.projectId);
+  const allPending=(i.lines||[]).every(l=>!l.status||l.status==='pending');
+  const pcp=pcPending(i);const pcEdit=pcp&&!siteMode&&can('demands_precheck');const selfPc=!!(i.precheck&&i.precheck.status==='passed'&&i.precheck.by&&i.precheck.by===ui.uid);
+  if(pcEdit&&!(ui.draft.pc&&ui.draft.pc[i.id])){(ui.draft.pc=ui.draft.pc||{})[i.id]={note:'',lines:(i.lines||[]).map(l=>({id:l.id,desc:l.desc,spec:l.spec||'',qty:String(l.qty),unit:l.unit,removed:false}))}}
+  return `<section class="card doc-head"><div class="doc-cover">${cover(p)}</div><div class="doc-info">
+     <div class="row"><span class="docno lg">${esc(i.no)}</span>${chip(s)}<span class="prio ${esc(i.priority||'Normal')}">${esc(i.priority||'Normal')}</span></div>
+     <h2>${esc(projLabel(i.projectId))}</h2>
+     <div class="meta"><div><span>Raised on</span><b>${fd(i.date)}</b></div><div><span>Required by</span><b>${fd(i.requiredBy)}</b></div><div><span>Requested by</span><b>${esc(i.requestedBy||i.createdByName||'—')}</b></div><div><span>Delivered</span><b>${Math.round(s.pct*100)}%</b></div></div>
+     ${i.remarks?`<p class="remark">${icon('chat')} <span><b>Site remarks:</b> ${esc(i.remarks)}</span></p>`:''}
+     ${siteMode?`<p class="ro-note">${icon('key','xs')} <span><b>View only.</b> This requisition was sent to HQ and can't be changed from site. Follow each item's progress below; ask HQ if something needs to change.</span></p>`:''}
+     ${pcp&&!pcEdit?`<p class="ro-note">${icon('clock','xs')} <span><b>Waiting for pre-check.</b> ${siteMode?'HQ checks the demand before it goes for approval. You will see any change here.':'The approver can act on it after a pre-checker pre-approves it.'}</span></p>`:''}</div>
+     ${selfPc&&!siteMode?`<p class="ro-note">${icon('key','xs')} <span><b>You pre-approved this demand,</b> so another person must approve it.</span></p>`:''}
+     <div class="doc-acts">${hq&&!pcp&&!selfPc&&(i.lines||[]).some(l=>!l.status||l.status==='pending'||l.status==='hold')?`<button class="btn primary" data-act="approveIndent" data-id="${i.id}">${icon('check')} Approve all lines</button>`:''}
+     ${(hq&&!pcp&&allPending&&!i.cancelled)?`<button class="btn danger" data-act="cancelIndent" data-id="${i.id}">Cancel requisition</button>`:''}
+     <button class="btn" data-act="printMR" data-id="${i.id}">${icon('print')} Print</button><button class="btn ghost" data-act="go" data-v="${siteMode?'s_list':'demands'}">${icon('back')} Back</button></div></section>
+  ${pcEdit?pcEditor(i):`<section class="card"><div class="card-h"><h2>Items</h2><span class="sub">${(i.lines||[]).length} lines</span></div><div class="lines">${(i.lines||[]).map(l=>lineCard(i,l,hq&&!pcp&&!selfPc)).join('')}</div></section>`}
+  ${pcLogCard(i)}${remarksCard(i,hq)}
+  ${hq?`<p class="muted small">${icon('help')} Changing a category teaches the catalogue, so the same item is filed correctly next time. Approved lines move to the procurement queue.</p>`:''}`;
+}
+
+/* ================= RAISE DEMAND (picker) ================= */
+function draftIndent(){if(!ui.draft.ind) ui.draft.ind={projectId:'',requiredBy:addDays(today(),7),priority:'Normal',requestedBy:(ui.me&&ui.me.name)||'',remarks:'',lines:[]};return ui.draft.ind}
+function itemCard(it){const d=draftIndent();const n=d.lines.filter(l=>slug(l.desc)===it.id).length;
+  return `<button class="item-card" data-act="pickItem" data-id="${esc(it.id)}">${thumb(it,'lg')}<b>${esc(it.desc)}</b><small>${esc(it.sizes&&it.sizes.length?it.sizes.length+' sizes · '+it.unit:(it.spec||it.unit))}</small><span class="add-pill">${icon('plus')} Add</span>${n?`<span class="in-cart">${icon('check')} ${n} added</span>`:''}</button>`}
+function vNewDemand(){
+  const d=draftIndent();const hq=ui.role==='hq'&&!ui.preview;const q=norm(ui.pickQ);const items=D.items.filter(x=>!x.hidden);
+  let picker;
+  if(q){const res=items.filter(x=>norm(x.desc+' '+x.spec+' '+catName(x.category)+' '+(x.sizes||[]).join(' ')).includes(q)).slice(0,60);
+    picker=`<div class="pick-head"><button class="btn sm ghost" data-act="pickBack">${icon('back')} All categories</button><span class="muted">${res.length} match${res.length===1?'':'es'} for “${esc(ui.pickQ)}”</span></div>
+    <div class="item-grid">${res.map(itemCard).join('')}<button class="item-card custom" data-act="customItem" data-desc="${esc(ui.pickQ)}"><span class="thumb lg plus">${icon('plus')}</span><b>Add “${esc(ui.pickQ)}”</b><small>Item not in the list</small></button></div>`}
+  else if(ui.pickCat){const c=CAT[ui.pickCat];const res=items.filter(x=>x.category===ui.pickCat);
+    picker=`<div class="pick-banner tint" style="--h:${c.h}">${ART.cat(c.id)}<div><h3>${esc(c.name)}</h3><small>${esc(c.blurb||'')}</small></div><button class="btn sm" data-act="pickBack">${icon('back')} All categories</button></div>
+    <div class="item-grid">${res.map(itemCard).join('')}<button class="item-card custom" data-act="customItem" data-cat="${c.id}"><span class="thumb lg plus">${icon('plus')}</span><b>Other ${esc(c.name.toLowerCase())}</b><small>Type an item not listed</small></button></div>`}
+  else picker=`<div class="pick-cats">${CATS.map(c=>{const n=items.filter(x=>x.category===c.id).length;return `<button class="pick-cat" data-act="pickCat" data-c="${c.id}"><span class="tint pc-art" style="--h:${c.h}">${ART.cat(c.id)}</span><b>${esc(c.name)}</b><small>${c.id==='others'?'Type any item':n+' items'}</small></button>`}).join('')}</div>`;
+  const n=d.lines.length;
+  const lines=d.lines.map((l,ix)=>`<div class="cart-line">${lineThumb(l,'sm')}<div class="grow"><b>${esc(l.desc)}</b><small>${esc(l.spec||'')}${l.siteNote?' · '+esc(l.siteNote):''}${l.photo?` · ${icon('camera','xs')}`:''}</small>
+      <div class="row tight">${stepperInp('draft.ind.lines.'+ix+'.qty',l.qty,'f-cl-'+l.lid)}<select class="inp sm auto" id="f-cu-${l.lid}" data-bind="draft.ind.lines.${ix}.unit" aria-label="Unit">${selOpts(UNITS,l.unit)}</select></div></div>
+      <button class="icon-btn sm" data-act="rmLine" data-ix="${ix}" aria-label="Remove ${esc(l.desc)}">${icon('trash')}</button></div>`).join('');
+  return `<div class="raise">
+  <section class="picker card">
+    <div class="pick-top"><div class="search-inp big">${icon('search')}<input class="inp" id="f-pickq" placeholder="Search ${D.items.length}+ items — e.g. DI pipe, sluice valve, helmet" data-bind="pickQ" data-rerender="1" value="${esc(ui.pickQ)}" autocomplete="off"></div>
+      <button class="btn" data-act="customItem">${icon('edit')} Type an item</button><button class="btn" data-act="pasteLines">${icon('copy')} Paste from Excel</button></div>
+    ${picker}
+  </section>
+  <aside class="cart card ${ui.cartOpen?'open':''}">
+    <div class="cart-h"><h2>Your demand</h2><span class="count">${n}</span><button class="icon-btn only-m" data-act="cartToggle" aria-label="Close">${icon('x')}</button></div>
+    <div class="cart-body" data-keep-scroll="cart">
+    ${hq?`<div class="f"><label for="f-draft-ind-projectId">Project</label><select class="inp" id="f-draft-ind-projectId" data-bind="draft.ind.projectId">${projOpts(d.projectId,'Choose project')}</select></div>`:`<div class="cart-proj"><span class="mini-cover">${cover(proj(siteProject()))}</span><b>${esc(projLabel(siteProject()))}</b></div>`}
+    <div class="cart-lines">${n?lines:`<div class="empty sm">${ART.x('clip','e-art sm')}<p>Pick items to build your demand. Tap a category, then tap an item.</p></div>`}</div>
+    <div class="fields two">
+      <div class="f"><label for="f-draft-ind-requiredBy">Needed at site by</label>${inp('draft.ind.requiredBy',d.requiredBy,'type="date"')}</div>
+      <div class="f"><label>Priority</label>${seg('priority',PRIOS.map(p=>[p,p]),d.priority,'setDraft')}</div>
+      <div class="f"><label for="f-draft-ind-requestedBy">Requested by</label>${inp('draft.ind.requestedBy',d.requestedBy,'placeholder="Site engineer name"')}</div>
+      <div class="f full"><label for="f-draft-ind-remarks">Remarks for HQ</label><textarea class="inp" id="f-draft-ind-remarks" data-bind="draft.ind.remarks" rows="2" placeholder="Purpose, chainage, zone…">${esc(d.remarks)}</textarea></div>
+    </div></div>
+    <div class="cart-f">${n?`<button class="btn ghost sm" data-act="clearDraft">Clear</button>`:''}<button class="btn orange xl grow" data-act="submitIndent" ${ui.busy||!n?'disabled':''}>${icon('ul')} Send ${n||''} item${n===1?'':'s'} to HQ</button></div>
+  </aside>
+  <div class="cart-bar" ${n?'':'hidden'}><span><b>${n}</b> item${n===1?'':'s'} in your demand</span><button class="btn orange" data-act="cartToggle">Review & send ${icon('chev')}</button></div>
+  </div>`;
+}
+function vDone(){
+  const i=S.indents.find(x=>x.id===ui.param);
+  return `<section class="card done"><div class="done-art">${ART.x('ok')}</div><h2>${i?esc(i.no):'Demand'} sent to HQ</h2><p class="muted">${i?`${(i.lines||[]).length} items for ${esc(projLabel(i.projectId))}, needed by ${fd(i.requiredBy)}.`:''} You'll see every step here as it happens.</p>
+   <ol class="next-steps">${[['inbox','HQ reviews and approves'],['quote','Vendors are asked for prices'],['po','Purchase order is placed'],['truck','Material is dispatched to site'],['check','You confirm receipt']].map(([i,t],n)=>`<li><span class="ns-ph">${ART.x(i)}</span><span>${t}</span></li>`).join('')}</ol>
+   <div class="row center"><button class="btn primary" data-act="openIndent" data-id="${i?i.id:''}">View this demand</button><button class="btn" data-act="go" data-v="s_new">${icon('plus')} Raise another</button></div></section>`;
+}
+
+/* ================= SITE ================= */
+function dispCard(d,ctx){
+  const p=siteProject();const n=(d.lines||[]).length;
+  const title=d.type==='direct'?`Direct from ${esc(d.vendorName||'vendor')}`:d.type==='transfer'?(ctx==='from'||(ui.role==='site'&&d.fromProjectId===p)?`Send to ${esc(projLabel(d.projectId))}`:`Transfer from ${esc(projCode(d.fromProjectId))}`):'From central store';
+  let acts='';
+  if(ui.role==='site'&&d.projectId===p&&(d.status==='in_transit'||d.status==='ordered')) acts+=`<button class="btn primary" data-act="receiveDispatch" data-id="${d.id}">${icon('check')} Confirm receipt</button>`;
+  if(ui.role==='site'&&d.fromProjectId===p&&d.status==='to_send') acts+=`<button class="btn orange" data-act="sendTransfer" data-id="${d.id}">${icon('truck')} Mark as sent</button>`;
+  if(ui.role==='hq'&&d.status==='ordered') acts+=`<button class="btn sm" data-act="markShipped" data-id="${d.id}">Vendor dispatched</button>`;
+  acts+=`<button class="btn sm ghost" data-act="viewDispatch" data-id="${d.id}">Details</button>`;
+  return `<div class="disp-card"><div class="disp-art tint" style="--h:${d.type==='transfer'?280:28}">${ART.x(d.type==='transfer'?'transfer':'truck')}</div>
+   <div class="grow"><div class="row tight"><span class="docno">${esc(d.no)}</span>${chip(dispStatus(d))}</div><b class="dc-t">${title}</b>
+   <small class="muted">${n} item${n===1?'':'s'}${ui.role==='hq'?' · '+esc(projCode(d.projectId)):''}${d.vehicle?' · '+icon('truck','xs')+' '+esc(d.vehicle):''}${d.expectedDate?' · expected '+fd(d.expectedDate):''}${d.receivedAt?' · received '+fdt(d.receivedAt):''}</small>
+   <div class="thumbs">${(d.lines||[]).slice(0,5).map(l=>lineThumb(l,'xs')).join('')}<span class="small muted">${esc((d.lines||[]).slice(0,2).map(l=>l.desc).join(', '))}${n>2?'…':''}</span></div></div>
+   <div class="disp-acts">${acts}</div></div>`;
+}
+function vSiteHome(){
+  const pid=siteProject(),p=proj(pid)||{},L=allLines(pid),td=today();
+  const open=L.filter(x=>!['delivered','rejected'].includes(x.info.st));
+  const inc=S.dispatches.filter(d=>d.projectId===pid&&(d.status==='in_transit'||d.status==='ordered'));
+  const toSend=S.dispatches.filter(d=>d.fromProjectId===pid&&d.status==='to_send');
+  const recent=S.indents.filter(i=>i.projectId===pid).sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,5);
+  const stockN=Object.values(D.site[pid]||{}).filter(r=>r.bal>0).length;
+  const od=open.filter(x=>x.ind.requiredBy&&x.ind.requiredBy<td).length;
+  return `<section class="site-hero">${cover(p)}<div class="site-hero-shade"></div><div class="site-hero-t"><span class="eyebrow">${greet()}, ${esc(firstName(ui.me.name))}</span><h2>${esc(p.name||'')}</h2><span>${icon('pin')} ${esc([p.city,p.state].filter(Boolean).join(', '))} · ${esc(p.scheme||'')} · ${esc(p.code||'')}</span></div></section>
+  <div class="qa-grid">
+    <button class="qa hi" data-act="go" data-v="s_new"><span class="qa-art">${ART.x('clip')}</span><b>Raise demand</b><small>Pick items and send to HQ</small></button>
+    <button class="qa" data-act="go" data-v="s_incoming"><span class="qa-art">${ART.x('truck')}</span><b>Receive material</b><small>${inc.length?inc.length+' on the way':'Nothing on the way'}${toSend.length?' · '+toSend.length+' to send':''}</small>${inc.length+toSend.length?`<i class="qa-badge">${inc.length+toSend.length}</i>`:''}</button>
+    <button class="qa" data-act="recordUse"><span class="qa-art">${ART.x('use')}</span><b>Record material used</b><small>Keep site stock correct</small></button>
+    <button class="qa" data-act="go" data-v="s_stock"><span class="qa-art">${ART.x('store')}</span><b>Site stock</b><small>${stockN} item${stockN===1?'':'s'} in stock</small></button>
+  </div>
+  <div class="kpis four">
+    <button class="kpi has-ph" data-act="go" data-v="s_list"><span class="kpi-ph">${ART.x('inbox')}</span><span class="k">Open demand lines</span><span class="v">${open.length}</span><span class="d">${open.filter(x=>x.info.st==='review').length} awaiting HQ review</span></button>
+    <button class="kpi has-ph" data-act="go" data-v="s_incoming"><span class="kpi-ph">${ART.x('truck')}</span><span class="k">On the way</span><span class="v">${inc.length}</span><span class="d">consignments to receive</span></button>
+    <button class="kpi has-ph" data-act="go" data-v="s_list"><span class="kpi-ph">${ART.x('clock')}</span><span class="k">Overdue</span><span class="v">${od}</span><span class="d">past your required date</span></button>
+    <button class="kpi has-ph" data-act="go" data-v="s_list"><span class="kpi-ph">${ART.x('check')}</span><span class="k">Delivered</span><span class="v">${L.filter(x=>x.info.st==='delivered').length}</span><span class="d">lines completed</span></button>
+  </div>
+  ${toSend.length?`<section class="card"><div class="card-h"><h2>Material to send to other sites</h2><span class="sub">HQ asked you to transfer these</span></div><div class="list">${toSend.map(d=>dispCard(d,'from')).join('')}</div></section>`:''}
+  ${inc.length?`<section class="card"><div class="card-h"><h2>On the way to your site</h2></div><div class="list">${inc.map(d=>dispCard(d)).join('')}</div></section>`:''}
+  <div class="grid g2">
+  <section class="card"><div class="card-h"><h2>Recent demands</h2><div class="acts"><button class="btn sm" data-act="go" data-v="s_list">All demands</button></div></div>
+  <div class="list">${recent.length?recent.map(i=>{const s=indentStatus(i);return `<button class="li" data-act="openIndent" data-id="${i.id}"><div class="thumbs">${(i.lines||[]).slice(0,3).map(l=>lineThumb(l,'xs')).join('')}</div><div class="grow"><b>${esc(i.no)} · ${(i.lines||[]).length} items</b><small>Raised ${fd(i.date)} · needed by ${fd(i.requiredBy)}</small>${bar(s.pct,'green')}</div>${chip(s)}</button>`}).join(''):emptyBox(ART.x('clip','e-art sm'),'No demands yet','Raise your first material requisition.',`<button class="btn orange" data-act="go" data-v="s_new">Raise demand</button>`)}</div></section>
+  <section class="card"><div class="card-h"><h2>Recent activity</h2></div><div class="list">${activityList(activity(pid,6))}</div></section></div>`;
+}
+function vSiteList(){
+  const pid=siteProject();const L=allLines(pid).sort((a,b)=>(b.ind.at||0)-(a.ind.at||0));
+  const f=ui.f.sl||'open';const mine=ui.f.slm==='1';const list=L.filter(x=>(!mine||x.ind.createdBy===ui.uid)&&(f==='all'?true:f==='open'?!['delivered','rejected'].includes(x.info.st):f==='done'?x.info.st==='delivered':x.info.st==='review'));
+  return `<div class="toolbar">${seg('sl',[['open','Open'],['review','With HQ'],['done','Delivered'],['all','All']],f)}${seg('slm',[['','Whole site'],['1','Raised by me']],mine?'1':'')}<span class="muted">${list.length} lines</span><span class="spacer"></span><button class="btn orange" data-act="go" data-v="s_new">${icon('plus')} Raise demand</button></div>
+  <section class="card">${list.length?`<div class="lines">${list.map(x=>`<div class="line click" data-act="openIndent" data-id="${x.ind.id}">${lineThumb(x.l,'md')}<div class="line-main"><div class="line-t"><b>${esc(x.l.desc)}</b>${chip(x.info)}</div>${x.l.orig?`<small class="pc-orig">${icon('edit','xs')} You asked: ${esc(x.l.orig.spec||'')} · ${fq(x.l.orig.qty)} ${esc(x.l.orig.unit)} — changed at pre-check</small>`:''}<small class="muted">${esc(x.l.spec||'')} · <span class="docno">${esc(x.ind.no)}</span> · needed by ${fd(x.ind.requiredBy)}</small>
+    <div class="line-q"><span>Asked <b>${fq(x.l.qty)} ${esc(x.l.unit)}</b></span>${x.l.status==='approved'?`<span>Approved <b>${fq(x.info.need)}</b></span>`:''}<span>Received <b>${fq(x.info.del)}</b></span></div>${stepper(lineSteps(x.ind,x.l,x.info),x.info.st==='rejected',x.l.pcRemoved?'Removed at pre-check':'')}${decisionNote(x.l)}</div></div>`).join('')}</div>`:emptyBox(ART.x('clip','e-art'),'Nothing here','Demands you raise appear here with live status from HQ.',`<button class="btn orange" data-act="go" data-v="s_new">Raise demand</button>`)}</section>`;
+}
+function vIncoming(){
+  const pid=siteProject();const all=S.dispatches.filter(d=>d.projectId===pid||d.fromProjectId===pid).sort((a,b)=>(b.at||0)-(a.at||0));
+  const pend=all.filter(d=>d.projectId===pid&&(d.status==='in_transit'||d.status==='ordered'));const send=all.filter(d=>d.fromProjectId===pid&&d.status==='to_send');
+  const done=all.filter(d=>!pend.includes(d)&&!send.includes(d));
+  return `${send.length?`<section class="card"><div class="card-h"><h2>To send to other sites</h2><span class="sub">Load the material, then mark it as sent</span></div><div class="list">${send.map(d=>dispCard(d,'from')).join('')}</div></section>`:''}
+  <section class="card"><div class="card-h"><h2>Arriving at your site</h2><span class="sub">Check quantity and condition, then confirm</span></div><div class="list">${pend.length?pend.map(d=>dispCard(d)).join(''):emptyBox(ART.x('truck','e-art'),'Nothing on the way','When HQ or a vendor dispatches material to your site, it shows up here.')}</div></section>
+  ${receiptRegister(all.filter(d=>d.projectId===pid&&['delivered','short'].includes(d.status)),true)}
+  <section class="card"><div class="card-h"><h2>Other history</h2></div><div class="list">${done.filter(d=>!(d.projectId===pid&&['delivered','short'].includes(d.status))).slice(0,40).map(d=>dispCard(d)).join('')||'<div class="empty sm"><p>Nothing else.</p></div>'}</div></section>`;
+}
+// Register of material received at site: who received it and the signed & stamped challan.
+function receiptRegister(list,site){const pending=list.filter(d=>!(d.signedDocs||[]).length).length;const f=site?'':(ui.f.rcf||'');const rows=list.filter(d=>f!=='pending'||!(d.signedDocs||[]).length).sort((a,b)=>(b.receivedAt||0)-(a.receivedAt||0));
+  return `<section class="card" id="rcpt-reg"><div class="card-h"><h2>${site?'Received material — site record':'Receipts at sites'}</h2><span class="sub">${list.length} receipt${list.length===1?'':'s'}${pending?` · <span class="t-amber">${pending} without signed challan</span>`:''}</span>${site?'':`<div class="acts">${seg('rcf',[['','All'],['pending','Signed copy pending']],f)}</div>`}</div>
+  ${rows.length?`<div class="tw"><table class="t"><thead><tr><th>Challan</th>${site?'':'<th>Site</th>'}<th>From</th><th>Received on</th><th>Received by</th><th class="num">Items</th><th>Signed &amp; stamped challan</th><th></th></tr></thead><tbody>${rows.slice(0,300).map(d=>`<tr><td><button class="linkish docno" data-act="viewDispatch" data-id="${d.id}">${esc(d.no)}</button>${d.status==='short'?' <span class="chip red plain">short</span>':''}</td>${site?'':`<td>${esc(projCode(d.projectId))}</td>`}<td class="small">${d.type==='direct'?esc(d.vendorName||'Vendor'):d.type==='transfer'?esc(projCode(d.fromProjectId)):'HQ store'}</td><td class="nowrap">${fd(d.receivedOn||msDate(d.receivedAt||Date.now()))}</td><td><b>${esc(d.receivedByName||'—')}</b>${d.receiverDesignation?`<small class="muted block">${esc(d.receiverDesignation)}</small>`:''}</td><td class="num">${(d.lines||[]).length}</td><td>${(d.signedDocs||[]).length?photoStrip(d.signedDocs):'<span class="chip amber plain">Pending</span>'}</td><td>${site&&!(d.signedDocs||[]).length?`<button class="btn sm primary" data-act="signLater" data-id="${d.id}">${icon('ul')} Upload</button>`:`<button class="btn sm" data-act="printChallan" data-id="${d.id}" title="Print challan">${icon('print')}</button>`}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty sm"><p>No receipts yet.</p></div>'}</section>`}
+/* ================= SITE INVENTORY ================= */
+const LOG_T={opening:['Stock added','plus','green'],use:['Issued / used','minus','orange'],damage:['Damaged / lost','alert','red'],return:['Returned to central store','swap','violet'],adjust:['Count correction','layers','blue']};
+function stockStatus(r){if(r.bal<=1e-9) return {label:'Out of stock',tone:'red'};if(r.low) return {label:'Below minimum',tone:'amber'};return {label:'In stock',tone:'green'}}
+function siteRows(pid){return Object.values(D.site[pid]||{}).filter(r=>r.recv||r.open||r.used||r.out||r.dmg||r.ret||r.adj||r.min).sort((a,b)=>String(a.desc).localeCompare(b.desc))}
+function stockTable(pid){
+  const showVal=ui.role==='hq'&&seeRates();const f=ui.f.stf||'all';const q=norm(ui.f.stq);
+  let rows=siteRows(pid);const all=rows.length;
+  if(f==='low') rows=rows.filter(r=>r.low||r.bal<=1e-9);else if(f==='in') rows=rows.filter(r=>r.bal>1e-9);
+  if(q) rows=rows.filter(r=>norm(r.desc+' '+r.spec+' '+catName(r.cat)).includes(q));
+  if(!all) return emptyBox(ART.x('store','e-art'),'No stock recorded yet','Material appears here automatically when the site confirms a receipt. Add stock that was already lying at site with “Add stock”.',`<button class="btn primary" data-act="siteLog" data-t="opening" data-p="${pid}">${icon('plus')} Add stock</button>`);
+  if(!rows.length) return `<div class="empty sm"><p>No items match this filter.</p></div>`;
+  return `<div class="tw"><table class="t stock-t"><thead><tr><th>Item</th><th class="num">Received</th><th class="num">Issued</th><th class="num" title="Sent to other sites, damaged/lost, returned to store, count corrections">Other</th><th class="num">Balance</th><th class="num">Min</th><th>Status</th>${showVal?'<th class="num">Value</th>':''}<th></th></tr></thead><tbody>${rows.map(r=>{const st=stockStatus(r);const other=r.out+r.dmg+r.ret-r.adj;
+    return `<tr class="click" data-act="ledger" data-p="${pid}" data-k="${esc(r.itemKey)}"><td><div class="who">${thumb({category:r.cat,desc:r.desc},'sm')}<span><b>${esc(r.desc)}</b><small class="muted block">${esc(r.spec||'')}${r.spec?' · ':''}${esc(catName(r.cat))}</small></span></div></td>
+    <td class="num mono">${fq(r.open+r.recv)}</td><td class="num mono">${fq(r.used)}</td><td class="num mono ${other?'':'muted'}">${fq(other)}</td>
+    <td class="num"><b class="mono big-num ${r.bal<0?'t-red':''}">${fq(r.bal)}</b> <small class="muted">${esc(r.unit)}</small></td><td class="num mono muted">${r.min?fq(r.min):'—'}</td><td>${chip(st)}</td>
+    ${showVal?`<td class="num mono">${r.value?money0(r.value):'<span class="muted">—</span>'}</td>`:''}
+    <td class="nowrap">${r.bal>1e-9?`<button class="btn sm" data-act="siteLog" data-t="use" data-p="${pid}" data-k="${esc(r.itemKey)}">Issue</button>`:''}<button class="icon-btn sm" data-act="ledger" data-p="${pid}" data-k="${esc(r.itemKey)}" title="History and minimum level" aria-label="History">${icon('clock')}</button></td></tr>`}).join('')}</tbody></table></div>`;
+}
+function siteLogList(pid,limit=40){const ev=S.sitelog.filter(e=>e.projectId===pid).sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,limit);
+  return ev.length?`<div class="list">${ev.map(e=>{const t=LOG_T[e.type]||LOG_T.opening;const q=num(e.qty);
+    return `<div class="li"><span class="n-ic ${t[2]}">${icon(t[1])}</span>${thumb({category:e.cat||classify(e.desc,e.spec).cat,desc:e.desc},'sm')}<div class="grow"><b>${esc(t[0])} · ${e.type==='adjust'&&q>0?'+':''}${fq(q)} ${esc(e.unit)} ${esc(e.desc)}</b><small>${fd(e.date)}${e.issuedTo?' · to '+esc(e.issuedTo):''}${e.location?' · '+esc(e.location):''}${e.reason?' · '+esc(e.reason):''}${e.remarks?' · '+esc(e.remarks):''} · ${esc(e.createdByName||'')}</small></div>${(e.createdBy===ui.uid||ui.isHQ)?`<button class="icon-btn sm" data-act="delSiteLog" data-id="${e.id}" aria-label="Delete entry">${icon('trash')}</button>`:''}</div>`}).join('')}</div>`:'<div class="empty sm"><p>No entries yet.</p></div>'}
+function stockBody(pid){
+  const rows=siteRows(pid);const low=rows.filter(r=>r.low);const out=rows.filter(r=>r.bal<=1e-9&&(r.recv||r.open));const inS=rows.filter(r=>r.bal>1e-9).length;
+  const mth=today().slice(0,7);const iss=S.sitelog.filter(e=>e.projectId===pid&&e.type==='use'&&String(e.date).slice(0,7)===mth);
+  const val=sum(rows,r=>r.value);const f=ui.f.stf||'all';
+  return `<div class="stock-acts">
+    <button class="sa hi" data-act="siteLog" data-t="use" data-p="${pid}"><span class="sa-ph">${ART.x('use')}</span><span><b>Issue / use</b><small>Material given out at site</small></span></button>
+    <button class="sa" data-act="siteLog" data-t="opening" data-p="${pid}"><span class="sa-ph">${ART.x('store')}</span><span><b>Add stock</b><small>Opening or found material</small></span></button>
+    <button class="sa" data-act="stockCount" data-p="${pid}"><span class="sa-ph">${ART.x('clip')}</span><span><b>Physical count</b><small>Check and correct the register</small></span></button>
+    <button class="sa" data-act="siteLog" data-t="return" data-p="${pid}"><span class="sa-ph">${ART.x('truck')}</span><span><b>Return to store</b><small>Send surplus back to HQ store</small></span></button>
+  </div>
+  <div class="kpis four">
+    <div class="kpi has-ph"><span class="kpi-ph">${ART.x('store')}</span><span class="k">Items in stock</span><span class="v">${inS}</span><span class="d">${rows.length} item${rows.length===1?'':'s'} on the register</span></div>
+    <button class="kpi has-ph" data-tone="${low.length||out.length?'amber':'green'}" data-act="setF" data-k="stf" data-val="low"><span class="kpi-ph">${ART.x('clock')}</span><span class="k">Low or out</span><span class="v ${low.length?'t-amber':''}">${low.length+out.length}</span><span class="d">${low.length} below minimum · ${out.length} finished</span></button>
+    <div class="kpi has-ph"><span class="kpi-ph">${ART.x('use')}</span><span class="k">Issues this month</span><span class="v">${iss.length}</span><span class="d">entries in ${MON[+mth.slice(5)-1]}</span></div>
+    ${ui.role==='hq'&&seeRates()?`<div class="kpi has-ph"><span class="kpi-ph">${ART.x('po')}</span><span class="k">Stock value</span><span class="v">${lakh(val)}</span><span class="d">at latest PO rates incl. GST</span></div>`:`<div class="kpi has-ph"><span class="kpi-ph">${ART.x('ok')}</span><span class="k">Last receipt</span><span class="v small-v">${(()=>{const t=Math.max(0,...rows.map(r=>r.last||0));return t?timeAgo(t):'—'})()}</span><span class="d">material confirmed at site</span></div>`}
+  </div>
+  ${low.length?`<div class="notice warn">${icon('alert')}<span><b>${low.length} item${low.length>1?'s are':' is'} below the minimum level:</b> ${esc(low.slice(0,4).map(r=>r.desc).join(', '))}${low.length>4?'…':''}</span><button class="btn sm orange" data-act="reorderLow" data-p="${pid}">${icon('plus')} Raise demand for these</button></div>`:''}
+  <section class="card"><div class="card-h"><h2>Stock register · ${esc(projCode(pid))}</h2>${seg('stf',[['all','All'],['in','In stock'],['low','Low / out']],f)}<div class="search-inp">${icon('search')}<input class="inp sm" id="f-stq" placeholder="Search item" data-bind="f.stq" data-rerender="1" value="${esc(ui.f.stq||'')}"></div>
+    <div class="acts"><button class="btn sm ghost" data-act="siteLog" data-t="damage" data-p="${pid}">${icon('alert')} Damage / loss</button><button class="btn sm" data-act="dlProjStock" data-p="${pid}">${icon('dl')} Excel</button></div></div>
+    ${stockTable(pid)}<div class="card-f small muted">${icon('help')} Balance = stock added + received − issued − sent to other sites − damaged − returned ± count corrections. Tap an item for its full history and to set a minimum level.</div></section>
+  <section class="card"><div class="card-h"><h2>Register entries</h2><span class="sub">Latest first</span></div>${siteLogList(pid)}</section>`;
+}
+function vSiteStock(){return stockBody(siteProject())}
+function vHQStock(){
+  const pf=ui.f.ss||'';
+  const sel=`<select class="inp auto" id="f-ss" data-act-change="setFsel" data-k="ss">${projOpts(pf,'All projects')}</select>`;
+  if(pf) return `<div class="toolbar">${sel}<span class="muted">${esc(projLabel(pf))}</span><span class="spacer"></span><button class="btn sm" data-act="setF" data-k="ss" data-val="">${icon('back')} All projects</button></div>${stockBody(pf)}`;
+  const by={};for(const p in D.site) for(const k in D.site[p]){const r=D.site[p][k];if(r.bal<=0&&!r.low) continue;const o=by[k]||(by[k]={r,list:[],tot:0,low:[]});if(r.bal>0){o.list.push([p,r.bal]);o.tot+=r.bal}if(r.low) o.low.push(p)}
+  const q=norm(ui.f.sq);let rows=Object.values(by).sort((a,b)=>String(a.r.desc).localeCompare(b.r.desc));if(q) rows=rows.filter(o=>norm(o.r.desc+' '+o.r.spec).includes(q));
+  const projs=S.projects.filter(p=>p.active!==false);const lowAll=sum(projs,p=>Object.values(D.site[p.id]||{}).filter(r=>r.low).length);const valAll=sum(projs,p=>sum(Object.values(D.site[p.id]||{}),r=>r.value));
+  return `<div class="toolbar">${sel}<div class="search-inp">${icon('search')}<input class="inp" id="f-sq" placeholder="Search item" data-bind="f.sq" data-rerender="1" value="${esc(ui.f.sq||'')}"></div><span class="spacer"></span><button class="btn" data-act="dlSiteStock">${icon('dl')} Excel · all sites</button></div>
+  <div class="kpis four"><div class="kpi has-ph"><span class="kpi-ph">${ART.x('po')}</span><span class="k">${seeRates()?'Stock value at sites':'Sites with stock'}</span><span class="v">${seeRates()?lakh(valAll):projs.filter(p=>Object.values(D.site[p.id]||{}).some(r=>r.bal>0)).length}</span><span class="d">${seeRates()?'at latest PO rates incl. GST':'projects holding material'}</span></div>
+   <div class="kpi has-ph" data-tone="${lowAll?'amber':'green'}"><span class="kpi-ph">${ART.x('clock')}</span><span class="k">Below minimum</span><span class="v">${lowAll}</span><span class="d">item lines across all sites</span></div>
+   <div class="kpi has-ph"><span class="kpi-ph">${ART.x('store')}</span><span class="k">Items held</span><span class="v">${rows.length}</span><span class="d">different items in stock</span></div>
+   <div class="kpi has-ph"><span class="kpi-ph">${ART.x('use')}</span><span class="k">Issues this month</span><span class="v">${S.sitelog.filter(e=>e.type==='use'&&String(e.date).slice(0,7)===today().slice(0,7)).length}</span><span class="d">register entries at all sites</span></div></div>
+  <section class="card"><div class="card-h"><h2>Stock by project</h2><span class="sub">Tap a project to open its stock register</span></div><div class="sp-grid pad">${projs.map(p=>{const rs=Object.values(D.site[p.id]||{});const inS=rs.filter(r=>r.bal>0).length,lw=rs.filter(r=>r.low).length;
+    return `<button class="sp-card" data-act="setF" data-k="ss" data-val="${p.id}"><span class="mini-cover lg">${cover(p)}</span><span class="grow"><b>${esc(p.code||p.name)}</b><small>${inS} items in stock${lw?` · <span class="t-amber">${lw} low</span>`:''}</small>${seeRates()?`<small class="mono">${lakh(sum(rs,r=>r.value))}</small>`:''}</span>${icon('chev')}</button>`}).join('')}</div></section>
+  <div class="notice info">${icon('swap')}<span>Surplus at one site can be <b>transferred</b> to another. In the procurement queue, lines show which sites have the item in stock.</span></div>
+  <section class="card"><div class="card-h"><h2>Items held at sites</h2></div>${rows.length?`<div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Total at sites</th><th>Where</th><th>Low at</th></tr></thead><tbody>${rows.map(o=>`<tr><td><div class="who">${thumb({category:o.r.cat,desc:o.r.desc},'sm')}<span><b>${esc(o.r.desc)}</b><small class="muted block">${esc(o.r.spec||'')}</small></span></div></td><td class="num"><b class="mono">${fq(o.tot)}</b> <small class="muted">${esc(o.r.unit)}</small></td><td><div class="chips">${o.list.map(([p,b])=>`<button class="chip plain click" data-act="setF" data-k="ss" data-val="${p}">${esc(projCode(p))}: ${fq(b)}</button>`).join('')}</div></td><td>${o.low.length?`<div class="chips">${o.low.map(p=>`<span class="chip amber">${esc(projCode(p))}</span>`).join('')}</div>`:'<span class="muted small">—</span>'}</td></tr>`).join('')}</tbody></table></div>`:emptyBox(ART.x('store','e-art'),'No stock at sites yet','Site stock builds up as sites confirm receipts and add opening stock.')}</section>`;
+}
+
+/* ================= QUEUE ================= */
+function queueLines(){return allLines().filter(x=>x.info.st==='source')}
+function vQueue(){
+  const L=queueLines();
+  if(!L.length) return emptyBox(ART.x('ok','e-art'),'Nothing waiting to be sourced','Approved demand lines land here, grouped by material, ready to send out for quotation.',`<button class="btn" data-act="go" data-v="demands">Go to demand inbox</button>`);
+  const groups={};for(const x of L)(groups[x.l.category||'others']=groups[x.l.category||'others']||[]).push(x);
+  const nSel=Object.values(ui.sel).filter(Boolean).length;const fc=ui.f.qc||'';
+  const order=CATS.map(c=>c.id).filter(c=>groups[c]&&(!fc||fc===c));
+  return `<div class="cat-chips"><button class="cchip ${!fc?'on':''}" data-act="setF" data-k="qc" data-val="">All <b>${L.length}</b></button>${CATS.filter(c=>groups[c.id]).map(c=>`<button class="cchip ${fc===c.id?'on':''}" data-act="setF" data-k="qc" data-val="${c.id}"><span class="tint" style="--h:${c.h}">${ART.cat(c.id)}</span>${esc(c.name)} <b>${groups[c.id].length}</b></button>`).join('')}</div>
+  ${nSel?`<div class="sel-bar"><b>${nSel} line${nSel>1?'s':''} selected</b><span class="muted">Identical items from different sites are merged into one enquiry line.</span><span class="spacer"></span><button class="btn" data-act="clearSel">Clear</button><button class="btn primary" data-act="newRfq">${icon('quote')} Create RFQ</button></div>`:''}
+  ${order.map(c=>{const g=groups[c].sort((a,b)=>(a.ind.requiredBy||'').localeCompare(b.ind.requiredBy||''));const vs=S.vendors.filter(v=>(v.categories||[]).includes(c));const allSel=g.every(x=>ui.sel[x.k]);
+    return `<section class="card"><div class="q-banner tint" style="--h:${catH(c)}">${ART.cat(c)}<div class="grow"><h2>${esc(catName(c))}</h2><small>${g.length} lines · ${new Set(g.map(x=>x.ind.projectId)).size} projects · ${vs.length?vs.length+' vendor'+(vs.length>1?'s':'')+': '+vs.slice(0,3).map(v=>esc(v.name)).join(', ')+(vs.length>3?'…':''):'<span class="t-red">no vendor assigned</span>'}</small></div>
+    <div class="acts"><button class="btn sm" data-act="selCat" data-c="${c}">${allSel?'Unselect all':'Select all'}</button><button class="btn sm primary" data-act="rfqForCat" data-c="${c}">${icon('quote')} RFQ for all</button></div></div>
+    ${vs.length?'':`<div class="card-b"><div class="notice warn">${icon('alert')}<span>No vendor supplies ${esc(catName(c))} yet.</span><button class="btn sm" data-act="go" data-v="vendors">Assign vendors</button></div></div>`}
+    <div class="tw"><table class="t"><thead><tr><th></th><th>Item</th><th>Project</th><th class="num">Qty</th><th>Needed by</th><th>Other sources</th></tr></thead><tbody>
+    ${g.map(x=>{const ik=itemKey(x.l.desc,x.l.spec,x.l.unit);const st=D.stock[ik];const bal=st?st.bal:0;
+      const others=Object.entries(D.site).filter(([p,m])=>p!==x.ind.projectId&&m[ik]&&m[ik].free>0);
+      return `<tr><td><input type="checkbox" id="sel-${x.k.replace('|','-')}" data-act="toggleSel" data-k="${x.k}" ${ui.sel[x.k]?'checked':''} aria-label="Select line"></td>
+      <td><div class="who">${lineThumb(x.l,'sm')}<span><b>${esc(x.l.desc)}</b><small class="muted block">${esc(x.l.spec||'')} · <span class="docno">${esc(x.ind.no)}</span></small></span></div></td>
+      <td class="small">${esc(projCode(x.ind.projectId))}</td><td class="num mono nowrap">${fq(x.info.need)} ${esc(x.l.unit)}</td>
+      <td class="nowrap">${fd(x.ind.requiredBy)}${x.ind.requiredBy&&x.ind.requiredBy<today()?' <span class="t-red small">overdue</span>':''} <span class="prio ${esc(x.ind.priority||'Normal')}">${x.ind.priority&&x.ind.priority!=='Normal'?esc(x.ind.priority):''}</span></td>
+      <td><div class="src">${bal>0?`<button class="src-btn" data-act="issueStock" data-k="${x.k}">${icon('box')} Store has ${fq(bal)} · Issue</button>`:''}${others.length?`<button class="src-btn alt" data-act="newTransfer" data-k="${x.k}">${icon('swap')} ${others.map(([p,m])=>esc(projCode(p))+': '+fq(m[ik].free)).slice(0,2).join(', ')} · Transfer</button>`:''}${!bal&&!others.length?'<span class="muted small">Buy new</span>':''}</div></td></tr>`}).join('')}
+    </tbody></table></div></section>`}).join('')}`;
+}
+
+/* ================= RFQs ================= */
+function vRfqs(){
+  const f=ui.f.rs||'open';let list=S.rfqs.slice().sort((a,b)=>(b.at||0)-(a.at||0));
+  list=list.filter(r=>f==='all'?true:f==='open'?['draft','sent','approved'].includes(r.status):['ordered','cancelled'].includes(r.status));
+  return `<div class="toolbar">${seg('rs',[['open','Open'],['closed','Closed'],['all','All']],f)}<span class="spacer"></span><button class="btn primary" data-act="go" data-v="queue">${icon('plus')} New RFQ from queue</button></div>
+  <section class="card">${list.length?`<div class="tw"><table class="t"><thead><tr><th>RFQ</th><th>Material</th><th>Items</th><th>Vendors</th><th>Quotes due</th><th>Delivery</th><th>Status</th></tr></thead><tbody>${list.map(r=>`<tr class="click" data-act="openRfq" data-id="${r.id}"><td><span class="docno">${esc(r.no)}</span><small class="muted block">${fd(r.date)}</small></td><td>${r.category==='mixed'?'<span class="chip plain">Mixed</span>':catSw(r.category)}</td><td><div class="thumbs">${(r.lines||[]).slice(0,4).map(l=>thumb({category:l.cat,desc:l.desc},'xs')).join('')}<span class="small">${(r.lines||[]).length}</span></div></td><td class="small">${(r.vendorIds||[]).map(v=>esc((vend(v)||{}).name||'—')).join(', ')}</td><td class="nowrap">${fd(r.dueDate)}</td><td class="small">${r.deliveryMode==='site'?'Direct to sites':'Central store'}</td><td>${chip(rfqStatus(r))}</td></tr>`).join('')}</tbody></table></div>`:emptyBox(ART.cat('valves','e-art'),'No RFQs here','Create RFQs from the procurement queue.')}</section>`;
+}
+function vendorAvatar(v){return `<span class="avatar sq" style="--h:${hash(v&&v.id)%360}">${esc(initials(v&&v.name))}</span>`}
+function vRfq(){
+  const r=S.rfqs.find(x=>x.id===ui.param);if(!r) return emptyBox('','RFQ not found','',`<button class="btn" data-act="go" data-v="rfqs">Back</button>`);
+  const st=rfqStatus(r);const locked=['ordered','cancelled'].includes(r.status);const vids=r.vendorIds||[];const quoted=vids.filter(v=>(r.quotes||{})[v]);
+  const l1=l1Map(r);const award=r.award||{};const sent=r.sentLog||[];
+  const vrows=vids.map(vid=>{const v=vend(vid)||{name:'(removed vendor)'};const q=(r.quotes||{})[vid];const lg=sent.filter(s=>s.vendorId===vid);const last=lg[lg.length-1];
+    return `<div class="li">${vendorAvatar(v)}<div class="grow"><b>${esc(v.name)}</b><small>${esc(v.contact||'')}${v.phone?' · '+esc(v.phone):''}${v.email?' · '+esc(v.email):''}</small><small>${last?`${icon('check','xs')} Sent by ${esc(last.via)} · ${fdt(last.at)}`:'<span class="t-amber">Not sent yet</span>'}${q?` · <span class="t-green">Quote received ${fdt(q.at)}</span>`:''}</small></div>
+    ${locked?'':`<div class="row tight"><button class="btn sm" data-act="mailRfq" data-v="${vid}" ${v.email?'':'disabled title="Add an email for this vendor"'}>${icon('mail')} Email</button><a class="btn sm" href="${waLink(v.phone,rfqText(r,v))}" target="_blank" rel="noopener" data-act="logSend" data-v="${vid}" data-via="WhatsApp">${icon('chat')} WhatsApp</a><button class="btn sm" data-act="copyRfq" data-v="${vid}">${icon('copy')} Copy</button><button class="btn sm ${q?'':'primary'}" data-act="enterQuote" data-v="${vid}">${q?'Edit quote':'Enter quote'}</button></div>`}</div>`}).join('');
+  let cs='';
+  if(quoted.length){
+    const tot={};for(const v of quoted) tot[v]=landed(r,v);const ranks=quoted.slice().sort((a,b)=>tot[a].total-tot[b].total);
+    const head=quoted.map(v=>`<th colspan="2" class="vh">${esc((vend(v)||{}).name||'')}${ranks[0]===v&&!tot[v].missing?' <span class="chip green plain">L1</span>':''}</th>`).join('');
+    const sub=quoted.map(()=>`<th class="num bl">Rate</th><th class="num">Amount</th>`).join('');
+    const body=r.lines.map(l=>`<tr><td><div class="who">${thumb({category:l.cat,desc:l.desc},'xs')}<span><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></span></div></td><td class="num mono nowrap">${fq(l.qty)} ${esc(l.unit)}</td>${quoted.map(v=>{const rt=num(((r.quotes[v]||{}).rates||{})[l.key]);const isL1=l1[l.key]&&l1[l.key].v===v;const aw=award[l.key]===v;
+      return rt>0?`<td class="num mono bl cs-cell ${isL1?'l1':''} ${aw?'awarded':''}" ${locked?'':`data-act="award" data-k="${l.key}" data-v="${v}" title="Award this line"`}>${fq(rt)}<small class="gst-tag">GST ${fq(qGst(r.quotes[v],l.key))}%</small></td><td class="num mono ${isL1?'l1':''}">${fq(rt*num(l.qty))}</td>`:`<td class="num muted bl">—</td><td class="num muted small">not quoted</td>`}).join('')}<td>${award[l.key]?`<b class="small">${esc((vend(award[l.key])||{}).name||'')}</b>`:'<span class="muted small">—</span>'}</td></tr>`).join('');
+    const foot=(lab,f)=>`<tr><td colspan="2"><b>${lab}</b></td>${quoted.map(v=>`<td colspan="2" class="num mono bl">${f(v)}</td>`).join('')}<td></td></tr>`;
+    let awardedTotal=0;for(const l of r.lines){const v=award[l.key];if(!v) continue;const q=r.quotes[v];awardedTotal+=num((q.rates||{})[l.key])*num(l.qty)*(1+qGst(q,l.key)/100)}for(const v of new Set(Object.values(award).filter(Boolean))) awardedTotal+=num((r.quotes[v]||{}).freight);
+    const allAwarded=r.lines.every(l=>award[l.key]);
+    cs=`<section class="card"><div class="card-h"><h2>Comparative statement</h2><span class="sub">Green = lowest rate incl. GST. Click a rate to award that line.</span>
+      <div class="acts">${locked?'':`<button class="btn sm" data-act="awardL1">Award item-wise L1</button>${ranks.filter(v=>!tot[v].missing).slice(0,1).map(v=>`<button class="btn sm" data-act="awardVendor" data-v="${v}">All to ${esc((vend(v)||{}).name||'L1')}</button>`).join('')}`}<button class="btn sm" data-act="dlComparative">${icon('dl')} CSV</button></div></div>
+    <div class="tw"><table class="t cs"><thead><tr><th rowspan="2">Item</th><th rowspan="2" class="num">Qty</th>${head}<th rowspan="2">Awarded to</th></tr><tr>${sub}</tr></thead><tbody>${body}</tbody>
+    <tfoot>${foot('Basic value',v=>money(tot[v].basic))}${foot('GST',v=>`${quoteGstLabel(r,r.quotes[v])} · ${money(tot[v].gst)}`)}${foot('Freight',v=>money(tot[v].fr))}${foot('Landed total',v=>`<b>${money(tot[v].total)}</b>${tot[v].missing?` <span class="small muted">(${tot[v].missing} not quoted)</span>`:''}`)}${foot('Delivery',v=>esc(r.quotes[v].deliveryDays?r.quotes[v].deliveryDays+' days':'—'))}${foot('Payment',v=>esc(r.quotes[v].payment||'—'))}${foot('Rank',v=>'L'+(ranks.indexOf(v)+1))}</tfoot></table></div>
+    <div class="card-f"><div class="grow"><b class="big">${money(awardedTotal)}</b> <span class="muted small">awarded value incl. GST & freight</span>${r.approvedAt?`<div class="small t-green">${icon('check','xs')} Approved ${fdt(r.approvedAt)}${r.approvalNote?' · '+esc(r.approvalNote):''}</div>`:''}</div>
+    ${locked?'':(r.status==='approved'?`<button class="btn" data-act="unapproveRfq">Reopen</button><button class="btn primary" data-act="genPOs" ${ui.busy?'disabled':''}>${icon('po')} Generate purchase orders</button>`:`<button class="btn primary" data-act="approveRfq" ${allAwarded?'':'disabled title="Award every line first"'}>${icon('check')} Approve comparative</button>`)}</div></section>`;
+  }
+  return `<section class="card"><div class="card-h"><h2>${r.category==='mixed'?'Mixed materials':catSw(r.category)}</h2>${chip(st)}<div class="acts">${!locked?`<button class="btn danger sm" data-act="cancelRfq">Cancel RFQ</button>`:''}${r.status==='ordered'?(r.poIds||[]).map(id=>{const p=S.pos.find(x=>x.id===id);return p?`<button class="btn sm" data-act="openPo" data-id="${p.id}">${esc(p.no)}</button>`:''}).join(''):''}<button class="btn sm ghost" data-act="go" data-v="rfqs">${icon('back')} Back</button></div></div>
+  <div class="card-b"><div class="meta"><div><span>RFQ date</span><b>${fd(r.date)}</b></div><div><span>Quotes due</span><b>${fd(r.dueDate)}</b></div><div><span>Delivery</span><b>${r.deliveryMode==='site'?'Direct to each site':'Central store'}</b></div><div><span>Projects</span><b>${[...new Set(r.lines.flatMap(l=>l.srcs.map(s=>s.projectId)))].map(p=>esc(projCode(p))).join(', ')}</b></div><div><span>Note to vendors</span><b>${esc(r.notes||'—')}</b></div></div></div>
+  <div class="tw"><table class="t"><thead><tr><th>#</th><th>Item</th><th class="num">Total qty</th><th>Site-wise split</th></tr></thead><tbody>${r.lines.map((l,ix)=>`<tr><td class="mono muted">${ix+1}</td><td><div class="who">${thumb({category:l.cat,desc:l.desc},'xs')}<span><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></span></div></td><td class="num mono">${fq(l.qty)} ${esc(l.unit)}</td><td class="small">${l.srcs.map(s=>`${esc(projCode(s.projectId))}: ${fq(s.qty)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div></section>
+  <section class="card"><div class="card-h"><h2>Vendors</h2><span class="sub">${quoted.length} of ${vids.length} quotes received</span><div class="acts">${!locked?`<button class="btn sm primary" data-act="mailRfqAll" ${ui.busy?'disabled':''}>${icon('mail')} Email all vendors</button><button class="btn sm" data-act="addRfqVendor">${icon('plus')} Add vendor</button>`:''}</div></div><div class="list">${vrows||'<div class="empty sm"><p>No vendors on this RFQ.</p></div>'}</div></section>
+  ${cs}`;
+}
+function rfqText(r,v){const c=S.config;
+  return `Request for Quotation ${r.no}
+From: ${company()}${c.hqAddress?', '+c.hqAddress:''}
+To: ${v?v.name:''}
+Date: ${fd(r.date)} | Quote by: ${fd(r.dueDate)}
+Delivery: ${r.deliveryMode==='site'?'Direct to project sites (addresses on order)':'Our central store'+(c.storeAddress?', '+c.storeAddress:'')}
+
+Please quote your best rates for:
+${r.lines.map((l,i)=>`${i+1}. ${l.desc}${l.spec?' — '+l.spec:''} : ${fq(l.qty)} ${l.unit}`).join('\n')}
+
+Kindly mention rate per unit (excl. GST) and GST % for each item, freight, delivery period, payment terms and validity.${r.notes?'\nNote: '+r.notes:''}
+
+Regards,
+${c.contactName||'Purchase Department'}, ${company()}${c.phone?'\n'+c.phone:''}`}
+function rfqHtml(r,v){const c=S.config;const td='padding:6px 8px;border:1px solid #c9d3d6;font-size:13px';
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;max-width:760px"><p>Dear ${esc(v?v.contact||v.name:'Sir/Madam')},</p><p>Please send your best quotation for the items below against <b>RFQ ${esc(r.no)}</b> by <b>${fd(r.dueDate)}</b>.</p>
+  <table style="border-collapse:collapse;width:100%"><thead><tr style="background:#e9eef2"><th style="${td}">#</th><th style="${td};text-align:left">Item</th><th style="${td};text-align:left">Specification</th><th style="${td};text-align:right">Qty</th><th style="${td}">Unit</th><th style="${td}">Your rate (excl. GST)</th><th style="${td}">GST %</th></tr></thead>
+  <tbody>${r.lines.map((l,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(l.desc)}</td><td style="${td}">${esc(l.spec||'')}</td><td style="${td};text-align:right">${fq(l.qty)}</td><td style="${td}">${esc(l.unit)}</td><td style="${td}"></td><td style="${td}"></td></tr>`).join('')}</tbody></table>
+  <p><b>Delivery:</b> ${r.deliveryMode==='site'?'Direct to our project sites (site-wise addresses will be given with the order).':'Our central store'+(c.storeAddress?', '+esc(c.storeAddress):'')+'.'}</p>
+  <p>Please mention the GST % for each item, freight, delivery period, payment terms and validity of offer.${r.notes?'<br><b>Note:</b> '+esc(r.notes):''}</p><p>Regards,<br>${esc(c.contactName||'Purchase Department')}<br>${esc(company())}${c.phone?'<br>'+esc(c.phone):''}</p></div>`}
+
+/* ================= PURCHASE ORDERS ================= */
+function vPos(){
+  const f=ui.f.ps||'open';const q=norm(ui.f.pq);let list=S.pos.slice().sort((a,b)=>(b.at||0)-(a.at||0));
+  list=list.filter(p=>{const s=poStatus(p).label;return f==='all'?true:f==='open'?(s==='Open'||s==='Part received'):(s==='Completed'||s==='Cancelled')});
+  if(q) list=list.filter(p=>norm(p.no+' '+p.vendorName+' '+(p.lines||[]).map(l=>l.desc).join(' ')).includes(q));
+  return `<div class="toolbar">${seg('ps',[['open','Open'],['closed','Closed'],['all','All']],f)}<div class="search-inp">${icon('search')}<input class="inp" id="f-pq" placeholder="Search PO, vendor, item" data-bind="f.pq" data-rerender="1" value="${esc(ui.f.pq||'')}"></div><span class="spacer"></span><button class="btn" data-act="dlPoRegister">${icon('dl')} Register</button></div>
+  <section class="card">${list.length?`<div class="tw"><table class="t"><thead><tr><th>PO</th><th>Vendor</th><th>Items</th>${seeRates()?'<th class="num">Value</th>':''}<th>Delivery</th><th>Received</th><th>Status</th></tr></thead><tbody>${list.map(p=>{const pr=poProgress(p);return `<tr class="click" data-act="openPo" data-id="${p.id}"><td><span class="docno">${esc(p.no)}</span><small class="muted block">${fd(p.date)}</small></td><td><div class="who">${vendorAvatar(vend(p.vendorId)||{id:p.vendorId,name:p.vendorName})}<span><b>${esc(p.vendorName)}</b><small class="muted block">${esc(p.rfqNo||'')}</small></span></div></td><td><div class="thumbs">${(p.lines||[]).slice(0,4).map(l=>thumb({category:l.cat,desc:l.desc},'xs')).join('')}<span class="small">${(p.lines||[]).length}</span></div></td>${seeRates()?`<td class="num mono">${money0(poTotals(p).total)}</td>`:''}<td class="small">${esc(delivLabel(p))}</td><td style="min-width:100px">${bar(pr.pct,'green')}</td><td>${chip(poStatus(p))}</td></tr>`}).join('')}</tbody></table></div>`:emptyBox(ART.cat('pipes','e-art'),'No purchase orders here','POs are generated from an approved comparative statement.')}</section>`;
+}
+function poDoc(po){
+  const c=S.config,v=vend(po.vendorId)||{},t=poTotals(po);const b='border:1px solid #c9d3d6;padding:6px 8px;font-size:12.5px;vertical-align:top';
+  const sched={};for(const l of po.lines) for(const s of l.srcs||[]) (sched[s.projectId]=sched[s.projectId]||[]).push({l,s});
+  const logo=c.logo?`<img src="/files/${esc(c.logo)}" style="height:54px;max-width:160px;object-fit:contain;margin-bottom:6px" alt="">`:'';
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;background:#fff;padding:28px;max-width:900px;margin:0 auto">
+  <table style="width:100%;border-collapse:collapse"><tr><td style="vertical-align:top">${logo}<div style="font-size:20px;font-weight:800">${esc(company())}</div><div style="font-size:12px;color:#465A6D;white-space:pre-line">${esc(c.hqAddress||'')}${c.gstin?'\nGSTIN: '+esc(c.gstin):''}</div></td>
+  <td style="text-align:right;vertical-align:top"><div style="font-size:22px;font-weight:800;color:#1172C4">PURCHASE ORDER</div><div style="font-size:13px"><b>${esc(po.no)}</b><br>Date: ${fd(po.date)}${po.rfqNo?'<br>Ref: '+esc(po.rfqNo):''}</div></td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:16px"><tr><td style="${b};width:50%"><b>Vendor</b><br>${esc(v.name||po.vendorName)}<br><span style="white-space:pre-line">${esc(v.address||v.city||'')}</span>${v.gstin?'<br>GSTIN: '+esc(v.gstin):''}${v.contact?'<br>Attn: '+esc(v.contact):''}${v.phone?' · '+esc(v.phone):''}</td>
+  <td style="${b}">${(()=>{const si=storeInfo();return po.deliveryMode==='vendor'?jwPoParty(po):po.deliveryMode==='site'?`<b>Bill to</b><br>${esc(company())}<br><span style="white-space:pre-line">${esc(c.hqAddress||'')}</span>${c.gstin?'<br><b>GSTIN:</b> '+esc(c.gstin):''}<br><br><b>Ship to</b><br>Directly to project sites as per delivery schedule below`:`<b>Bill to &amp; ship to — HQ store</b><br>${esc(si.legal)}<br>${esc(si.name)}<br><span style="white-space:pre-line">${esc(si.address)}</span>${si.gstin?'<br><b>GSTIN:</b> '+esc(si.gstin)+(si.state?' · '+esc(si.state)+' ('+esc(si.code)+')':''):''}${si.contact?'<br>Store in-charge: '+esc(si.contact)+(si.phone?' · '+esc(si.phone):''):''}<br><span style="font-size:11px;color:#465A6D">Please raise the tax invoice on the GSTIN above.</span>`})()}<br><br><b>Delivery period:</b> ${esc(po.deliveryDays?po.deliveryDays+' days from PO date':'As agreed')}<br><b>Payment:</b> ${esc(po.payment||'As agreed')}</td></tr></table>
+  <table style="width:100%;border-collapse:collapse;margin-top:16px"><thead><tr style="background:#e9eef2"><th style="${b}">#</th><th style="${b};text-align:left">Description</th><th style="${b}">HSN</th><th style="${b};text-align:right">Qty</th><th style="${b}">Unit</th><th style="${b};text-align:right">Rate (₹)</th><th style="${b};text-align:right">GST %</th><th style="${b};text-align:right">Amount (₹)</th></tr></thead>
+  <tbody>${po.lines.map((l,i)=>`<tr><td style="${b}">${i+1}</td><td style="${b}"><b>${esc(l.desc)}</b>${l.spec?'<br><span style="color:#465A6D">'+esc(l.spec)+'</span>':''}</td><td style="${b}">${esc(l.hsn||itemHsn(l.desc)||'')}</td><td style="${b};text-align:right">${fq(l.qty)}</td><td style="${b}">${esc(l.unit)}</td><td style="${b};text-align:right">${fq(l.rate)}</td><td style="${b};text-align:right">${fq(l.gst)}</td><td style="${b};text-align:right">${fq(num(l.qty)*num(l.rate))}</td></tr>`).join('')}
+  <tr><td colspan="7" style="${b};text-align:right">Basic value</td><td style="${b};text-align:right">${fq(t.basic)}</td></tr>${gstSplit(po).map(([g,a])=>`<tr><td colspan="7" style="${b};text-align:right">GST @ ${fq(g)}%</td><td style="${b};text-align:right">${fq(a)}</td></tr>`).join('')}
+  ${t.freight?`<tr><td colspan="7" style="${b};text-align:right">Freight</td><td style="${b};text-align:right">${fq(t.freight)}</td></tr>`:''}
+  <tr><td colspan="7" style="${b};text-align:right"><b>Total order value</b></td><td style="${b};text-align:right"><b>${fq(t.total)}</b></td></tr><tr><td colspan="8" style="${b}"><b>In words:</b> ${inWords(t.total)}</td></tr></tbody></table>
+  ${Object.keys(sched).length?`<div style="margin-top:16px;font-weight:700;font-size:13px">Delivery schedule (site-wise)</div><table style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr style="background:#e9eef2"><th style="${b};text-align:left">Project / delivery address</th><th style="${b};text-align:left">Item</th><th style="${b};text-align:right">Qty</th></tr></thead><tbody>${Object.entries(sched).map(([pid,arr])=>{const p=proj(pid)||{};return arr.map((x,ix)=>`<tr>${ix===0?`<td style="${b}" rowspan="${arr.length}"><b>${esc(p.name||'')}</b>${p.code?' ('+esc(p.code)+')':''}<br><span style="white-space:pre-line;color:#465A6D">${esc(p.address||((p.city||'')+(p.state?', '+p.state:'')))}</span>${p.siteContact?'<br>Contact: '+esc(p.siteContact)+(p.phone?' · '+esc(p.phone):''):''}</td>`:''}<td style="${b}">${esc(x.l.desc)}${x.l.spec?' — '+esc(x.l.spec):''}</td><td style="${b};text-align:right">${fq(x.s.qty)} ${esc(x.l.unit)}</td></tr>`).join('')}).join('')}</tbody></table>`:''}
+  <div style="margin-top:16px;font-size:12px"><b>Terms &amp; conditions</b><div style="white-space:pre-line;color:#465A6D;margin-top:4px">${esc(po.terms||c.poTerms||DEFAULT_TERMS)}</div></div>
+  <table style="width:100%;margin-top:40px;font-size:12px"><tr><td>Vendor acceptance (sign &amp; stamp)</td><td style="text-align:right">For ${esc(company())}<br><br><br>Authorised signatory</td></tr></table></div>`;
+}
+function gstSplit(po){const m={};for(const l of po.lines||[]){const g=num(l.gst);m[g]=(m[g]||0)+num(l.qty)*num(l.rate)*g/100}return Object.entries(m).map(([g,a])=>[+g,a]).sort((a,b)=>a[0]-b[0])}
+const DEFAULT_TERMS=`1. Prices are firm till completion of supply against this order.
+2. Material must conform to the relevant IS specification; test certificates to accompany each lot.
+3. Each consignment to carry delivery challan and tax invoice quoting this PO number.
+4. Material is subject to inspection at the delivery point; rejected material will be returned at vendor's cost.
+5. Payment as per agreed terms from the date of receipt of material and invoice.
+6. Delivery schedule is the essence of this order; delays may attract penalty as mutually agreed.`;
+function vPo(){
+  const po=S.pos.find(x=>x.id===ui.param);if(!po) return emptyBox('','PO not found','',`<button class="btn" data-act="go" data-v="pos">Back</button>`);
+  const v=vend(po.vendorId)||{};const st=poStatus(po);const disp=D.poDispatches[po.id]||[];
+  const rec=po.lines.map(l=>`<tr><td><div class="who">${thumb({category:l.cat,desc:l.desc},'xs')}<span><b>${esc(l.desc)}</b><small class="muted block">${esc(l.spec||'')}</small></span></div></td><td class="num mono">${fq(l.qty)} ${esc(l.unit)}</td><td class="num mono">${fq(poRecv(po,l.key))}</td><td class="num mono">${fq(Math.max(0,num(l.qty)-poRecv(po,l.key)))}</td></tr>`).join('');
+  return `<section class="card"><div class="card-h">${vendorAvatar(v.id?v:{id:po.vendorId,name:po.vendorName})}<div><h2>${esc(po.vendorName)}</h2><span class="sub">${seeRates()?money(poTotals(po).total)+' · ':''}${po.deliveryMode==='site'?'direct to sites':po.deliveryMode==='vendor'?'to job worker '+esc(jwFabName(po)):'to central store'}</span></div>${chip(st)}
+  <div class="acts">${po.status!=='cancelled'?`<button class="btn sm primary" data-act="mailPo" ${v.email?'':'disabled title="Add an email for this vendor"'}>${icon('mail')} Email PO</button>`:''}<a class="btn sm" href="${waLink(v.phone,`Purchase Order ${po.no} dated ${fd(po.date)} from ${company()}: ${po.lines.length} items, total ${money(poTotals(po).total)}. Delivery: ${po.deliveryMode==='site'?'direct to sites':po.deliveryMode==='vendor'?'to '+jwFabName(po)+' (job worker)':'central store'}. Please confirm acceptance and dispatch schedule.`)}" target="_blank" rel="noopener">${icon('chat')} WhatsApp</a><button class="btn sm" data-act="printPo">${icon('print')} Print</button><button class="btn sm" data-act="dlPo">${icon('dl')} Download</button>${po.status!=='cancelled'?`<button class="btn sm" data-act="editPoGst">${icon('edit')} GST & HSN</button>`:''}${po.status!=='cancelled'&&poProgress(po).r===0?`<button class="btn sm" data-act="poDelivery" title="Deliver to the HQ store, direct to sites, or to a job worker">${icon('swap')} Change delivery</button>`:''}
+  ${toStore(po)&&po.status!=='cancelled'&&poProgress(po).pct<1?`<button class="btn sm" data-act="recordGrn" data-id="${po.id}">${icon('grn')} Record receipt</button>`:''}${po.deliveryMode==='vendor'&&po.status!=='cancelled'&&poProgress(po).pct<1?`<button class="btn sm primary" data-act="jwRecv" data-id="${po.id}">${icon('tool')} Record receipt at job worker</button>`:''}
+  ${po.status!=='cancelled'&&poProgress(po).r===0?`<button class="btn sm danger" data-act="cancelPo">Cancel PO</button>`:''}<button class="btn sm ghost" data-act="go" data-v="pos">${icon('back')} Back</button></div></div>
+  <div class="card-b">${po.mailLog&&po.mailLog.length?`<p class="small muted">${icon('mail','xs')} Emailed to vendor ${po.mailLog.map(m=>fdt(m.at)).join(', ')}</p>`:''}${seeRates()?`<div class="paper">${poDoc(po)}</div>`:`<p class="notice">${icon('alert')}<span>Rates and order value are hidden for your role. The items and receipt status are below.</span></p>`}</div></section>
+  <div class="grid g2"><section class="card"><div class="card-h"><h2>Receipt against PO</h2></div><div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Balance</th></tr></thead><tbody>${rec}</tbody></table></div></section>
+  ${po.deliveryMode==='vendor'?jwPoCard(po):po.deliveryMode==='site'?`<section class="card"><div class="card-h"><h2>Site deliveries</h2></div><div class="list">${disp.map(d=>dispCard(d)).join('')||'<div class="empty sm"><p>No deliveries yet.</p></div>'}</div></section>`:`<section class="card"><div class="card-h"><h2>Goods receipts</h2></div><div class="list">${S.grns.filter(g=>g.poId===po.id).map(g=>`<div class="li"><span class="n-ic green">${icon('grn')}</span><div class="grow"><b>${esc(g.no)} · ${fd(g.date)}</b><small>Challan ${esc(g.challan||'—')} · invoice ${esc(g.invoice||'—')}</small>${photoStrip(g.photos)}</div><span class="small mono">${fq(sum(g.lines,l=>num(l.acc)))} accepted</span></div>`).join('')||'<div class="empty sm"><p>No material received yet.</p></div>'}</div></section>`}</div>`;
+}
+
+/* ================= HQ STORE (inward, stock, outward) ================= */
+// Everything that enters or leaves the HQ / central store, per item.
+// Sites a received line was bought for (from the PO's demand sources).
+function grnSites(g,l){const po=g.poId&&S.pos.find(p=>p.id===g.poId);const pl=po&&(po.lines||[]).find(x=>x.key===l.key);const m={};for(const s of (pl&&pl.srcs)||[]){(m[s.projectId]=m[s.projectId]||{p:s.projectId,q:0,mrs:[]}).q+=num(s.qty);if(s.mrNo&&!m[s.projectId].mrs.includes(s.mrNo)) m[s.projectId].mrs.push(s.mrNo)}return Object.values(m)}
+function poSites(p){const m={};for(const l of p.lines||[]) for(const s of l.srcs||[]) m[s.projectId]=1;return Object.keys(m)}
+function siteChips(list,unit,free){if(!list.length) return free?`<span class="for-sites"><span class="fs free">Free stock — no demand</span></span>`:'<span class="muted small">—</span>';
+  return `<span class="for-sites">${list.map(x=>`<span class="fs" title="${esc(projLabel(x.p))}${x.mrs&&x.mrs.length?' · '+esc(x.mrs.join(', ')):''}"><b>${esc(projCode(x.p))}</b>${x.q?' '+fq(x.q)+(unit?' '+esc(unit):''):''}</span>`).join('')}</span>`}
+function storeLedger(){
+  const L={};const row=(k,src)=>L[k]||(L[k]={itemKey:k,desc:src.desc,spec:src.spec||'',unit:src.unit,cat:src.cat||src.category||'others',ent:[]});
+  for(const g of S.grns) for(const l of g.lines||[]){if(!(num(l.acc)>0)) continue;const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);
+    const fs=grnSites(g,l);row(k,l).ent.push({d:g.date||msDate(g.at),at:g.at||0,inQ:num(l.acc),no:g.no,what:(g.poNo?`Inward against ${g.poNo}${g.vendorName?' · '+g.vendorName:''}`:(INWARD_SRC[g.type]||'Inward')+(g.party?' · '+g.party:''))+(fs.length?' · for '+fs.map(x=>projCode(x.p)).join(', '):''),grn:g.id})}
+  for(const e of S.sitelog) if(e.type==='return'){const k=e.itemKey||itemKey(e.desc,e.spec,e.unit);row(k,e).ent.push({d:e.date||msDate(e.at),at:e.at||0,inQ:num(e.qty),no:'',what:'Returned from '+projCode(e.projectId)})}
+  for(const x of S.dispatches){if(x.type!=='store'||x.status==='cancelled') continue;for(const l of x.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);row(k,l).ent.push({d:x.date||msDate(x.at),at:x.at||0,outQ:num(l.qty),no:x.no,what:'Sent to '+projCode(x.projectId)+(l.mrNo?' · '+l.mrNo:''),disp:x.id})}}
+  for(const e of S.jobwork){if(e.status==='cancelled') continue;const out=e.type==='in'&&e.source==='store',back=e.type==='return';if(!out&&!back) continue;const vn=(vend(e.vendorId)||{}).name||e.vendorName||'job worker';
+    for(const l of e.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);row(k,l).ent.push(out?{d:e.date||msDate(e.at),at:e.at||0,outQ:num(l.qty),no:e.no,what:'Sent to '+vn+' for job work'}:{d:e.date||msDate(e.at),at:e.at||0,inQ:num(l.qty),no:e.no,what:'Unused material returned by '+vn})}}
+  const reserved={},forSites={};for(const x of readyToDispatch()){const k=itemKey(x.l.desc,x.l.spec,x.l.unit);reserved[k]=(reserved[k]||0)+x.pend;const m=forSites[k]||(forSites[k]={});const e=m[x.ind.projectId]||(m[x.ind.projectId]={p:x.ind.projectId,q:0,mrs:[]});e.q+=x.pend;if(!e.mrs.includes(x.ind.no)) e.mrs.push(x.ind.no)}
+  const now=Date.now();
+  for(const k in L){const r=L[k];r.ent.sort((a,b)=>String(a.d).localeCompare(String(b.d))||a.at-b.at);let bal=0,inQ=0,outQ=0;for(const e of r.ent){bal+=(e.inQ||0)-(e.outQ||0);e.bal=bal;inQ+=e.inQ||0;outQ+=e.outQ||0}
+    r.inQ=inQ;r.outQ=outQ;r.bal=Math.round(bal*1000)/1000;r.reserved=Math.min(Math.max(0,r.bal),reserved[k]||0);r.free=Math.max(0,r.bal-r.reserved);r.forSites=Object.values(forSites[k]||{}).sort((a,b)=>b.q-a.q);
+    // age of the oldest material still in store (first in, first out)
+    let used=outQ,age=null;for(const e of r.ent){if(!e.inQ) continue;if(used>=e.inQ-1e-9){used-=e.inQ;continue}age=Math.max(0,Math.floor((now-new Date(e.d+'T00:00:00').getTime())/864e5));break}
+    r.age=r.bal>0?age:null;const lastIn=r.ent.filter(e=>e.inQ).pop();r.lastIn=lastIn?lastIn.d:'';r.value=r.bal>0&&D.rate[k]?r.bal*D.rate[k].rate:0}
+  return L;
+}
+const INWARD_SRC={opening:'Opening stock',nopo:'Purchased without PO',other:'Other inward',jobwork:'Finished product from job worker'};
+function vGrn(){
+  const tab=ui.tab.store||'stock';const L=storeLedger();const items=Object.values(L).sort((a,b)=>String(a.desc).localeCompare(b.desc));
+  const inStore=items.filter(r=>r.bal>1e-9);const val=sum(inStore,r=>r.value);
+  const pend=S.pos.filter(p=>toStore(p)&&p.status!=='cancelled'&&poProgress(p).pct<1).sort((a,b)=>(a.at||0)-(b.at||0));
+  const R=readyToDispatch();const outs=S.dispatches.filter(x=>x.type==='store').sort((a,b)=>(b.at||0)-(a.at||0));
+  const inw=S.grns.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||(b.at||0)-(a.at||0));
+  const q=norm(ui.f.stq2||'');
+  const kpis=`<div class="kpis four">
+   <button class="kpi has-ph" data-act="tab" data-k="store" data-val="stock"><span class="kpi-ph">${ART.x('store')}</span><span class="k">Items in HQ store</span><span class="v">${inStore.length}</span><span class="d">${seeRates()?'worth '+lakh(val)+' at PO rates':'different items with balance'}</span></button>
+   <button class="kpi has-ph" data-act="tab" data-k="store" data-val="expected" data-tone="${pend.length?'amber':''}"><span class="kpi-ph">${ART.x('po')}</span><span class="k">Expected from vendors</span><span class="v">${pend.length}</span><span class="d">purchase orders to HQ store</span></button>
+   <button class="kpi has-ph" data-act="go" data-v="dispatch"><span class="kpi-ph">${ART.x('truck')}</span><span class="k">Waiting to go to sites</span><span class="v">${R.length}</span><span class="d">approved demand lines via store</span></button>
+   <button class="kpi has-ph" data-act="tab" data-k="store" data-val="inward"><span class="kpi-ph">${ART.x('grn')}</span><span class="k">Inward this month</span><span class="v">${S.grns.filter(g=>String(g.date).slice(0,7)===today().slice(0,7)).length}</span><span class="d">inward challans (GRN)</span></button></div>`;
+  const tabs=[['stock','Stock in store',inStore.length],['inward','Inward (GRN)',''],['expected','Expected from vendors',pend.length],['outward','Sent to sites','']];
+  const acts=`<div class="toolbar store-acts"><button class="btn primary" data-act="inwardPick">${icon('grn')} Record inward</button><button class="btn" data-act="freeChallan">${icon('truck')} Send material to a site</button><span class="spacer"></span><button class="btn" data-act="dlStock">${icon('dl')} Stock Excel</button></div>`;
+  let body='';
+  if(tab==='stock'){
+    const list=(ui.f.stz?items:inStore).filter(r=>!q||norm(r.desc+' '+r.spec).includes(q));
+    body=`<section class="card"><div class="card-h"><h2>Material in HQ store</h2><span class="sub">Inward minus sent to sites. Tap an item for its full in-and-out register.</span></div>
+    <div class="toolbar pad"><div class="search-inp">${icon('search')}<input class="inp" id="f-stq2" placeholder="Search item" data-bind="f.stq2" data-rerender="1" value="${esc(ui.f.stq2||'')}"></div><label class="check sm"><input type="checkbox" id="f-stz" data-bind="f.stz" data-rerender="1" ${ui.f.stz?'checked':''}> Show items with zero balance</label></div>
+    ${list.length?`<div class="tw"><table class="t store-t"><thead><tr><th>Item</th><th class="num">Received</th><th class="num">Sent out</th><th class="num">In store</th><th>Demanded by site</th><th class="num">Reserved for demands</th><th class="num">Free</th><th>Last inward</th><th class="num">Days in store</th>${seeRates()?'<th class="num">Value</th>':''}<th></th></tr></thead><tbody>${list.map(r=>`<tr class="click" data-act="storeItem" data-k="${esc(r.itemKey)}"><td><div class="who">${thumb({category:r.cat,desc:r.desc},'sm')}<span><b>${esc(r.desc)}</b><small class="muted block">${esc(r.spec||'')}</small></span></div></td><td class="num mono">${fq(r.inQ)}</td><td class="num mono">${fq(r.outQ)}</td><td class="num mono"><b>${fq(r.bal)}</b> <span class="muted small">${esc(r.unit)}</span></td><td>${siteChips(r.forSites,'',r.bal>0)}</td><td class="num mono ${r.reserved?'t-amber':'muted'}">${r.reserved?fq(r.reserved):'—'}</td><td class="num mono">${fq(r.free)}</td><td class="nowrap small">${fd(r.lastIn)}</td><td class="num mono ${r.age>60?'t-red':r.age>30?'t-amber':''}">${r.age==null?'—':r.age}</td>${seeRates()?`<td class="num mono">${r.value?money0(r.value):'—'}</td>`:''}<td>${r.free>0?`<button class="btn sm" data-act="freeChallan" data-k="${esc(r.itemKey)}">${icon('truck')} Send</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:emptyBox(ART.x('store','e-art'),q?'No item matches':'HQ store is empty','Material appears here when you record an inward (goods received from a vendor, or opening stock).',`<button class="btn primary" data-act="inwardPick">Record inward</button>`)}</section>
+    <div class="notice info">${icon('help')}<span><b>Reserved</b> = approved site demands that are planned to go from the store (see Dispatch to sites → Ready to dispatch). <b>Free</b> stock can be sent to any site with “Send material to a site”. <b>Days in store</b> counts from the oldest material still lying in the store.</span></div>`;
+  }else if(tab==='inward'){
+    body=`<section class="card"><div class="card-h"><h2>Inward challans (GRN)</h2><span class="sub">Every receipt at the HQ store with the vendor's challan and invoice copies</span><div class="acts"><button class="btn sm" data-act="dlInward">${icon('dl')} Inward register (GST)</button></div></div>${inw.length?`<div class="tw"><table class="t"><thead><tr><th>GRN</th><th>Date</th><th>Against</th><th>From</th><th>For site</th><th>Challan / invoice</th><th class="num">Items</th><th class="num">Accepted</th><th>Documents</th><th></th></tr></thead><tbody>${inw.map(g=>`<tr><td><span class="docno">${esc(g.no)}</span></td><td class="nowrap">${fd(g.date)}</td><td>${g.poNo?`<span class="docno">${esc(g.poNo)}</span>`:`<span class="chip plain">${esc(INWARD_SRC[g.type]||'Inward')}</span>`}</td><td>${esc(g.vendorName||g.party||'—')}</td><td>${(()=>{const m={};for(const l of g.lines||[]) for(const x of grnSites(g,l)) m[x.p]=1;const ps=Object.keys(m);return ps.length?`<span class="for-sites">${ps.map(p=>`<span class="fs" title="${esc(projLabel(p))}"><b>${esc(projCode(p))}</b></span>`).join('')}</span>`:'<span class="muted small">—</span>'})()}</td><td class="small">${esc(g.challan||'—')} / ${esc(g.invoice||'—')}</td><td class="num">${(g.lines||[]).length}</td><td class="num mono">${fq(sum(g.lines||[],l=>num(l.acc)))}</td><td>${(g.photos||[]).length?photoStrip(g.photos):'<span class="muted small">none</span>'}</td><td class="nowrap"><button class="btn sm" data-act="grnDocs" data-id="${g.id}" title="Attach challan, invoice or photos">${icon('ul')} ${(g.photos||[]).length?'Add':'Attach'}</button><button class="btn sm" data-act="printGrn" data-id="${g.id}" title="Print inward note">${icon('print')}</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty sm"><p>No inward yet.</p></div>'}</section>`;
+  }else if(tab==='expected'){
+    body=`<section class="card"><div class="card-h"><h2>Expected at HQ store</h2><span class="sub">${pend.length} purchase orders to be delivered to the HQ store</span></div>
+    ${pend.length?`<div class="list">${pend.map(p=>{const pr=poProgress(p);const exp=p.deliveryDays?addDays(p.date,+p.deliveryDays):'';return `<div class="li">${vendorAvatar(vend(p.vendorId)||{id:p.vendorId,name:p.vendorName})}<div class="grow"><b><span class="docno">${esc(p.no)}</span> · ${esc(p.vendorName)}</b><small>${(p.lines||[]).length} items · PO ${fd(p.date)}${exp?' · expected '+fd(exp)+(exp<today()?' <span class="t-red">late</span>':''):''}</small>${poSites(p).length?`<span class="for-sites">${poSites(p).map(pid=>`<span class="fs" title="${esc(projLabel(pid))}"><b>${esc(projCode(pid))}</b></span>`).join('')}</span>`:''}${bar(pr.pct,'green')}<small class="muted">${fq(pr.r)} of ${fq(pr.o)} received</small></div><button class="btn primary" data-act="recordGrn" data-id="${p.id}">${icon('grn')} Record inward</button></div>`}).join('')}</div>`:emptyBox(ART.x('store','e-art'),'Nothing expected','Purchase orders with delivery to the HQ store show up here until fully received.')}</section>`;
+  }else{
+    body=`<section class="card"><div class="card-h"><h2>Sent from HQ store to sites</h2><div class="acts"><button class="btn sm" data-act="dlOutward">${icon('dl')} Outward register (GST)</button></div></div><div class="list">${outs.length?outs.slice(0,200).map(d=>dispCard(d)).join(''):emptyBox(ART.x('truck','e-art'),'Nothing sent yet','')}</div></section>`;
+  }
+  return `${kpis}${acts}<div class="tabs" role="tablist">${tabs.map(([v,l,n])=>`<button role="tab" aria-selected="${tab===v}" data-act="tab" data-k="store" data-val="${v}">${l}${n?` <span class="tab-n">${n}</span>`:''}</button>`).join('')}</div>${body}`;
+}
+
+/* ================= STORE & DISPATCH ================= */
+function readyToDispatch(){
+  const out=[];
+  for(const x of allLines()){if(x.l.status!=='approved') continue;let viaStore=!!x.l.fromStock;
+    if(x.l.poId){const p=S.pos.find(p=>p.id===x.l.poId);if(p&&toStore(p)&&p.status!=='cancelled') viaStore=true}
+    if(!viaStore) continue;const pend=x.info.need-(D.storeDisp[x.k]||0);if(pend<=1e-9) continue;
+    const st=D.stock[itemKey(x.l.desc,x.l.spec,x.l.unit)];out.push(Object.assign({},x,{pend,bal:st?st.bal:0}));}
+  return out;
+}
+function vDispatch(){
+  const tab=ui.tab.disp||'ready';const R=readyToDispatch();const tr=S.dispatches.filter(d=>d.type==='transfer');
+  const unsigned=S.dispatches.filter(d=>['delivered','short'].includes(d.status)&&!(d.signedDocs||[]).length&&(d.receivedAt||0)>0).length;
+  const tabs=[['ready','Ready to dispatch',R.length],['receipts','Site receipts',unsigned],['transfers','Site transfers',tr.filter(d=>d.status==='to_send'||d.status==='in_transit').length],['road','On the road',S.dispatches.filter(d=>['in_transit','ordered','to_send'].includes(d.status)).length],['all','All challans']];
+  let body='';
+  if(tab==='ready'){const by={};for(const x of R)(by[x.ind.projectId]=by[x.ind.projectId]||[]).push(x);
+    body=R.length?Object.entries(by).map(([pid,arr])=>`<section class="card"><div class="card-h"><span class="mini-cover lg">${cover(proj(pid))}</span><div><h2>${esc(projLabel(pid))}</h2><span class="sub">${arr.length} lines to send</span></div><div class="acts"><button class="btn primary" data-act="newChallan" data-p="${pid}" ${arr.some(x=>x.bal>0)?'':'disabled title="No stock received yet for these items"'}>${icon('truck')} Create dispatch challan</button></div></div>
+      <div class="tw"><table class="t"><thead><tr><th>Item</th><th>MR</th><th class="num">To send</th><th class="num">In store</th><th>Source</th></tr></thead><tbody>${arr.map(x=>`<tr><td><div class="who">${lineThumb(x.l,'xs')}<span><b>${esc(x.l.desc)}</b><small class="muted block">${esc(x.l.spec||'')}</small></span></div></td><td><span class="docno">${esc(x.ind.no)}</span></td><td class="num mono">${fq(x.pend)} ${esc(x.l.unit)}</td><td class="num mono ${x.bal>=x.pend?'':'t-amber'}">${fq(x.bal)}</td><td class="small">${x.l.poNo?'PO '+esc(x.l.poNo):'Existing stock'}</td></tr>`).join('')}</tbody></table></div></section>`).join(''):`<section class="card">${emptyBox(ART.x('store','e-art'),'Nothing to dispatch','Lines ordered to the central store, or issued from stock, appear here once material is in store.')}</section>`;
+  }else if(tab==='receipts'){
+    body=receiptRegister(S.dispatches.filter(d=>['delivered','short'].includes(d.status)),false);
+  }else if(tab==='transfers'){
+    body=`<section class="card"><div class="card-h"><h2>Transfers between sites</h2><span class="sub">Create a transfer from the procurement queue when another site has the item in stock</span></div><div class="list">${tr.length?tr.sort((a,b)=>(b.at||0)-(a.at||0)).map(d=>dispCard(d)).join(''):emptyBox(ART.x('transfer','e-art'),'No transfers yet','Use surplus from one site to meet demand at another.')}</div></section>`;
+  }else if(tab==='stock'){
+    const rows=Object.values(D.stock).filter(s=>s.inQ||s.outQ).sort((a,b)=>String(a.desc).localeCompare(b.desc));
+    body=`<section class="card"><div class="card-h"><h2>Central store stock</h2><span class="sub">Received through GRN minus dispatched to sites</span><div class="acts"><button class="btn sm" data-act="openingStock">${icon('plus')} Opening stock</button><button class="btn sm" data-act="dlStock">${icon('dl')} Download</button></div></div>${rows.length?`<div class="tw"><table class="t"><thead><tr><th>Item</th><th>Category</th><th class="num">Received</th><th class="num">Issued</th><th class="num">Balance</th></tr></thead><tbody>${rows.map(s=>`<tr><td><div class="who">${thumb({category:s.cat,desc:s.desc},'xs')}<span><b>${esc(s.desc)}</b><small class="muted block">${esc(s.spec||'')}</small></span></div></td><td>${catSw(s.cat)}</td><td class="num mono">${fq(s.inQ)}</td><td class="num mono">${fq(s.outQ)}</td><td class="num"><b class="mono">${fq(s.bal)}</b> <small class="muted">${esc(s.unit)}</small></td></tr>`).join('')}</tbody></table></div>`:emptyBox(ART.x('store','e-art'),'Store is empty','Stock appears once material is received against store-delivery POs or opening stock is added.')}</section>`;
+  }else{let list=S.dispatches.slice().sort((a,b)=>(b.at||0)-(a.at||0));if(tab==='road') list=list.filter(d=>['in_transit','ordered','to_send'].includes(d.status));
+    body=`<section class="card"><div class="card-h"><h2>${tab==='road'?'On the road, ordered direct and waiting transfers':'All dispatches'}</h2><div class="acts"><button class="btn sm" data-act="dlDispatch">${icon('dl')} Register</button></div></div><div class="list">${list.length?list.slice(0,150).map(d=>dispCard(d)).join(''):emptyBox(ART.x('truck','e-art'),'Nothing here','')}</div></section>`}
+  return `<div class="tabs" role="tablist">${tabs.map(([v,l,n])=>`<button role="tab" aria-selected="${tab===v}" data-act="tab" data-k="disp" data-val="${v}">${l}${n?` <span class="tab-n">${n}</span>`:''}</button>`).join('')}</div>${body}`;
+}
+
+/* ================= REPORTS ================= */
+function vReports(){
+  const pos=S.pos.filter(p=>p.status!=='cancelled');
+  const agg=keyFn=>{const m={};for(const p of pos) for(const l of p.lines){const k=keyFn(p,l);const v=num(l.qty)*num(l.rate)*(1+num(l.gst)/100);if(Array.isArray(k)) k.forEach(([kk,share])=>m[kk]=(m[kk]||0)+v*share);else m[k]=(m[k]||0)+v}return Object.entries(m).sort((a,b)=>b[1]-a[1])};
+  const byCat=agg((p,l)=>l.cat||'others'),byVen=agg(p=>p.vendorName||'—');
+  const byProj=agg((p,l)=>{const t=sum(l.srcs||[],s=>num(s.qty))||1;return (l.srcs||[]).map(s=>[s.projectId,num(s.qty)/t])});
+  const total=sum(byCat,x=>x[1]);
+  const bars=(rows,lab,color)=>{const mx=Math.max(1,...rows.map(r=>r[1]));return rows.length?rows.slice(0,12).map(([k,v])=>`<div class="hbar"><span class="hb-l">${lab(k)}</span><span class="track"><i style="width:${v/mx*100}%;background:${color(k)}"></i></span><span class="num mono small">${lakh(v)}</span></div>`).join(''):'<p class="muted">No purchase orders yet.</p>'};
+  const L=allLines().filter(x=>x.info.st==='delivered');const lt=[];let onTime=0;
+  for(const x of L){const ds=(D.lineDisp[x.k]||[]).filter(d=>d.receivedAt);if(!ds.length) continue;const last=Math.max(...ds.map(d=>d.receivedAt));lt.push((last-new Date(x.ind.date+'T00:00:00'))/864e5);if(x.ind.requiredBy&&msDate(last)<=x.ind.requiredBy) onTime++}
+  const avgLt=lt.length?sum(lt)/lt.length:0;
+  const vp={};for(const p of pos){if(!p.deliveryDays) continue;const exp=addDays(p.date,+p.deliveryDays);let got=null;
+    if(p.deliveryMode==='site'){const ds=(D.poDispatches[p.id]||[]).filter(d=>d.receivedAt);if(ds.length) got=msDate(Math.min(...ds.map(d=>d.receivedAt)))}else{const gs=S.grns.filter(g=>g.poId===p.id);if(gs.length) got=gs.map(g=>g.date).sort()[0]}
+    const o=vp[p.vendorId]||(vp[p.vendorId]={name:p.vendorName,n:0,val:0,due:0,ok:0});o.n++;o.val+=poTotals(p).total;if(got){o.due++;if(got<=exp) o.ok++}}
+  return `<div class="toolbar"><span class="muted">Spend and delivery performance from purchase orders and site receipts.</span><span class="spacer"></span><a class="btn primary" href="/api/export.xlsx" download>${icon('dl')} Download all data (Excel)</a></div>
+  <div class="kpis four"><div class="kpi has-ph"><span class="kpi-ph">${ART.x('po')}</span><span class="k">Total ordered</span><span class="v">${lakh(total)}</span><span class="d">${pos.length} purchase orders incl. GST</span></div><div class="kpi has-ph"><span class="kpi-ph">${ART.x('inbox')}</span><span class="k">Demand lines</span><span class="v">${allLines().filter(x=>x.info.st!=='rejected').length}</span><span class="d">${L.length} delivered</span></div><div class="kpi has-ph"><span class="kpi-ph">${ART.x('clock')}</span><span class="k">Average lead time</span><span class="v">${lt.length?avgLt.toFixed(1)+' d':'—'}</span><span class="d">demand raised → site receipt</span></div><div class="kpi has-ph"><span class="kpi-ph">${ART.x('check')}</span><span class="k">On-time delivery</span><span class="v">${L.length?Math.round(onTime/L.length*100)+'%':'—'}</span><span class="d">received by required date</span></div></div>
+  <div class="grid g2"><section class="card"><div class="card-h"><h2>Spend by material</h2></div><div class="card-b">${bars(byCat,catSw,k=>`hsl(${catH(k)} 62% 48%)`)}</div></section>
+  <section class="card"><div class="card-h"><h2>Spend by project</h2></div><div class="card-b">${bars(byProj,k=>esc(projCode(k)),()=>'var(--accent)')}</div></section>
+  <section class="card"><div class="card-h"><h2>Spend by vendor</h2></div><div class="card-b">${bars(byVen,k=>esc(k),()=>'var(--violet)')}</div></section>
+  <section class="card"><div class="card-h"><h2>Vendor delivery performance</h2><span class="sub">Against promised delivery days</span></div>${Object.keys(vp).length?`<div class="tw"><table class="t"><thead><tr><th>Vendor</th><th class="num">POs</th><th class="num">Value</th><th>On time</th></tr></thead><tbody>${Object.values(vp).sort((a,b)=>b.val-a.val).map(o=>`<tr><td><b>${esc(o.name)}</b></td><td class="num">${o.n}</td><td class="num mono">${lakh(o.val)}</td><td>${o.due?`<div class="row tight">${bar(o.ok/o.due,o.ok/o.due>=.8?'green':'amber')}<span class="small">${Math.round(o.ok/o.due*100)}%</span></div>`:'<span class="muted small">No deliveries yet</span>'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="card-b muted">No POs with a delivery period yet.</div>'}</section></div>
+  <section class="card"><div class="card-h"><h2>Registers</h2><span class="sub">Download as Excel workbooks</span></div><div class="reg-grid">
+   ${[['dlDemand','inbox','Demand register','Every demand line with project, category, status, PO and received quantity'],['dlInward','grn','Inward register — HQ store (GST)','Every receipt at the HQ store with supplier GSTIN, invoice, HSN, taxable value and CGST / SGST / IGST'],['dlOutward','truck','Outward register — to sites (GST)','Every challan or invoice from the HQ store to sites with site GSTIN, HSN, values and tax, for billing the sites'],['dlPoRegister','po','Purchase order register','Line-level PO data with rates, GST and receipt'],['dlDispatch','truck','Dispatch register','Challans, transfers, vehicles and site receipts'],['dlStock','box','Central store stock','Current balance at the central store'],['dlSiteStock','layers','Site stock','Balance of every item at every project']].map(([a,i,t,d])=>`<button class="reg" data-act="${a}"><span class="reg-ph">${ART.x(i)}</span><span><b>${t}</b><small>${d}</small></span>${icon('dl')}</button>`).join('')}
+  </div></section>`;
+}
+
+/* ================= MASTERS ================= */
+function vProjects(){
+  const list=S.projects.slice().sort((a,b)=>String(a.code||a.name).localeCompare(b.code||b.name));
+  return `<div class="toolbar"><span class="muted">${list.length} projects</span><span class="spacer"></span><button class="btn primary" data-act="editProject">${icon('plus')} Add project</button></div>
+  ${list.length?`<div class="proj-grid">${list.map(p=>{const users=ui.users.filter(u=>u.role==='site'&&u.projectId===p.id);return `<article class="proj-card"><div class="proj-cover">${cover(p)}<span class="proj-code">${esc(p.code||'')}</span>${p.active===false?'<span class="proj-flag gray">Closed</span>':''}</div><div class="proj-b"><b>${esc(p.name)}</b><small>${icon('pin')}${esc([p.city,p.state].filter(Boolean).join(', ')||'—')} · ${esc(p.scheme||'')}</small><small>${icon('user')} ${esc(p.siteContact||'No site in-charge')}${p.phone?' · '+esc(p.phone):''}</small><small class="${users.length?'':'t-amber'}">${icon('key')} ${users.length?users.map(u=>esc(u.username)).join(', '):'No site login yet'}</small>
+    <div class="row tight"><button class="btn sm" data-act="editProject" data-id="${p.id}">${icon('edit')} Edit</button><button class="btn sm" data-act="projDemands" data-id="${p.id}">Demands</button><button class="btn sm" data-act="setF" data-k="ss" data-val="${p.id}" data-go="sitestock">Stock</button>${users.length?`<button class="btn sm" data-act="resetLogin" data-id="${users[0].id}">${icon('key')} Reset password</button>`:`<button class="btn sm primary" data-act="newSiteLogin" data-p="${p.id}">${icon('key')} Create login</button>`}</div></div></article>`}).join('')}</div>`:emptyBox(ART.scene('water',1,'e-art wide'),'No projects yet','Add each running site. Site users are linked to their project when you create their login.',`<button class="btn primary" data-act="editProject">Add project</button>`)}`;
+}
+function assignPanel(fc){const c=CATS.find(x=>x.id===fc)||{h:0};const vs=S.vendors.slice().sort((a,b)=>String(a.name).localeCompare(b.name));const n=vs.filter(v=>(v.categories||[]).includes(fc)).length;
+  return `<section class="card assign" id="assign-cat"><div class="card-h"><span class="tint cat-art sm" style="--h:${c.h}">${ART.cat(fc)}</span><h2>Vendors for ${esc(catName(fc))}</h2><span class="sub">${n} assigned · tick a vendor to assign this category, untick to remove. Saved at once.</span><div class="acts"><button class="btn sm ghost" data-act="setF" data-k="vc" data-val="">${icon('x')} Close</button></div></div>
+  ${vs.length?`<div class="assign-grid pad">${vs.map(v=>{const on=(v.categories||[]).includes(fc);return `<label class="check ${on?'on':''}"><input type="checkbox" id="as-${esc(v.id)}" data-act="vendCatQuick" data-v="${esc(v.id)}" data-c="${fc}" ${on?'checked':''}>${vendorAvatar(v)}<span><b>${esc(v.name)}</b><small class="muted block">${esc(v.city||'')}${(v.categories||[]).length?' · '+(v.categories||[]).map(catName).map(esc).join(', '):''}</small></span></label>`}).join('')}</div>`:'<div class="empty sm"><p>Add vendors first with “Add vendor”.</p></div>'}</section>`}
+function vVendors(){
+  const fc=ui.f.vc||'';let list=S.vendors.slice().sort((a,b)=>String(a.name).localeCompare(b.name));if(fc) list=list.filter(v=>(v.categories||[]).includes(fc));
+  return `<div class="cat-chips"><button class="cchip ${!fc?'on':''}" data-act="setF" data-k="vc" data-val="">All vendors <b>${S.vendors.length}</b></button>${CATS.filter(c=>c.id!=='others').map(c=>{const n=S.vendors.filter(v=>(v.categories||[]).includes(c.id)).length;return `<button class="cchip ${fc===c.id?'on':''} ${n?'':'warn'}" data-act="setF" data-k="vc" data-val="${fc===c.id?'':c.id}"><span class="tint" style="--h:${c.h}">${ART.cat(c.id)}</span>${esc(c.name)} <b>${n}</b></button>`}).join('')}</div>
+  <div class="toolbar"><span class="muted">${fc?'':'Click a category above to see and assign its vendors. RFQs go automatically to the vendors assigned to each category. Red categories have no vendor yet.'}</span><span class="spacer"></span><button class="btn primary" data-act="editVendor">${icon('plus')} Add vendor</button></div>
+  ${fc?assignPanel(fc):''}
+  ${list.length?`<div class="vend-grid">${list.map(v=>`<article class="vend-card">${vendorAvatar(v)}<div class="grow"><b>${esc(v.name)}</b><small>${icon('pin')} ${esc(v.city||'—')}${v.gstin?' · <span class="mono">'+esc(v.gstin)+'</span>':''}</small>${v.rating?stars(v.rating):''}</div>
+    <div class="vend-cats">${(v.categories||[]).map(c=>`<span class="vc-chip"><span class="tint vc" style="--h:${catH(c)}">${ART.cat(c)}</span>${esc(catName(c))}</span>`).join('')||`<button class="btn sm warn-btn" data-act="editVendor" data-id="${v.id}">${icon('plus')} Assign categories</button>`}</div>
+    <div class="vend-contact">${v.contact?`<span>${icon('user')} ${esc(v.contact)}</span>`:''}${v.phone?`<span>${icon('phone')} ${esc(v.phone)}</span>`:''}${v.email?`<span>${icon('mail')} ${esc(v.email)}</span>`:''}${v.payment?`<span>${icon('clock')} ${esc(v.payment)}</span>`:''}</div>
+    <div class="row tight"><button class="btn sm" data-act="editVendor" data-id="${v.id}">${icon('edit')} Edit</button>${v.phone?`<a class="btn sm" href="${waLink(v.phone,'Hello '+(v.contact||v.name)+',')}" target="_blank" rel="noopener">${icon('chat')} WhatsApp</a>`:''}</div></article>`).join('')}</div>`:emptyBox(ART.cat('hardware','e-art'),fc?'No vendor for this category':'No vendors yet','Add vendors and tick what each one supplies.',`<button class="btn primary" data-act="editVendor">Add vendor</button>`)}`;
+}
+function vItems(){
+  const fc=ui.f.ic||'';const q=norm(ui.f.iq);let list=D.items.slice().sort((a,b)=>String(a.desc).localeCompare(b.desc));
+  if(fc) list=list.filter(x=>x.category===fc);if(q) list=list.filter(c=>norm(c.desc+' '+c.spec).includes(q));
+  return `<div class="cat-chips"><button class="cchip ${!fc?'on':''}" data-act="setF" data-k="ic" data-val="">All <b>${D.items.length}</b></button>${CATS.map(c=>{const n=D.items.filter(x=>x.category===c.id).length;return n?`<button class="cchip ${fc===c.id?'on':''}" data-act="setF" data-k="ic" data-val="${c.id}"><span class="tint" style="--h:${c.h}">${ART.cat(c.id)}</span>${esc(c.name)} <b>${n}</b></button>`:''}).join('')}</div>
+  <div class="toolbar"><div class="search-inp">${icon('search')}<input class="inp" id="f-iq" placeholder="Search catalogue" data-bind="f.iq" data-rerender="1" value="${esc(ui.f.iq||'')}"></div><span class="muted small">Add a photo to any item so sites recognise it. Hidden items are not offered to sites.</span><span class="spacer"></span><button class="btn" data-act="editCats">${icon('grid')} Categories</button><button class="btn primary" data-act="editItem">${icon('plus')} Add item</button></div>
+  <div class="item-grid big">${list.slice(0,400).map(it=>`<button class="item-card ${it.hidden?'hidden-item':''}" data-act="editItem" data-id="${esc(it.id)}">${thumb(it,'lg')}<b>${esc(it.desc)}</b><small>${esc(it.spec||'')}${it.spec?' · ':''}${esc(it.unit||'')}${it.sizes&&it.sizes.length?' · '+it.sizes.length+' sizes':''}</small><span class="tags">${it.std?'<span class="chip plain">Standard</span>':'<span class="chip blue plain">Added by you</span>'}${it.hidden?'<span class="chip red plain">Hidden</span>':''}${it.gst!=null&&it.gst!==''?`<span class="chip plain">GST ${fq(it.gst)}%</span>`:''}${it.photo?`<span class="chip green plain">${icon('camera','xs')} Photo</span>`:''}</span></button>`).join('')}</div>`;
+}
+function vSettings(){
+  const c=ui.draft.cfg||(ui.draft.cfg=Object.assign({company:'',gstin:'',hqAddress:'',storeAddress:'',contactName:'',phone:'',poTerms:DEFAULT_TERMS,logo:''},S.config));
+  const sm=ui.smtp||{};
+  if(!ui.draft.smtp&&ui.smtp) ui.draft.smtp={host:sm.host||'smtp.gmail.com',port:String(sm.port||587),security:sm.security||'starttls',user:sm.user||'',pass:'',from:sm.from||'',fromName:sm.fromName||''};
+  const d=ui.draft.smtp||{};const users=ui.users.slice().sort((a,b)=>(a.role+a.name).localeCompare(b.role+b.name));
+  const lan=/^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+  const adm=isAdm(),set=can('settings');
+  if(!adm&&!set) return emptyBox('','Settings are managed by your administrator','');
+  return `${adm?siteLoginsCard():''}
+${adm?teamCard(users)+auditCard():''}
+  ${adm?`<section class="card connect"><div class="card-h"><h2>How sites connect</h2></div><div class="card-b grid" style="gap:12px">
+   <p>Site staff open this address in any browser — phone, tablet or laptop — and sign in with the login you created for them. Nothing is installed at site.</p>
+   <div class="row"><code class="addr">${esc(location.origin)}</code><button class="btn sm" data-act="copyUrl">${icon('copy')} Copy</button></div>
+   ${ui.net&&lan?`<div class="small"><b>Inside the office, use the fixed address</b> — it keeps working even if this PC's IP address changes after a restart:<div class="row" style="margin-top:6px"><code class="addr">http://${esc(ui.net.host)}:${ui.net.port}</code>${(ui.net.ips||[]).map(ip=>`<code class="addr muted">http://${esc(ip)}:${ui.net.port}</code>`).join('')}</div></div>
+   <div class="notice info">${icon('help')}<span><b>Sites can't open the address?</b> ProcureHub now allows itself through Windows Firewall when it starts (click <b>Yes</b> when Windows asks). If it still fails, close ProcureHub, right-click <b>Fix-Network.cmd</b> in the program folder → <b>Run as administrator</b>, then start ProcureHub again.</span></div>`:''}
+   ${lan?`<div class="notice warn">${icon('alert')}<span><b>This address works only inside your office network.</b> To connect sites across the country, follow “Connect all your projects” in the setup guide (cloud server or Cloudflare Tunnel).</span></div>`:''}
+   <p class="small muted">On a phone: open the address, then choose “Add to Home screen” to use ProcureHub like an app.</p></div></section>`:''}
+  <section class="card"><div class="card-h"><h2>Company & branding</h2><span class="sub">Shown on screens, RFQs and purchase orders</span></div><div class="card-b">
+   <div class="brand-row"><div class="logo-box">${c.logo?`<img src="/files/${esc(c.logo)}" alt="">`:ART.logo()}</div><div><b>Company logo</b><p class="small muted">PNG with a transparent background looks best.</p>${photoPicker('draft.cfg.logo',c.logo,{multi:false,label:c.logo?'Replace':'Upload logo',pdf:false,png:true})}</div></div>
+   <div class="fields">${field('Company name','draft.cfg.company',c.company)}${field('GSTIN','draft.cfg.gstin',c.gstin)}${field('Purchase contact','draft.cfg.contactName',c.contactName)}${field('Phone','draft.cfg.phone',c.phone)}
+   <div class="f full"><label for="f-draft-cfg-hqAddress">HQ office / registered address (billing for direct-to-site POs)</label><textarea class="inp" id="f-draft-cfg-hqAddress" data-bind="draft.cfg.hqAddress" rows="2">${esc(c.hqAddress)}</textarea></div>
+   
+   <div class="f full"><label for="f-draft-cfg-poTerms">Standard PO terms</label><textarea class="inp" id="f-draft-cfg-poTerms" data-bind="draft.cfg.poTerms" rows="6">${esc(c.poTerms)}</textarea></div></div>
+   <div class="row end"><button class="btn primary" data-act="saveConfig">Save details</button></div></div></section>
+  ${storeCard()}${precheckCard()}
+  <section class="card"><div class="card-h"><h2>Email for RFQs and POs</h2>${sm.configured?'<span class="chip green">Set up</span>':'<span class="chip amber">Not set up</span>'}</div><div class="card-b">
+   <p class="small muted" style="max-width:80ch">ProcureHub sends RFQs and POs from your company mailbox. For Gmail or Google Workspace: turn on 2-Step Verification, create an <b>App password</b> at myaccount.google.com/apppasswords, then use server smtp.gmail.com, port 587, STARTTLS, your full email as username and the 16-letter app password.</p>
+   <div class="fields">${field('Mail server (SMTP)','draft.smtp.host',d.host,'placeholder="smtp.gmail.com"')}${field('Port','draft.smtp.port',d.port,'inputmode="numeric"')}
+    <div class="f"><label for="f-draft-smtp-security">Security</label><select class="inp" id="f-draft-smtp-security" data-bind="draft.smtp.security">${selOpts([{v:'starttls',l:'STARTTLS (port 587)'},{v:'ssl',l:'SSL (port 465)'},{v:'none',l:'None'}],d.security)}</select></div>
+    ${field('Username','draft.smtp.user',d.user,'autocomplete="off"')}${field('Password / app password','draft.smtp.pass',d.pass,`type="password" autocomplete="new-password" placeholder="${sm.hasPass?'Saved — leave blank to keep':''}"`)}${field('Send from (email)','draft.smtp.from',d.from,'type="email"')}${field('Sender name','draft.smtp.fromName',d.fromName,'placeholder="Purchase Dept, RGS Infra"')}</div>
+   <div class="row end"><button class="btn" data-act="testSmtp" ${ui.busy?'disabled':''}>Save and send test email</button><button class="btn primary" data-act="saveSmtp" ${ui.busy?'disabled':''}>Save email settings</button></div></div></section>
+  ${backupCard()}`;
+}
+function precheckCard(){const on=!!(S.config&&S.config.precheck);const who=(ui.users||[]).filter(u=>u.role==='hq'&&u.active!==false&&!u.admin&&((u.access||{}).perms||[]).includes('demands_precheck'));
+  return `<section class="card" id="precheck-set"><div class="card-h"><h2>Demand pre-check</h2>${on?'<span class="chip green">On</span>':'<span class="chip plain">Off</span>'}<span class="sub">When on, every new site demand first goes to a pre-checker, who can edit items and quantities, delete the demand, or pre-approve it. Only then can the approver approve it.</span></div><div class="card-b">
+  ${seg('pcset',[['0','Off — demands go straight to the approver'],['1','On — demands are pre-checked first']],on?'1':'0','savePrecheckSetting')}
+  <p class="small muted" style="margin-top:10px">${isAdm()?(who.filter(u=>!u.admin).length?`Pre-checkers: ${who.filter(u=>!u.admin).map(u=>`<span class="chip plain">${esc(u.name)}${((u.access||{}).projects||[]).length?' · '+esc(u.access.projects.map(projCode).join(', ')):' · all sites'}</span>`).join(' ')}. Administrators and approvers do not pre-check, and the person who pre-approves a demand cannot also approve it.`:'<b class="t-amber">No one has the “Demand pre-checker” role yet.</b> Add a person with that role in HQ team &amp; permissions first, then switch pre-check on.'):''} While it is on, every new demand is pre-checked, whoever raises it. When you switch it on you can also send demands still waiting for approval to pre-check.</p></div></section>`}
+function storeCard(){const c=S.config||{};const st=ui.draft.store||(ui.draft.store=Object.assign({name:'Central Store',legal:c.company||'',gstin:c.gstin||'',address1:'',address2:'',city:'',district:'',state:'',pin:'',contact:c.contactName||'',phone:c.phone||'',email:''},c.store||{}));
+  const err=gstinCheck(st.gstin);const fromG=st.gstin&&!err?GST_STATES[String(st.gstin).toUpperCase().slice(0,2)]:'';const si=storeInfo();
+  return `<section class="card" id="store-gst"><div class="card-h"><h2>HQ store — address &amp; GST registration</h2>${si.set?'<span class="chip green">Set up</span>':'<span class="chip amber">Not set up</span>'}<span class="sub">Material delivered to the HQ store is billed by vendors on this GSTIN. Outward challans and invoices to sites are issued from it.</span></div><div class="card-b">
+   <div class="fields">${field('Store name','draft.store.name',st.name,'placeholder="RGS Infra Central Store"')}<div class="f span2"><label for="f-draft-store-legal">Legal name (as on GST certificate)</label>${inp('draft.store.legal',st.legal)}</div>
+   <div class="f"><label for="f-draft-store-gstin">GSTIN of HQ store</label>${inp('draft.store.gstin',st.gstin,'maxlength="15" autocapitalize="characters" spellcheck="false" data-rerender="1" placeholder="15 characters" style="text-transform:uppercase"')}${st.gstin?`<small class="${err?'t-red':'t-green'}">${err?esc(err):'Valid GSTIN · '+esc(fromG)+' · PAN '+esc(String(st.gstin).toUpperCase().slice(2,12))}</small>`:''}</div>
+   <div class="f span2"><label for="f-draft-store-address1">Address line 1</label>${inp('draft.store.address1',st.address1,'placeholder="Plot / building, street"')}</div>${field('Address line 2','draft.store.address2',st.address2,'placeholder="Area, landmark"')}
+   ${field('City / town','draft.store.city',st.city)}${field('District','draft.store.district',st.district)}
+   <div class="f"><label for="f-draft-store-state">State</label><select class="inp" id="f-draft-store-state" data-bind="draft.store.state">${selOpts([{v:'',l:'Choose state'},...Object.values(GST_STATES).map(v=>({v,l:v}))],st.state||fromG)}</select></div>
+   ${field('PIN code','draft.store.pin',st.pin,'inputmode="numeric" maxlength="6"')}${field('Store in-charge','draft.store.contact',st.contact)}${field('Phone','draft.store.phone',st.phone,'inputmode="tel"')}${field('Email','draft.store.email',st.email,'type="email"')}</div>
+   <div class="row end"><button class="btn primary" data-act="saveStore">Save HQ store details</button></div></div></section>`}
+function teamCard(users){
+  const hq=users.filter(u=>u.role==='hq'),site=users.filter(u=>u.role!=='hq');
+  const card=u=>{const a=u.access||{};const n=u.admin?0:(a.perms||[]).length;
+    return `<article class="user-card"><span class="avatar lg" style="--h:${hash(u.id)%360}">${esc(initials(u.name))}</span><div class="grow"><b>${esc(u.name)}${u.id===ui.uid?' <span class="muted small">(you)</span>':''}</b><small class="mono">${esc(u.username)}</small>
+    <small>${u.role!=='hq'?'<span class="chip plain">Site · '+esc(projCode(u.projectId))+'</span>':u.admin?'<span class="chip violet plain">Administrator</span>':`<span class="chip blue plain">${esc(a.role||'Custom')}</span> <span class="muted">${n} permission${n===1?'':'s'} · ${(a.projects||[]).length?esc(a.projects.map(projCode).join(', ')):'all sites'}</span>`} ${u.active===false?'<span class="chip red plain">Disabled</span>':''}${u.mustChange?' <span class="chip amber plain">Temporary password</span>':''}</small>
+    ${u.role==='hq'&&!u.admin&&n?`<small class="perm-tags">${(a.perms||[]).map(p=>`<i>${esc(PERM_LABEL[p]||p)}</i>`).join('')}</small>`:''}
+    <small class="muted">${u.lastLogin?'Last sign-in '+timeAgo(u.lastLogin):'Never signed in'}</small></div><div class="row tight">${u.id!==ui.uid?`<button class="btn sm" data-act="resetLogin" data-id="${esc(u.id)}" title="Make a new temporary password">${icon('key')}</button>`:''}<button class="btn sm" data-act="editUser" data-id="${esc(u.id)}">${icon('edit')} Edit</button></div></article>`};
+  return `<section class="card" id="team"><div class="card-h"><h2>HQ team & permissions</h2><span class="sub">Give each person only what their job needs — calling for quotations, uploading quotes, approving, issuing POs, store, or just viewing site inputs.</span><div class="acts"><button class="btn primary sm" data-act="editUser" data-role="hq">${icon('plus')} Add person</button></div></div>
+  <div class="user-grid pad">${hq.map(card).join('')}</div>
+  ${site.length?`<details class="pad"><summary class="small muted">Site users (${site.length}) — manage them under Site logins above</summary><div class="user-grid" style="margin-top:10px">${site.map(card).join('')}</div></details>`:''}</section>`;
+}
+const AUDIT_COL={indents:'Demand',rfqs:'RFQ',pos:'Purchase order',grns:'Inward (GRN)',dispatches:'Dispatch',projects:'Project',vendors:'Vendor',catalog:'Item',sitelog:'Site stock',stocklvl:'Min. level',config:'Settings',users:'User'};
+function auditCard(){
+  const list=ui.audit||[];const q=norm(ui.f.aq||'');const who=ui.f.aw||'';
+  const people=[...new Set(list.map(e=>e.user))].sort();
+  const rows=list.filter(e=>(!who||e.user===who)&&(!q||norm(e.name+' '+e.ref+' '+(AUDIT_COL[e.col]||e.col)+' '+e.keys).includes(q))).slice(0,200);
+  const what=e=>e.col==='users'?(e.op==='delete'?'deleted login':(e.op==='set'?'added · ':'access · ')+`<span class="muted">${esc((e.keys||'').replace(/\b[a-z]+_[a-z_]+\b/g,m=>PERM_LABEL[m]||m))}</span>`):e.op==='delete'?'deleted':e.op==='update'?'changed '+(e.keys?`<span class="muted">${esc(e.keys)}</span>`:''):'saved';
+  return `<section class="card" id="audit"><div class="card-h"><h2>Activity log</h2><span class="sub">Who changed what, newest first. Kept for the last few thousand changes.</span><div class="acts"><button class="btn sm" data-act="loadAudit">${icon('swap')} Refresh</button></div></div>
+  <div class="toolbar pad"><div class="search-inp">${icon('search')}<input class="inp" id="f-aq" placeholder="Search document, person or field" data-bind="f.aq" data-rerender="1" value="${esc(ui.f.aq||'')}"></div><select class="inp auto" id="f-aw" data-act-change="setFsel" data-k="aw"><option value="">Everyone</option>${people.map(p=>`<option ${p===who?'selected':''}>${esc(p)}</option>`).join('')}</select></div>
+  ${rows.length?`<div class="tw" style="max-height:420px;overflow:auto"><table class="t"><thead><tr><th>When</th><th>Person</th><th>Record</th><th>What</th></tr></thead><tbody>${rows.map(e=>`<tr><td class="nowrap small">${fdt(e.at)}</td><td><b>${esc(e.name)}</b><small class="muted block mono">${esc(e.user)}</small></td><td>${esc(AUDIT_COL[e.col]||e.col)} <span class="docno">${esc(e.ref||'')}</span></td><td class="small">${what(e)}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty sm"><p>${list.length?'Nothing matches.':'Changes made from now on will appear here.'}</p></div>`}</section>`;
+}
+function fsize(n){n=n||0;return n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
+function siteLoginsCard(){
+  const projs=S.projects.filter(p=>p.active!==false).sort((a,b)=>String(a.code||a.name).localeCompare(b.code||b.name));
+  const rows=projs.map(p=>{const us=ui.users.filter(u=>u.role==='site'&&u.projectId===p.id);
+    return `<div class="sl-row"><span class="mini-cover">${cover(p)}</span><div class="grow"><b>${esc(p.code?p.code+' · ':'')}${esc(p.name)}</b>${us.length?us.map(u=>`<small class="sl-user"><span class="mono">${esc(u.username)}</span>${u.mustChange?' <span class="chip amber plain">temporary password</span>':''}${u.active===false?' <span class="chip red plain">disabled</span>':''} <span class="muted">· ${u.lastLogin?'last sign-in '+timeAgo(u.lastLogin):'never signed in'}</span></small>`).join(''):'<small class="t-amber">No login yet — this site can\'t raise demands</small>'}</div>
+      <div class="row tight">${us.map(u=>`<button class="btn sm" data-act="resetLogin" data-id="${u.id}" title="New temporary password for ${esc(u.username)}">${icon('key')} Reset</button>`).join('')}<button class="btn sm ${us.length?'ghost':'primary'}" data-act="newSiteLogin" data-p="${p.id}">${icon('plus')} ${us.length?'Add':'Create login'}</button></div></div>`});
+  const missing=projs.filter(p=>!ui.users.some(u=>u.role==='site'&&u.projectId===p.id)).length;
+  return `<section class="card" id="site-logins"><div class="card-h"><h2>Site logins</h2><span class="sub">Username and password are generated for you. The site must set its own password at first sign-in.</span><div class="acts">${missing?`<button class="btn primary sm" data-act="bulkLogins">${icon('key')} Create logins for ${missing} site${missing>1?'s':''}</button>`:''}</div></div><div class="sl-list">${rows.join('')||'<div class="empty sm"><p>Add projects first, then create one login per site.</p></div>'}</div></section>`;
+}
+function backupCard(){
+  const b=ui.bk||{};const c=b.conf||{};const files=b.files||[];const d=ui.draft.bk||{dir:'',email:'',hour:'19'};
+  const lastX=c.lastExcel;const fresh=lastX&&Date.now()-lastX<26*3600e3;
+  const line=(tone,ic,t,sub)=>`<div class="bk-line"><span class="n-ic ${tone}">${icon(ic)}</span><div class="grow"><b>${t}</b><small>${sub}</small></div></div>`;
+  return `<section class="card" id="backup"><div class="card-h"><h2>Backup & data safety</h2>${!ui.bk?'<span class="chip plain">Loading…</span>':fresh?'<span class="chip green">Backed up</span>':'<span class="chip amber">No backup today yet</span>'}<div class="acts"><button class="btn sm primary" data-act="backupNow" ${ui.busy?'disabled':''}>${icon('check')} Back up now</button><a class="btn sm" href="/api/export.xlsx" download>${icon('dl')} Download Excel</a><button class="btn sm" data-act="dlBackup">${icon('dl')} Full backup (.zip)</button></div></div>
+  <div class="card-b bk-grid"><div class="bk-status">
+    ${line(lastX?'green':'amber','grid','Daily Excel backup of every record',lastX?`Last saved ${fdt(lastX)} · kept 120 days`:'Will be created in a few seconds')}
+    ${line(c.lastBak?'green':'amber','check','Safety copy of the database every 15 minutes',c.lastBak?`Last ${fdt(c.lastBak)} · if the data file is ever damaged, ProcureHub recovers from it automatically`:'Starts within the hour')}
+    ${line(c.lastFull?'green':'amber','box','Weekly full backup with photos',c.lastFull?`Last ${fdt(c.lastFull)} · kept 6 weeks`:'Will be created shortly')}
+    ${line(c.dir?(c.mirrorErr?'red':'green'):'amber','copy','Second copy in another folder',c.dir?(c.mirrorErr?'Problem: '+esc(c.mirrorErr):`${esc(c.dir)} · last copied ${c.lastMirror?fdt(c.lastMirror):'—'}`):'Not set — strongly recommended (USB drive, second disk, OneDrive or Google Drive folder)')}
+    ${line(c.email?(c.emailErr?'red':'green'):'plain','mail','Daily Excel by email',c.email?(c.emailErr?'Problem: '+esc(c.emailErr):`${esc(c.email)} after ${String(c.emailHour??19).padStart(2,'0')}:00 · last sent ${c.lastEmail?fdt(c.lastEmail):'—'}`):(b.smtpOK?'Off — add an address below':'Off — set up email in “Email for RFQs and POs” first'))}
+    ${c.lastErr?`<div class="notice warn">${icon('alert')}<span>${esc(c.lastErr)}</span></div>`:''}
+    <p class="small muted">All backups are in <code>${esc(b.backupDir||'ProcureHub-Data/backups')}</code> on the computer running ProcureHub.</p>
+  </div><div class="bk-form">
+    <div class="f"><label for="f-draft-bk-dir">Second copy folder</label>${inp('draft.bk.dir',d.dir,'placeholder="e.g. E:\\ (USB) or D:\\Backup or your OneDrive / Google Drive folder" spellcheck="false"')}<small class="muted">A copy of each day's Excel and data file is also saved here. Use a different disk or a cloud-synced folder so a computer failure can't lose your data.</small></div>
+    <div class="fields two"><div class="f"><label for="f-draft-bk-email">Email the daily Excel to</label>${inp('draft.bk.email',d.email,'type="email" placeholder="accounts@company.com" autocomplete="off"')}</div><div class="f"><label for="f-draft-bk-hour">Send after</label><select class="inp" id="f-draft-bk-hour" data-bind="draft.bk.hour">${selOpts(Array.from({length:24},(_,h)=>({v:String(h),l:String(h).padStart(2,'0')+':00'})),String(d.hour))}</select></div></div>
+    <div class="row end"><button class="btn primary" data-act="saveBackupConf" ${ui.busy?'disabled':''}>Save backup settings</button></div>
+  </div></div>
+  ${files.length?`<div class="card-h sub-h"><h3>Recent backup files</h3><span class="sub">Click to download</span></div><div class="list bk-files">${files.slice(0,9).map(f=>`<a class="li" href="/api/backup/file?kind=${f.kind}&name=${encodeURIComponent(f.name)}" download><span class="n-ic ${f.kind==='excel'?'green':f.kind==='full'?'violet':'blue'}">${icon(f.kind==='excel'?'grid':f.kind==='full'?'box':'doc')}</span><div class="grow"><b class="mono small">${esc(f.name)}</b><small>${f.kind==='excel'?'Excel workbook · every record, readable':f.kind==='full'?'Full backup with photos · for Restore':'Data backup · for Restore'} · ${fsize(f.size)} · ${fdt(f.time)}</small></div>${icon('dl')}</a>`).join('')}</div>`:''}
+  <div class="card-f"><label class="btn" for="f-restore">${icon('ul')} Restore from backup…</label><input type="file" id="f-restore" accept=".zip,.json,application/zip,application/json" hidden data-act-change="restoreFile"><span class="spacer"></span><button class="btn" data-act="loadSample">Load sample data</button><button class="btn" data-act="clearSample">Remove sample data</button><button class="btn danger" data-act="wipeAll">Delete all data…</button></div></section>`;
+}
+function vAccount(){
+  const me=ui.me||{};const d=ui.draft.pw||(ui.draft.pw={old:'',nw:'',nw2:''});const p=me.projectId&&proj(me.projectId);
+  const strong=d.nw.length>=8&&/[0-9]/.test(d.nw)&&/[a-zA-Z]/.test(d.nw);
+  return `<div class="grid g2"><section class="card"><div class="card-h"><h2>Profile</h2></div><div class="card-b acct"><span class="avatar xl" style="--h:${hash(me.id)%360}">${esc(initials(me.name))}</span><div class="grid" style="gap:6px"><h3>${esc(me.name||'')}</h3><span class="muted">Username <b class="mono">${esc(me.username||'')}</b></span><span>${me.role==='hq'?'<span class="chip blue plain">HQ — all projects</span>':`<span class="chip plain">Site · ${esc(p?projLabel(p.id):'')}</span>`}</span></div></div>
+    <div class="card-f"><span class="small muted grow">Signed in on this device. Changing your password signs you out everywhere else.</span><button class="btn" data-act="logout">${icon('out')} Sign out</button></div></section>
+  <section class="card"><div class="card-h"><h2>Change password</h2></div><form class="card-b grid" style="gap:12px" id="pw2-form" data-submit="savePassword2" novalidate>
+    ${field('Current password','draft.pw.old',d.old,'type="password" autocomplete="current-password"')}
+    ${field('New password','draft.pw.nw',d.nw,'type="password" autocomplete="new-password" data-rerender="1"')}
+    ${d.nw?`<div class="pw-hint ${strong?'ok':''}">${icon(strong?'check':'alert')} ${strong?'Good password':'Use 8 or more characters with letters and numbers'}</div>`:''}
+    ${field('Repeat new password','draft.pw.nw2',d.nw2,'type="password" autocomplete="new-password"')}
+    <div class="row end"><button class="btn primary" type="submit" ${ui.busy?'disabled':''}>${icon('key')} Change password</button></div></form></section></div>
+  <section class="card"><div class="card-h"><h2>Forgot a password?</h2></div><div class="card-b help-list"><div class="hl"><span class="hl-ic">${icon('check')}</span><div><b>Site staff</b><p>Ask HQ. In Settings → Site logins, HQ taps “Reset” and sends you a new temporary password on WhatsApp. You will choose your own at the next sign-in.</p></div></div><div class="hl"><span class="hl-ic">${icon('check')}</span><div><b>HQ administrator</b><p>Another HQ user can reset it. If you are the only HQ user, close ProcureHub and start it with <code>--reset-password yourusername</code> on the server computer.</p></div></div></div></section>`;
+}
+function vHelp(){
+  const flow=[['clip','Site raises a demand','Site engineers pick items from the picture catalogue on their phone, enter quantities and send to HQ.'],['inbox','HQ reviews','HQ approves, adjusts quantities, holds or rejects each line. Categories are checked and learned.'],['valves','Grouped and sourced','Approved lines from all sites are merged by material. Stock at the central store or at another site can be used first.'],['quote','Vendors quote','RFQs go to the vendors assigned to that material by email or WhatsApp. Rates are entered or pasted from Excel.'],['po','Compare and order','The comparative statement highlights the lowest price. Award, approve and generate POs in one click.'],['truck','Deliver and confirm','Material goes direct to site or via the central store. The site confirms what actually arrived, with photos.']];
+  const isHQ=ui.role==='hq';
+  return `<section class="hero slim"><div class="hero-text"><span class="eyebrow">Help & guide</span><h2>How ProcureHub works</h2><p>From a site's demand to delivery at site, in six steps. Everyone sees the same live status.</p></div><div class="hero-art">${ART.hero()}</div></section>
+  <div class="help-flow">${flow.map(([a,t,p],i)=>`<article class="hf"><span class="hf-art">${ART.x(['clip','ok','mix','quote','po','truck'][i])}</span><span class="step-n">${i+1}</span><h3>${t}</h3><p>${p}</p></article>`).join('')}</div>
+  <div class="grid g2">
+   <section class="card"><div class="card-h"><h2>${isHQ?'For HQ':'For site staff'}</h2></div><div class="card-b help-list">${(isHQ?[
+     ['Pre-check (if switched on)','Every new demand first appears under Pre-check (not in the Demand inbox). A pre-checker corrects items, sizes and quantities, removes or adds items, or deletes the demand with a reason, then pre-approves it. Only then can the approver approve it. The site sees every change.'],
+     ['Review demands','Open Demand inbox. Approve all new lines at once, or open a requisition to change quantities or categories. Type a remark for the site while approving; a reason is required to reject.'],
+     ['Send RFQs','In Procurement queue, select lines (or a whole category) and create an RFQ. Vendors for that category are picked for you.'],
+     ['Use stock first','If the central store or another site has the item, the queue shows it. Issue from store or create a site-to-site transfer.'],
+     ['Compare and order','Enter or paste quotes. Award item-wise L1 or all to one vendor, approve, then generate POs.'],
+     ['With job workers','When one vendor\'s material goes to another vendor who makes a bigger product (switchgear to the panel builder): open the supplier\'s PO → Change delivery → To a job worker, and choose whether the supplier bills the job worker or us. Record what the job worker received (Record receipt at job worker), or send material from the HQ store. When he bills the finished panel, use With job workers → Record job worker\'s bill and enter the raw material from his balance that went into it. The rest stays as unconsumed against him until used in a later bill, returned to the HQ store, or written off as wastage. Print a statement of his balance for confirmation.'],
+     ['HQ store','Material delivered to HQ is recorded in HQ store → Record inward, with the vendor\'s challan and invoice (photo or PDF). Stock in store shows what is lying at HQ, what is reserved for site demands and for how many days. Send it to sites from Dispatch to sites (demand-wise) or with “Send material to a site”.'],
+     ['Direct or via store','Each PO is either delivered by the vendor directly to the sites or to the HQ store. Until something is received you can switch it on the PO page.'],
+     ['Keep it tidy','Add item photos in Item catalogue, assign vendors to every category, and download a full backup weekly.']]:[
+     ['Raise a demand','Tap Raise demand, choose a category, tap an item, pick the size and quantity. Add a photo if it helps. Send to HQ.'],
+     ['Track it','My demands shows each item\'s stage: approved, ordered, dispatched, received, with HQ\'s remarks and who approved it. Choose “Raised by me” to see only yours. A sent demand is view only; ask HQ for changes.'],
+     ['Receive material','When a truck arrives, open Receive material, enter what actually arrived and take a photo of the material or challan.'],
+     ['Transfers','If HQ asks you to send surplus to another site, it appears under Receive material. Load it and tap Mark as sent.'],
+     ['Site stock','Record material used each day so HQ knows what is left at your site.'],
+     ['Use it like an app','On your phone, open the site address and choose Add to Home screen.']]).map(([t,p])=>`<div class="hl"><span class="hl-ic">${icon('check')}</span><div><b>${t}</b><p>${p}</p></div></div>`).join('')}</div></section>
+   ${isHQ?`<section class="card"><div class="card-h"><h2>HQ roles & permissions</h2>${isAdm()?'':`<span class="chip blue plain">You: ${esc(accessSummary(ui.me))}</span>`}</div><div class="card-b help-list">
+     <div class="hl"><span class="hl-ic">${icon('key')}</span><div><b>Administrator</b><p>Everything, plus adding people, setting permissions, site logins, restore and deleting records. Everyone who signed in before this update is an administrator, so nothing changes until you assign roles in Settings → HQ team & permissions.</p></div></div>
+     ${ROLE_PRESETS.map(([t,d])=>`<div class="hl"><span class="hl-ic">${icon('user')}</span><div><b>${esc(t)}</b><p>${esc(d)}.</p></div></div>`).join('')}
+     <div class="hl"><span class="hl-ic">${icon('pin')}</span><div><b>Site access</b><p>Anyone can be limited to selected sites. They then see only those sites' demands, site stock and dispatches. Every change is recorded in the activity log.</p></div></div></div></section>`:''}
+   <section class="card"><div class="card-h"><h2>Questions</h2></div><div class="card-b help-list">${[
+     ['I forgot my password','Ask HQ. In Settings → Site logins, HQ taps Reset and sends a new temporary password on WhatsApp; you choose your own at the next sign-in. Change your password any time in My account.'],
+     ['The screen looks too big or too small','ProcureHub adapts to laptops set to 125% or 150% display scaling. You can also zoom the browser: hold Ctrl and press − or +. Ctrl and 0 resets.'],
+     ['Something is not updating','Check the red banner at the top. If the server cannot be reached, changes pause and resume automatically when the connection returns.'],
+     ['Can I attach photos?','Yes — to demand items, receipts, goods receipts, projects, catalogue items and the company logo. Photos are compressed automatically.'],
+     ['Where is my data? Is it backed up?','On the computer running ProcureHub, in the ProcureHub-Data folder. Every day an Excel workbook of all records is saved in ProcureHub-Data\\backups\\excel (kept 120 days), the database is copied every 15 minutes, and a full backup with photos is made weekly. HQ can also copy backups to a USB or cloud folder and get the Excel by email (Settings → Backup).']].map(([t,p])=>`<details class="faq"><summary>${t}</summary><p>${p}</p></details>`).join('')}</div></section></div>`;
+}

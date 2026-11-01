@@ -1,0 +1,8 @@
+# Live data and backups never go into the repository
+ProcureHub-Data/
+*.json.bak
+# Built programs
+*.exe
+procurehub-linux
+procurehub-mac
+*.zip
