@@ -14,14 +14,14 @@ pre{background:#14212A;color:#e2ecef;padding:12px 14px;border-radius:8px;overflo
 ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}th{background:#e9eeec}
 .opt{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
 </style></head><body><main>
-<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.4</small></h1>
+<h1>RGS Infra ProcureHub <small style="font-size:15px;color:#47575F">version 6.5</small></h1>
 <p class="sub" style="margin-top:-6px">Developed by <b>SS Sodhi</b></p>
 <p class="sub">Procurement for multi-site water supply &amp; sewerage projects: site demands → categorise → RFQ to vendors → comparative → PO → receipt → dispatch → site confirmation.</p>
 
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.4.1</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 6.5.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -105,6 +105,11 @@ sudo systemctl restart caddy</pre></li>
 <li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
 <li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
 <li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 6.5 — club sizes into one item</b><ol style="margin:6px 0 0">
+<li>Items typed in separately for each size (“GI UNION 32 MM - 4 NOS.”, “GI UNION 50 MM - 10 NOS.”, “GI Unions 32 mm”…) can be made <b>one item with its sizes</b> (“GI Union” with sizes 15 mm, 20 mm, 32 mm, 50 mm). Sites then pick the size from the list when raising a demand.</li>
+<li><b>Automatic:</b> administrator → <i>Item catalogue → Club sizes into items</i> (or <i>Find items → Club sizes into items…</i>). ProcureHub finds the entries that are sizes of one item, takes the size out of the name (and drops quantities written in the name such as “- 4 NOS.”) and shows each group: the one item name, unit, category and the size each entry becomes. Correct anything, untick an entry, or tick <i>Leave this group as it is</i>; use Next / Previous to go through the groups, then <b>Club</b>.</li>
+<li><b>By hand:</b> in <i>Find items</i> tick the entries that belong together → <b>Club as one item</b>.</li>
+<li>Every demand, quotation, PO, receipt, stock and consumption line is changed to the one item with its size; stock of the same size is added together. The separate old names disappear from the item list and the catalogue item gets all the sizes.</li></ol></div>
 <div class="card tip"><b>New in 6.4 — secure connection (removes “Not secure”)</b><ol style="margin:6px 0 0">
 <li><b>In the router</b> (where port 8080 is already forwarded to the ProcureHub computer): add one more rule — <b>port 80, TCP, to the same computer</b>. Let's Encrypt, the free certificate authority, checks your internet name through port 80.</li>
 <li><b>In ProcureHub</b> (administrator): <i>Settings → Secure connection (https)</i> → internet name <b>rgsit.ddnsking.com</b> (your dynamic-DNS name, without http://) → <b>Switch on &amp; get certificate</b>. Within a minute it shows <b>Certificate active</b>.</li>

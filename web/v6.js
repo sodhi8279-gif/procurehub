@@ -232,7 +232,7 @@ function vFind(){
   return `<div class="toolbar"><div class="search-inp grow">${icon('search')}<input class="inp" id="f-fq" placeholder="Type an item, size or category — e.g. DI pipe 150, sluice valve, cement" data-bind="f.fq" data-rerender="1" value="${esc(ui.f.fq||'')}"></div><span class="muted">${rows.length} item${rows.length===1?'':'s'}</span></div>
   ${adm?`<div class="notice info">${icon('edit')}<span>As administrator you can <b>edit</b> the spelling, specification, unit or <b>category</b> of an item (or tick several items and change their category together). The correction is made in every demand, quotation, PO, receipt, challan, stock and consumption entry, so its stock and history stay together. Correcting it to the name of an item that already exists merges the two. Units are relabelled, not converted.</span></div>`:''}
   <section class="card"><div class="card-h"><h2>${q?'Items found':'All items in use'}</h2><span class="sub">${site?'Your site stock and demands':'HQ store, site stores, open demands and purchase orders'}</span></div>
-  ${adm&&shown.length?(()=>{ui.fiShown=shown.map(o=>o.key);const nsel=Object.keys(ui.sel.fi||{}).length;return `<div class="toolbar pad fi-bulk"><span class="small ${nsel?'':'muted'}">${nsel?`<b>${nsel}</b> item${nsel===1?'':'s'} ticked`:'Tick items to change their category together'}</span><select class="inp sm auto" id="f-fiCat" data-bind="f.fiCat"><option value="">New category…</option>${catOpts(ui.f.fiCat||'')}</select><button class="btn sm primary" data-act="fiBulkCat" ${nsel?'':'disabled'}>${icon('grid')} Change category</button></div>`})():''}
+  ${adm&&shown.length?(()=>{ui.fiShown=shown.map(o=>o.key);const nsel=Object.keys(ui.sel.fi||{}).length;return `<div class="toolbar pad fi-bulk"><span class="small ${nsel?'':'muted'}">${nsel?`<b>${nsel}</b> item${nsel===1?'':'s'} ticked`:'Tick items to change their category together'}</span><select class="inp sm auto" id="f-fiCat" data-bind="f.fiCat"><option value="">New category…</option>${catOpts(ui.f.fiCat||'')}</select><button class="btn sm primary" data-act="fiBulkCat" ${nsel?'':'disabled'}>${icon('grid')} Change category</button><button class="btn sm" data-act="clubSel" ${nsel>1?'':'disabled'} title="Make the ticked entries one item with sizes">${icon('layers')} Club as one item</button><span class="spacer"></span><button class="btn sm primary" data-act="clubAuto">${icon('layers')} Club sizes into items…</button></div>`})():''}
   ${shown.length?`<div class="tw"><table class="t"><thead><tr>${adm?`<th><input type="checkbox" data-act="fiSelAll" aria-label="Tick all" ${shown.length&&shown.every(o=>(ui.sel.fi||{})[o.key])?'checked':''}></th>`:''}<th>Item</th><th>Category</th><th>Unit</th>${site?'':'<th class="num">HQ store</th>'}<th>${site?'At your site':'At sites'}</th><th class="num">Open demand</th>${site?'':'<th>Purchase orders</th>'}${seeRates()&&!site?'<th class="num">Rate</th>':''}${adm?'<th></th>':''}</tr></thead><tbody>${shown.map(o=>`<tr>${adm?`<td><input type="checkbox" data-act="fiSel" data-k="${esc(o.key)}" aria-label="Tick ${esc(o.desc)}" ${(ui.sel.fi||{})[o.key]?'checked':''}></td>`:''}<td><div class="who">${thumb({category:o.cat,desc:o.desc},'sm')}<span><b>${esc(o.desc)}</b><small class="muted block">${esc(o.spec||'')}${dup[dupKey(o)]>1?(o.spec?' · ':'')+'<span class="t-amber">also written another way</span>':''}</small></span></div></td><td>${catSw(o.cat)}</td><td>${esc(o.unit)}</td>
     ${site?'':`<td class="num mono">${o.hq?fq(o.hq):'<span class="muted">—</span>'}</td>`}<td>${o.sites.length?`<div class="chips">${o.sites.map(([p,b])=>`<span class="chip plain" title="${esc(projLabel(p))}">${esc(projCode(p))}: ${fq(b)}</span>`).join('')}</div>`:'<span class="muted small">—</span>'}</td>
     <td class="num mono">${o.dem?fq(o.dem):'<span class="muted">—</span>'}${o.demN?`<small class="muted block">${o.demN} line${o.demN===1?'':'s'}</small>`:''}</td>${site?'':`<td class="small">${o.pos.length?esc(o.pos.slice(-3).join(', '))+(o.pos.length>3?' +'+(o.pos.length-3):''):'<span class="muted">—</span>'}</td>`}
@@ -670,3 +670,67 @@ A.httpsOn=async()=>{const d=ui.draft.https||{};if(!String(d.domain||'').trim()){
   if(ui.https&&ui.https.ready) toast('Secure connection is on. Open '+ui.https.url);else if(ui.https&&ui.https.error) toast('Certificate not issued yet — see the message in Settings.','err')};
 A.httpsOff=()=>confirmBox({title:'Switch off the secure connection?',body:'Browsers will show “Not secure” again for the internet name.',yes:'Switch off',danger:true,onYes:async()=>{const d=ui.draft.https||{};await run(async()=>{ui.https=await api('/api/https',{on:false,domain:d.domain||'',email:d.email||''})},'Secure connection switched off');closeModal()}});
 Object.assign(ACT_PERM,{httpsOn:'__admin',httpsOff:'__admin'});
+
+/* ================= 12. CLUB SIZES INTO ONE ITEM =================
+   Items typed in with the size in the name ("GI UNION 32 MM - 4 NOS.", "GI Unions 32 mm") become
+   one item ("GI union") with its sizes listed in the catalogue, so sites pick the size from a list.
+   Every demand, PO, receipt, stock and consumption line is corrected (the server's item correction),
+   so stock and history stay together. Administrators only. */
+Object.assign(ACT_PERM,{clubAuto:'__admin',clubSel:'__admin',clubApply:'__admin'});
+const SIZE_RE=(()=>{const n='\\d+(?:\\.\\d+)?',inch='(?:"|”|\'\'|inch(?:es)?|in)',u='(?:mm|cm|mtr|m|inch(?:es)?|in|"|”|\'\'|kg|ltr|l|sqmm|hp|kw|kva|amp|a|w|gauge|swg|bar)';
+  return new RegExp('('+n+'\\s*'+inch+'?\\s*[x×*]\\s*'+n+'\\s*(?:'+inch+'|mm)?'+'|'+n+'\\s*'+u+'(?![a-z0-9])(?:\\s*(?:dia|nb|od|id)(?![a-z]))?'+'|(?:dn|nb|od)\\s*'+n+'|\\d+\\/\\d+\\s*'+inch+'?)','i')})();
+function clubSplit(desc){let d=String(desc||'').trim();
+  d=d.replace(/[\s,;:-]*[-–(]?\s*\d+(?:\.\d+)?\s*(?:nos?|pcs|pieces|sets?|pairs?|bags?|rolls?|kgs?|mtrs?|rmt|ltrs?|pkts?|boxes|box)\.?\)?\s*$/i,'');// trailing quantity
+  let size='';const m=d.match(SIZE_RE);if(m&&/\d/.test(m[0])){size=m[0].trim();d=(d.slice(0,m.index)+' '+d.slice(m.index+m[0].length))}
+  d=d.replace(/\s*[-–,:;(]+\s*$/,'').replace(/^\s*[-–,:;)]+\s*/,'').replace(/\s{2,}/g,' ').trim();
+  return {base:d,size:clubSize(size)}}
+function clubSize(s){s=String(s||'').trim();if(!s) return '';return s.replace(/”|''/g,'"').replace(/\s*[x×X*]\s*/g,' x ').replace(/(\d)\s*(mm|cm|kg|ltr|sqmm|hp|kw|kva)\b/ig,(a,b,c)=>b+' '+c.toLowerCase()).replace(/\s{2,}/g,' ')}
+const singular=w=>/^[a-z]{4,}s$/i.test(w)&&!/(ss|us|is)$/i.test(w)?w.slice(0,-1):w;
+function clubKey(base,unit){return norm(base).split(' ').map(singular).join(' ')+'|'+String(unit||'').toLowerCase()}
+function niceName(list){const c={};for(const b of list){const k=b.trim();c[k]=(c[k]||0)+1}const best=Object.entries(c).sort((a,b)=>b[1]-a[1]||(/[a-z]/.test(b[0])-/[a-z]/.test(a[0])))[0][0];
+  const w=best.split(' ').map(singular).join(' ');return w===w.toUpperCase()?w.toLowerCase().replace(/(^|\s)([a-z])/g,(a,s,c2)=>s+c2.toUpperCase()).replace(/\b(Gi|Di|Ms|Ci|Hdpe|Upvc|Pvc|Mdpe|Ppr|Cpvc|Nrv|Rcc|Frp|Swr|Ef|Pn\d+)\b/g,x=>x.toUpperCase()):w}
+const sizeSort=(a,b)=>{const n=s=>{const m=String(s).match(/\d+(?:\.\d+)?/);return m?parseFloat(m[0]):1e9};return n(a)-n(b)||String(a).localeCompare(String(b))};
+// groups of entries that look like sizes of one item
+function clubGroups(rows){const g={};for(const o of rows){const sp=clubSplit(o.desc);const size=sp.size||clubSize(o.spec);const k=clubKey(sp.base||o.desc,o.unit);
+    (g[k]=g[k]||{key:k,members:[],unit:o.unit,cat:o.cat}).members.push({o,base:sp.base||o.desc,size,extra:sp.size&&o.spec?o.spec:''})}
+  const cat=D.items.filter(i=>!i.hidden);
+  return Object.values(g).map(x=>{const names=new Set(x.members.map(m=>m.o.desc));const ci=cat.find(i=>clubKey(i.desc,i.unit)===x.key);
+    x.target=ci?ci.desc:niceName(x.members.map(m=>m.base));x.catItem=ci||null;x.cat=ci?(ci.category||x.cat):x.cat;x.messy=names.size>1||x.members.some(m=>clubSplit(m.o.desc).size);return x})
+   .filter(x=>x.messy&&x.members.length>=1).sort((a,b)=>b.members.length-a.members.length||a.target.localeCompare(b.target))}
+A.clubAuto=()=>{const gs=clubGroups(itemIndex());if(!gs.length){toast('No items with sizes written in the name were found.');return}
+  openModal({type:'club',groups:gs.map(clubDraft),ix:0})};
+A.clubSel=()=>{const keys=Object.keys(ui.sel.fi||{});const rows=itemIndex().filter(o=>keys.includes(o.key));if(rows.length<2) return;
+  const members=rows.map(o=>{const sp=clubSplit(o.desc);return {o,base:sp.base||o.desc,size:sp.size||clubSize(o.spec),extra:sp.size&&o.spec?o.spec:''}});
+  const ci=D.items.find(i=>clubKey(i.desc,i.unit)===clubKey(members[0].base,rows[0].unit));
+  openModal({type:'club',groups:[clubDraft({key:'sel',members,unit:rows[0].unit,cat:rows[0].cat,target:ci?ci.desc:niceName(members.map(m=>m.base)),catItem:ci||null})],ix:0})};
+function clubDraft(g){return {target:g.target,unit:g.unit,cat:g.cat||'others',catItem:g.catItem?g.catItem.id:'',skip:false,members:g.members.map(m=>({desc:m.o.desc,spec:m.o.spec||'',unit:m.o.unit,dem:m.o.dem,sites:m.o.sites.length,size:[m.size,m.extra].filter(Boolean).join(', '),on:true}))}}
+function clubModal(m,busy){const gs=m.groups;const g=gs[m.ix];const n=gs.filter(x=>!x.skip).length;const units=UNITS.includes(g.unit)?UNITS:UNITS.concat([g.unit]);
+  const sizes=[...new Set(g.members.filter(x=>x.on).map(x=>x.size.trim()).filter(Boolean).concat(g.catItem&&D.itemMap[g.catItem]?D.itemMap[g.catItem].sizes||[]:[]))].sort(sizeSort);
+  return wrap('Club sizes into one item',`<div class="row"><b>Group ${m.ix+1} of ${gs.length}</b><span class="muted small">${n} group${n===1?'':'s'} will be clubbed</span><span class="spacer"></span><button class="btn sm" data-act="clubNav" data-d="-1" ${m.ix?'':'disabled'}>${icon('back')} Previous</button><button class="btn sm" data-act="clubNav" data-d="1" ${m.ix<gs.length-1?'':'disabled'}>Next ${icon('chev')}</button></div>
+   <label class="check"><input type="checkbox" data-bind="modal.groups.${m.ix}.skip" data-rerender="1" ${g.skip?'checked':''}> Leave this group as it is</label>
+   ${g.skip?'':`<div class="fields">${field('One item name','modal.groups.'+m.ix+'.target',g.target,'data-rerender="1"','span2')}
+   <div class="f"><label>Unit</label><select class="inp" id="f-club-unit-${m.ix}" data-bind="modal.groups.${m.ix}.unit">${selOpts(units,g.unit)}</select></div>
+   <div class="f"><label>Category</label><select class="inp" id="f-club-cat-${m.ix}" data-bind="modal.groups.${m.ix}.cat">${catOpts(g.cat)}</select></div></div>
+   ${g.catItem?`<p class="small muted">${icon('check','xs')} Joins the catalogue item “${esc((D.itemMap[g.catItem]||{}).desc||'')}”.</p>`:''}
+   <div class="tw"><table class="t"><thead><tr><th></th><th>Now written as</th><th class="num">Open demand</th><th>Becomes size</th></tr></thead><tbody>${g.members.map((x,i)=>`<tr><td><input type="checkbox" data-bind="modal.groups.${m.ix}.members.${i}.on" data-rerender="1" ${x.on?'checked':''} aria-label="Include"></td>
+    <td><b>${esc(x.desc)}</b>${x.spec?` <small class="muted">${esc(x.spec)}</small>`:''} <small class="muted">· ${esc(x.unit)}</small></td><td class="num mono">${x.dem?fq(x.dem):'—'}</td>
+    <td>${inp('modal.groups.'+m.ix+'.members.'+i+'.size',x.size,'placeholder="e.g. 32 mm" data-rerender="1" style="min-width:140px"')}</td></tr>`).join('')}</tbody></table></div>
+   <p class="small"><b>Result:</b> ${esc(g.target)} · ${esc(g.unit)} · sizes: ${sizes.map(esc).join(', ')||'—'}</p>`}
+   <p class="small muted">${icon('help','xs')} Every demand, quotation, PO, receipt, stock and consumption line of the ticked entries is changed to the one item with its size; stock of the same size is added together. The old separate names are removed from the item list.</p>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="clubApply" ${busy} ${n?'':'disabled'}>${icon('layers')} Club ${n} group${n===1?'':'s'}</button>`,'wide')}
+A.clubNav=d=>{const m=ui.modal;m.ix=Math.max(0,Math.min(m.groups.length-1,m.ix+(+d.d)));render()};
+A.clubApply=async()=>{const m=ui.modal;const gs=m.groups.filter(g=>!g.skip&&String(g.target).trim()&&g.members.some(x=>x.on));
+  for(const g of gs) for(const x of g.members) if(x.on&&!String(x.size).trim()&&g.members.filter(y=>y.on).length>1&&!x.spec){}
+  const ok=await run(async()=>{let docs=0;
+    for(const g of gs){const target=String(g.target).trim();const sizes=new Set();
+      for(const x of g.members){if(!x.on) continue;const size=String(x.size||'').trim();if(size) sizes.add(size);
+        const j=await api('/api/items/rename',{from:{desc:x.desc,spec:x.spec,unit:x.unit},to:{desc:target,spec:size,unit:g.unit,cat:g.cat}});docs+=j.docs||0}
+      // the catalogue: one item with all its sizes; the old separate names go away
+      const id=g.catItem||slug(target);const cur=D.itemMap[id];const all=[...new Set([...(cur&&cur.desc&&norm(cur.desc)===norm(target)?cur.sizes||[]:[]),...sizes])].sort(sizeSort);
+      const base=Object.assign({},S.catalog[id]||{},{desc:target,spec:(cur&&cur.spec)||'',unit:g.unit,category:g.cat,sizes:all,at:Date.now()});if(cur&&cur.photo&&!base.photo) base.photo=cur.photo;delete base.id;delete base.std;
+      await setDoc('catalog',slug(target),base);
+      for(const x of g.members){if(!x.on) continue;const oid=slug(x.desc);if(oid===slug(target)||!D.itemMap[oid]) continue;
+        if(STD[oid]) await setDoc('catalog',oid,{desc:'',replacedBy:slug(target),at:Date.now()});else await delDoc('catalog',oid)}}
+    return docs});
+  if(ok!==false){ui.sel.fi={};closeModal();toast(`${gs.length} item${gs.length===1?'':'s'} clubbed with their sizes (${ok} records updated).`)}};
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='club'?clubModal(m,busy):prev(m,busy)}
