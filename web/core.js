@@ -1,5 +1,6 @@
 "use strict";
 /* ================= UTILITIES ================= */
+const DEVELOPER='SS Sodhi';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>{const n=parseFloat(String(v??'').replace(/,/g,''));return isFinite(n)?n:0};
 const nf=new Intl.NumberFormat('en-IN',{maximumFractionDigits:2});
@@ -451,7 +452,7 @@ function shell(){
     <nav class="nav">${nav}</nav>
     ${ui.isHQ&&isAdm()?`<div class="preview"><label for="f-preview">Preview a site's screens</label><select id="f-preview" data-act-change="preview"><option value="">— HQ view —</option>${S.projects.filter(p=>p.active!==false).map(p=>`<option value="${esc(p.id)}" ${ui.preview===p.id?'selected':''}>${esc(p.code||p.name)}</option>`).join('')}</select></div>`:''}
     <div class="side-user"><span class="avatar" style="--h:${hash(me.id)%360}">${esc(initials(me.name))}</span><div><b>${esc(me.name||'')}</b><small>${ui.isHQ?esc(accessSummary(me)):esc(projCode(me.projectId))}</small></div></div>
-    <div class="side-ver" title="ProcureHub version running on the server">ProcureHub ${esc(ui.version||'')}</div>
+    <div class="side-ver" title="ProcureHub version running on the server">ProcureHub ${esc(ui.version||'')}<br>Developed by ${esc(DEVELOPER)}</div>
   </aside>
   <div class="scrim" data-act="drawer"></div>
   <main class="main">
@@ -546,7 +547,7 @@ function authHtml(){
      ${ui.authErr?`<div class="notice warn">${icon('alert')}<span>${esc(ui.authErr)}</span></div>`:''}
      <button class="btn primary xl" type="submit" ${ui.busy?'disabled':''}>${setup?'Create account and start':'Sign in'}</button>
      ${setup?'':'<p class="muted small">Forgot your password? Ask HQ to set a new one for you.</p>'}
-     ${ui.version?`<p class="muted small ver-line">Version ${esc(ui.version)}</p>`:''}
+     ${ui.version?`<p class="muted small ver-line">Version ${esc(ui.version)} · Developed by ${esc(DEVELOPER)}</p>`:''}
    </form></div>`;
 }
 

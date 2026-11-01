@@ -1,5 +1,7 @@
 # RGS Infra ProcureHub
 
+Developed by **SS Sodhi** for RGS Infra.
+
 Procurement and inventory software for multi-site water supply and sewerage projects:
 site demand → pre-check → approval → RFQ → comparative → PO → HQ store / direct-to-site /
 job worker → receipt → dispatch → site confirmation, with GST billing from the HQ store.

@@ -41,8 +41,10 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.4.0"
+const appVersion = "6.4.1"
 const appName = "RGS Infra ProcureHub"
+
+const appDeveloper = "SS Sodhi"
 
 type Doc struct {
 	Data    map[string]any `json:"data,omitempty"`
@@ -1887,6 +1889,7 @@ func main() {
 	}
 	fmt.Println("==============================================================")
 	fmt.Printf("  %s %s is running\n", appName, appVersion)
+	fmt.Printf("  Developed by %s\n", appDeveloper)
 	fmt.Println("==============================================================")
 	fmt.Printf("  On this computer:      %s://localhost:%d\n", scheme, *port)
 	if h, err := os.Hostname(); err == nil && h != "" {
