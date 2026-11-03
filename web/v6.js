@@ -250,6 +250,7 @@ function itemFixModal(m,busy){const d=m.d,f=m.from;const it=D.itemMap[m.catId];c
   const named=d.desc.trim()!==f.desc||String(d.spec).trim()!==(f.spec||'')||d.unit!==f.unit;const catEdit=f.catOnly&&(String(d.dspec).trim()!==(f.dspec||'')||sizeList(d.sizes).join(', ')!==sizeList(f.sizes).join(', '));const catChg=d.category!==f.cat;const changed=named||catChg||catEdit;
   const toKey=itemKey(d.desc,d.spec,d.unit);const merge=named&&toKey!==itemKey(f.desc,f.spec,f.unit)&&itemIndex().some(o=>o.key===toKey);
   return wrap('Edit item',`<div class="notice">${icon('tag')}<span>Now: <b>${esc(f.desc)}</b>${f.spec?' — '+esc(f.spec):''} · ${esc(f.unit)} · ${esc(catName(f.cat))}${m.count?`<br><span class="small muted">Used in ${m.count.docs} record${m.count.docs===1?'':'s'} (${m.count.lines} line${m.count.lines===1?'':'s'}).</span>`:''}</span></div>
+   ${f.catOnly?'':joinBox(m)}
    <div class="fields">${field('Item name','modal.d.desc',d.desc,'data-rerender="1"','span2')}${f.catOnly?'':field('Specification / size','modal.d.spec',d.spec,'data-rerender="1"')}
    <div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
    <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div>
@@ -266,7 +267,8 @@ A.saveItemFix=async()=>{const m=ui.modal,d=m.d,f=m.from;const catChg=d.category!
     if(!f.catOnly){const j=await api('/api/items/rename',{from:{desc:f.desc,spec:f.spec,unit:f.unit},to});n=j.docs}
     else{for(const o of itemIndex().filter(o=>norm(o.desc)===norm(f.desc))){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:to.desc,spec:o.spec,unit:o.unit===f.unit?to.unit:o.unit,cat:to.cat}});n+=j.docs}}
     if(f.catOnly){to.spec=String(d.dspec||'').trim();to.sizes=sizeList(d.sizes)}
-    if(f.catOnly||d.alsoCat) await fixCatalog(m.catId,to);
+    if(m.joinId) await joinAddSize(m.joinId,to.spec,to.unit,f.desc);
+    else if(f.catOnly||d.alsoCat) await fixCatalog(m.catId,to);
     return n});
   if(ok!==false){closeModal();toast(`Saved${ok?' in '+ok+' record'+(ok===1?'':'s'):''}.`)}};
 async function fixCatalog(oldId,to){const it=D.itemMap[oldId];if(!it) return;const newId=slug(to.desc);
@@ -734,3 +736,19 @@ A.clubApply=async()=>{const m=ui.modal;const gs=m.groups.filter(g=>!g.skip&&Stri
     return docs});
   if(ok!==false){ui.sel.fi={};closeModal();toast(`${gs.length} item${gs.length===1?'':'s'} clubbed with their sizes (${ok} records updated).`)}};
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='club'?clubModal(m,busy):prev(m,busy)}
+
+
+/* ---- join an entry to an existing item that has sizes ---- */
+function joinBox(m){const d=m.d;const items=D.items.filter(i=>!i.hidden&&i.desc).sort((a,b)=>String(a.desc).localeCompare(b.desc));const j=m.joinId&&D.itemMap[m.joinId];
+  const sp=clubSplit(m.from.desc);
+  return `<div class="join-box"><label for="f-join">${icon('layers','xs')} <b>Club with an existing item</b> <span class="muted small">— makes this entry one size of that item</span></label>
+   <select class="inp" id="f-join" data-act-change="joinPick"><option value="">— keep as its own item —</option>${items.map(i=>`<option value="${esc(i.id)}" ${m.joinId===i.id?'selected':''}>${esc(i.desc)} · ${esc(i.unit||'')}${(i.sizes||[]).length?' · '+i.sizes.length+' sizes':''}</option>`).join('')}</select>
+   ${j?`<div class="f"><label>Size of “${esc(j.desc)}”</label><div class="size-chips">${(j.sizes||[]).map(z=>`<button type="button" class="schip ${d.spec===z?'on':''}" data-act="mset" data-k="spec" data-val="${esc(z)}">${esc(z)}</button>`).join('')}${d.spec&&!(j.sizes||[]).includes(d.spec)?`<span class="chip green plain">new size “${esc(d.spec)}” will be added</span>`:''}</div><small class="muted">Pick the size, or type it in “Specification / size” below${sp.size?` (from the name: <b>${esc(sp.size)}</b>)`:''}.</small></div>`:''}</div>`}
+CH.joinPick=el=>{const m=ui.modal,d=m.d;m.joinId=el.value||'';const j=D.itemMap[m.joinId];
+  if(j){d.desc=j.desc;d.unit=j.unit||d.unit;d.category=j.category||d.category;if(!d.spec){const sp=clubSplit(m.from.desc).size;if(sp) d.spec=(j.sizes||[]).find(z=>norm(z)===norm(sp))||sp}else{const hit=(j.sizes||[]).find(z=>norm(z)===norm(d.spec));if(hit) d.spec=hit}}
+  else{d.desc=m.from.desc;d.unit=m.from.unit;d.category=m.from.cat}render()};
+async function joinAddSize(id,size,unit,oldDesc){const j=D.itemMap[id];if(!j) return;const sizes=[...(j.sizes||[])];size=String(size||'').trim();
+  if(size&&!sizes.some(z=>norm(z)===norm(size))) sizes.push(size);sizes.sort(sizeSort);
+  const base=Object.assign({},S.catalog[id]||{desc:j.desc,spec:j.spec||'',unit:j.unit,category:j.category,photo:j.photo||''},{sizes,at:Date.now()});delete base.id;delete base.std;
+  await setDoc('catalog',id,base);
+  const oid=slug(oldDesc);if(oid!==id&&D.itemMap[oid]){if(STD[oid]) await setDoc('catalog',oid,{desc:'',replacedBy:id,at:Date.now()});else await delDoc('catalog',oid)}}

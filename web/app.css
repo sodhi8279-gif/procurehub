@@ -859,3 +859,4 @@ tr.struck td:last-child{text-decoration:none;opacity:1}
 .am-f label{display:grid;gap:3px;font-size:12px;color:var(--ink-3)}
 .am-f .am-q .inp{width:96px}.am-f .am-s{flex:1;min-width:160px}
 .am-line.struck .who{opacity:.5;text-decoration:line-through}
+.join-box{display:grid;gap:8px;padding:12px;border:1px dashed var(--line);border-radius:12px;background:var(--surface-2,transparent)}
