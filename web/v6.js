@@ -775,3 +775,29 @@ A.saveRfqQty=async()=>{const m=ui.modal,d=m.d;const r=S.rfqs.find(x=>x.id===m.rf
   if(!l.qtyChg){delete l.qtyChg;l.srcs.forEach(s=>delete s.origQty)}
   if(await run(()=>updDoc('rfqs',r.id,{lines}),'Quantity changed to '+fq(l.qty)+' '+l.unit)!==false) closeModal()};
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='rfqQty'?rfqQtyModal(m,busy):prev(m,busy)}
+
+/* ---- remove an item from the comparative ---- */
+Object.assign(ACT_PERM,{rfqDelLine:['compare_approve','rfq_create'],saveRfqDelLine:['compare_approve','rfq_create']});
+A.rfqDelLine=d=>{const r=rfqOf();const l=r&&r.lines.find(x=>x.key===d.k);if(!l) return;
+  if(r.lines.length<2){toast('This is the only item. Cancel the RFQ instead.','err');return}
+  openModal({type:'rfqDel',rfq:r.id,k:l.key,d:{to:'queue',note:''}})};
+function rfqDelModal(m,busy){const r=S.rfqs.find(x=>x.id===m.rfq);const l=r&&r.lines.find(x=>x.key===m.k);if(!l) return '';const d=m.d;
+  return wrap('Remove '+esc(l.desc)+' from '+esc(r.no),`<p><b>${esc(l.desc)}</b> ${esc(l.spec||'')} · ${fq(l.qty)} ${esc(l.unit)}<br><span class="small muted">${l.srcs.map(s=>esc(projName(s.projectId))+': '+fq(s.qty)+' ('+esc(s.mrNo||'')+')').join(' · ')}</span></p>
+   <p class="small muted">The item is taken out of this RFQ and its comparative; vendors' rates for it are ignored. It will not be on any PO from this RFQ.</p>
+   <div class="f full"><label>The demand for it</label>${seg('rdto',[['queue','Goes back to the procurement queue (buy separately)'],['drop','Not needed — reject it on the demand']],d.to,'rfqDelTo')}</div>
+   <div class="f full"><label for="f-modal-d-note">Reason (required — shown on the demand)</label>${inp('modal.d.note',d.note,'placeholder="e.g. Rates too high; will be bought locally"')}</div>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn danger solid" data-act="saveRfqDelLine" ${busy}>${icon('trash')} Remove item</button>`)}
+A.rfqDelTo=d=>{ui.modal.d.to=d.val;render()};
+A.saveRfqDelLine=async()=>{const m=ui.modal,d=m.d;const r=S.rfqs.find(x=>x.id===m.rfq);if(!r) return;if(r.status==='approved'||r.status==='ordered'){toast('Reopen the comparative first.','err');return}
+  const note=String(d.note||'').trim();if(!note){toast('Write the reason.','err');return}
+  const l=r.lines.find(x=>x.key===m.k);if(!l) return;const me=(ui.me&&ui.me.name)||'';
+  const ok=await run(async()=>{
+    const award=Object.assign({},r.award||{});delete award[l.key];
+    const removed=(r.removedLines||[]).concat([Object.assign({},l,{removedAt:Date.now(),removedBy:me,removeNote:note,to:d.to})]);
+    await updDoc('rfqs',r.id,Object.assign({lines:r.lines.filter(x=>x.key!==l.key),removedLines:removed},(r.award||{})[l.key]?{award}:{}));
+    const byInd={};for(const s of l.srcs)(byInd[s.indentId]=byInd[s.indentId]||[]).push(s.lineId);
+    for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const x of ls) if(lids.includes(x.id)&&x.rfqId===r.id){for(const k of ['rfqId','rfqNo','rfqAt']) delete x[k];
+      if(d.to==='drop'){x.status='rejected';x.approvalNote='Removed from '+r.no+' by '+me+': '+note;x.deletedBy=me}else x.hqNote=(x.hqNote?x.hqNote+' · ':'')+'Removed from '+r.no+': '+note}});
+    return true});
+  if(ok) {closeModal();toast(l.desc+' removed from '+r.no+(d.to==='queue'?' — back in the procurement queue':''))}};
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='rfqDel'?rfqDelModal(m,busy):prev(m,busy)}
