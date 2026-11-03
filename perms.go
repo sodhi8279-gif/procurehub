@@ -277,6 +277,8 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 				err = need(u, "quotes_enter")
 			case "award", "approvedAt", "approvedBy", "approvalNote":
 				err = need(u, "compare_approve")
+			case "lines": // the approver may change quantities while approving the comparative
+				err = need(u, "rfq_create", "compare_approve")
 			case "poIds", "orderedAt":
 				err = need(u, "po_issue")
 			case "status":

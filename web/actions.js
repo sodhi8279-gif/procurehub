@@ -288,7 +288,12 @@ async function generatePOs(r){
     await setDoc('pos',id,po);poIds.push(id);created.push(po);const exp=po.deliveryDays?addDays(po.date,+po.deliveryDays):'';
     if(r.deliveryMode==='site') await createDirectDispatches(po,id,exp);
     const byInd={};for(const l of po.lines) for(const s of l.srcs)(byInd[s.indentId]=byInd[s.indentId]||[]).push(s.lineId);
-    for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const l of ls) if(lids.includes(l.id)) Object.assign(l,{poId:id,poNo:no,vendorName:po.vendorName,expectedDate:exp,orderedQty:needQty(l),poAt:Date.now()})});
+    const srcQ={},rl={};for(const l of po.lines){const rfqL=r.lines.find(x=>x.key===l.key)||l;for(const s2 of l.srcs){srcQ[s2.indentId+'|'+s2.lineId]=num(s2.qty);rl[s2.indentId+'|'+s2.lineId]=rfqL}}
+    for(const [iid,lids] of Object.entries(byInd)) await patchLines(iid,ls=>{for(const l of ls.slice()) if(lids.includes(l.id)){const k=iid+'|'+l.id;const oq=srcQ[k]!=null?srcQ[k]:needQty(l);const need=needQty(l);const pl=rl[k]||{};
+      if(oq<need-1e-9&&pl.qtyChg&&pl.qtyChg.balance==='queue'){const rest=Math.round((need-oq)*1000)/1000;const nl=JSON.parse(JSON.stringify(l));for(const x of ['rfqId','rfqNo','rfqAt','poId','poNo','poAt','vendorName','expectedDate','orderedQty']) delete nl[x];
+        Object.assign(nl,{id:newId(),qty:rest,approvedQty:rest,splitFrom:l.id,siteNote:(l.siteNote?l.siteNote+' · ':'')+'Balance after '+no});ls.splice(ls.indexOf(l)+1,0,nl);l.approvedQty=oq}
+      else if(Math.abs(oq-need)>1e-9){l.approvedQty=oq;l.approvalNote=(l.approvalNote?l.approvalNote+' · ':'')+'Quantity '+(oq<need?'reduced':'increased')+' to '+fq(oq)+' '+l.unit+' at comparative'+(pl.qtyChg&&pl.qtyChg.note?': '+pl.qtyChg.note:'')}
+      Object.assign(l,{poId:id,poNo:no,vendorName:po.vendorName,expectedDate:exp,orderedQty:oq,poAt:Date.now()})}});
   }
   await updDoc('rfqs',r.id,{status:'ordered',poIds,orderedAt:Date.now()});return created;
 }
