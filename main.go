@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.5.3"
+const appVersion = "6.5.4"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -865,10 +865,13 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 		if str(ex, "projectId") == u.ProjectID && (status == "delivered" || status == "short") {
 			out := shallowCopy(ex)
 			for k, v := range patch {
-				if k != "signedDocs" {
+				if k != "signedDocs" && !(k == "billDocs" && str(ex, "type") == "direct") {
 					return nil, errDeny
 				}
 				if len(anyList(v)) == 0 {
+					if k == "billDocs" {
+						return nil, errors.New("Attach the vendor's bill.")
+					}
 					return nil, errors.New("Attach the signed and stamped challan.")
 				}
 				out[k] = v
@@ -886,7 +889,7 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 						return nil, errDeny
 					}
 					out[k] = sv
-				case "receivedAt", "receivedByName", "siteRemarks", "photos", "signedDocs", "receiverDesignation", "receivedOn", "declared":
+				case "receivedAt", "receivedByName", "siteRemarks", "photos", "signedDocs", "billDocs", "receiverDesignation", "receivedOn", "declared":
 					out[k] = v
 				case "receivedBy":
 				case "lines":

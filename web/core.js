@@ -132,7 +132,8 @@ const app=document.getElementById('app');
 const store={cols:{},rev:0,epoch:''};
 const mailOk=()=>!!(ui.smtp&&ui.smtp.configured);
 const proj=id=>S.projects.find(p=>p.id===id);
-const projCode=id=>{const p=proj(id);return p?(p.code||p.name):'—'};
+const projCode=id=>{const p=proj(id);return p?(p.name||p.code):'—'}; // shown on screen: the project name
+const projCodeOnly=id=>{const p=proj(id);return p?(p.code||''):''};
 // full site name (HQ store screens show which site the material is for)
 const projName=id=>{const p=proj(id);return p?(p.name||p.code):'—'};
 const projLabel=id=>{const p=proj(id);return p?`${p.code?p.code+' · ':''}${p.name}`:'Unknown project'};
@@ -211,6 +212,10 @@ async function uploadFile(file,opt={}){
 const isPdf=id=>/\.pdf$/.test(String(id||''));
 const isXlsx=id=>/\.xlsx$/.test(String(id||''));
 function photoTile(id,removePath){return `<span class="ph">${isXlsx(id)?`<a class="ph-pdf" href="/files/${esc(id)}" download>${icon('grid')}<span>Excel</span></a>`:isPdf(id)?`<a class="ph-pdf" href="/files/${esc(id)}" target="_blank" rel="noopener">${icon('doc')}<span>PDF</span></a>`:`<button type="button" class="ph-img" data-act="viewPhoto" data-id="${esc(id)}" aria-label="View photo"><img src="/files/${esc(id)}" alt="" loading="lazy"></button>`}${removePath?`<button type="button" class="ph-x" data-act="rmPhoto" data-path="${esc(removePath)}" data-id="${esc(id)}" aria-label="Remove">${icon('x')}</button>`:''}</span>`}
+// documents kept with a receipt: vendor bill, receipt signed & stamped, other photos
+const grnDocs=g=>[...(g.billDocs||[]),...(g.signedDocs||[]),...(g.photos||[])];
+const billNeeded=g=>!!(g&&(g.poId||g.type==='nopo'));
+function docStep(n,title,path,ids,req,help){return `<div class="step-h"><span>${n}</span><b>${title}</b> ${req?'<span class="req">required</span>':'<span class="muted small">optional</span>'}</div>${help?`<p class="small muted">${help}</p>`:''}${photoPicker(path,ids,{label:'Upload photo or PDF',doc:true})}`}
 function photoPicker(path,ids,o={}){
   ids=(Array.isArray(ids)?ids:(ids?[ids]:[])).filter(Boolean);const multi=o.multi!==false;const fid='up-'+path.replace(/[^a-zA-Z0-9]/g,'-');
   if(o.doc) return `<div class="photos doc-up">${ids.map(id=>photoTile(id,path)).join('')}<label class="doc-drop" for="${fid}" data-drop="${esc(path)}" data-multi="${multi?1:0}">${ui.uploading?'<span class="spin"></span>':icon('ul')}<span><b>Browse files</b> or drag them here<small>Photos (JPG, PNG) or PDF · up to 12 MB each${multi?' · several at once':''}</small></span></label><input type="file" id="${fid}" accept="image/*,application/pdf,.pdf" ${multi?'multiple':''} hidden data-upload="${esc(path)}" data-multi="${multi?1:0}"></div>`;
@@ -450,7 +455,7 @@ function shell(){
   <aside class="side ${ui.drawer?'open':''}" aria-label="Main menu">
     ${brandBlock()}
     <nav class="nav">${nav}</nav>
-    ${ui.isHQ&&isAdm()?`<div class="preview"><label for="f-preview">Preview a site's screens</label><select id="f-preview" data-act-change="preview"><option value="">— HQ view —</option>${S.projects.filter(p=>p.active!==false).map(p=>`<option value="${esc(p.id)}" ${ui.preview===p.id?'selected':''}>${esc(p.code||p.name)}</option>`).join('')}</select></div>`:''}
+    ${ui.isHQ&&isAdm()?`<div class="preview"><label for="f-preview">Preview a site's screens</label><select id="f-preview" data-act-change="preview"><option value="">— HQ view —</option>${S.projects.filter(p=>p.active!==false).map(p=>`<option value="${esc(p.id)}" ${ui.preview===p.id?'selected':''}>${esc(p.name||p.code)}</option>`).join('')}</select></div>`:''}
     <div class="side-user"><span class="avatar" style="--h:${hash(me.id)%360}">${esc(initials(me.name))}</span><div><b>${esc(me.name||'')}</b><small>${ui.isHQ?esc(accessSummary(me)):esc(projCode(me.projectId))}</small></div></div>
     <div class="side-ver" title="ProcureHub version running on the server">ProcureHub ${esc(ui.version||'')}<br>Developed by ${esc(DEVELOPER)}</div>
   </aside>

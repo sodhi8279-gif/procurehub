@@ -344,15 +344,21 @@ A.cancelPo=()=>{const po=poOf();confirmBox({title:'Cancel '+po.no,body:'The dema
 
 /* ================= RECEIPT, STORE, DISPATCH ================= */
 A.recordGrn=d=>{const po=S.pos.find(p=>p.id===d.id);if(!poIsApproved(po)){toast('This PO is waiting for approval by the Director (Procurement).','err');return}const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
-  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[]}})};
+  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[],billDocs:[],signedDocs:[]}})};
 A.saveGrn=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId);const d=m.d;
   const lines=po.lines.map(l=>{const rc=num(d.recv[l.key]),rj=num(d.rej[l.key]);return {key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,itemKey:l.itemKey||itemKey(l.desc,l.spec,l.unit),recv:rc,rej:rj,acc:Math.max(0,rc-rj)}}).filter(l=>l.recv>0);
   if(!lines.length){toast('Enter the received quantity.','err');return}
-  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],lines,at:Date.now(),by:ui.uid||null});
+  if(!needReceiptDocs(d)) return;
+  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],billDocs:d.billDocs,signedDocs:d.signedDocs,lines,at:Date.now(),by:ui.uid||null});
     const received=Object.assign({},po.received||{});for(const l of lines) received[l.key]=num(received[l.key])+l.acc;await updDoc('pos',po.id,{received});toast(no+' saved. Store stock updated.')});
   if(ok) closeModal()};
+// a receipt needs the vendor's bill and the receipt signed & stamped
+function needReceiptDocs(d){const go=k=>{const z=document.querySelector(`#modal [data-drop="modal.d.${k}"]`);z&&z.scrollIntoView({block:'center'})};
+  if(!(d.billDocs||[]).length){toast("Upload the vendor's bill (photo or PDF).",'err');go('billDocs');return false}
+  if(!(d.signedDocs||[]).length){toast('Upload the receipt signed and stamped (photo or PDF).','err');go('signedDocs');return false}
+  return true}
 A.inwardPick=()=>openModal({type:'inwardPick'});
-A.inwardOther=d=>openModal({type:'inward',d:{type:d.t,date:today(),party:'',partyGstin:'',challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',photos:[],lines:[{desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''}]}});
+A.inwardOther=d=>openModal({type:'inward',d:{type:d.t,date:today(),party:'',partyGstin:'',challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',photos:[],billDocs:[],signedDocs:[],lines:[{desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''}]}});
 A.inwardAdd=()=>{ui.modal.d.lines.push({desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''});render()};
 A.inwardRm=d=>{ui.modal.d.lines.splice(+d.i,1);render()};
 A.saveInward=async()=>{const d=ui.modal.d;const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
@@ -360,12 +366,13 @@ A.saveInward=async()=>{const d=ui.modal.d;const lines=d.lines.filter(l=>String(l
   for(const l of lines){if(!String(l.desc).trim()){toast('Enter the item name on every line.','err');return}if(!(num(l.qty)>0)){toast(`Enter the quantity for ${l.desc}.`,'err');return}
     if(String(l.gst??'').trim()!==''&&!(num(l.gst)>=0&&num(l.gst)<=100)){toast(`GST % for ${l.desc} must be between 0 and 100.`,'err');return}}
   const pg=String(d.partyGstin||'').trim().toUpperCase();if(gstinCheck(pg)){toast('Supplier GSTIN: '+gstinCheck(pg),'err');return}
-  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:d.type,date:d.date||today(),party:String(d.party||'').trim(),partyGstin:pg,invoiceDate:d.invoiceDate||'',challan:d.challan||'',invoice:d.invoice||'',vehicle:d.vehicle||'',remarks:d.remarks||'',photos:d.photos||[],at:Date.now(),by:ui.uid||null,
+  if(d.type==='nopo'&&!needReceiptDocs(d)) return;
+  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:d.type,date:d.date||today(),party:String(d.party||'').trim(),partyGstin:pg,invoiceDate:d.invoiceDate||'',challan:d.challan||'',invoice:d.invoice||'',vehicle:d.vehicle||'',remarks:d.remarks||'',photos:d.photos||[],billDocs:d.billDocs||[],signedDocs:d.signedDocs||[],at:Date.now(),by:ui.uid||null,
     lines:lines.map((l,i)=>{const desc=String(l.desc).trim();const o={key:'L'+(i+1),desc,spec:String(l.spec||'').trim(),unit:l.unit||'Nos',cat:classify(desc,l.spec).cat,itemKey:itemKey(desc,String(l.spec||'').trim(),l.unit||'Nos'),recv:num(l.qty),rej:0,acc:num(l.qty),hsn:String(l.hsn||'').trim()||itemHsn(desc)};
       if(String(l.rate??'').trim()!==''){o.rate=num(l.rate);o.gst=String(l.gst??'').trim()===''?(itemGst(desc)??18):num(l.gst)}return o})});return no});
   if(ok!==false){closeModal();toast(ok+' saved. HQ store stock updated.');ui.tab.store='stock';render()}};
-A.grnDocs=d=>{const g=S.grns.find(x=>x.id===d.id);if(g) openModal({type:'grnDocs',id:g.id,d:{photos:(g.photos||[]).slice()}})};
-A.saveGrnDocs=async()=>{const m=ui.modal;if(await run(()=>updDoc('grns',m.id,{photos:m.d.photos||[]}),'Documents saved')!==false) closeModal()};
+A.grnDocs=d=>{const g=S.grns.find(x=>x.id===d.id);if(g) openModal({type:'grnDocs',id:g.id,d:{photos:(g.photos||[]).slice(),billDocs:(g.billDocs||[]).slice(),signedDocs:(g.signedDocs||[]).slice()}})};
+A.saveGrnDocs=async()=>{const m=ui.modal;const g=S.grns.find(x=>x.id===m.id)||{};if(billNeeded(g)&&!needReceiptDocs(m.d)) return;if(await run(()=>updDoc('grns',m.id,{photos:m.d.photos||[],billDocs:m.d.billDocs||[],signedDocs:m.d.signedDocs||[]}),'Documents saved')!==false) closeModal()};
 A.printGrn=d=>{const g=S.grns.find(x=>x.id===d.id);if(g) printHtml(g.no,grnDoc(g))};
 A.storeItem=d=>openModal({type:'storeItem',k:d.k});
 A.freeChallan=d=>openModal({type:'freeChallan',d:{projectId:'',date:today(),vehicle:'',lrNo:'',driver:'',note:'',lines:[{k:d.k||'',qty:''}]}});
@@ -400,17 +407,19 @@ A.printChallan=d=>{const x=S.dispatches.find(y=>y.id===d.id);if(x) printHtml(x.n
 A.cancelDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);confirmBox({title:'Cancel '+x.no,body:x.type==='transfer'?'The transfer is cancelled and the demand line goes back to the procurement queue.':'Quantities return to store stock (or to the pending vendor delivery).',yes:'Cancel',danger:true,onYes:async()=>{
   const ok=await run(async()=>{await updDoc('dispatches',x.id,{status:'cancelled'});if(x.type==='transfer'){for(const l of x.lines) await patchLines(l.indentId,ls=>{const y=ls.find(z=>z.id===l.lineId);if(y&&y.transferId===x.id) for(const k of ['transferId','transferNo','transferFrom','transferAt']) delete y[k]})}},'Cancelled');if(ok) closeModal()}})};
 A.receiveDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);const recv={};x.lines.forEach((l,i)=>recv[i]=String(l.qty));const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
-  openModal({type:'receive',id:d.id,d:{recv,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],declared:false}})};
+  openModal({type:'receive',id:d.id,d:{recv,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],billDocs:[],declared:false}})};
 A.saveReceipt=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.id);const d=m.d;const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
   if(!String(d.by||'').trim()){toast(rs.length?'Choose the authorised person who received the material.':'Enter the name of the person who received the material.','err');return}
+  if(x.type==='direct'&&!(d.billDocs||[]).length){toast("Upload the vendor's bill (photo or PDF).",'err');const z=document.querySelector('#modal [data-drop="modal.d.billDocs"]');z&&z.scrollIntoView({block:'center'});return}
   if(!(d.signedDocs||[]).length){toast('Upload the challan signed and stamped at site (photo or PDF).','err');const z=document.querySelector('#modal [data-drop="modal.d.signedDocs"]');z&&z.scrollIntoView({block:'center'});return}
   if(!d.declared){toast('Tick the confirmation at the bottom.','err');return}
   const lines=x.lines.map((l,i)=>Object.assign({},l,{recvQty:num(d.recv[i])}));const short=lines.some(l=>l.recvQty+1e-9<num(l.qty));
   const who=rs.find(r=>r.name===d.by);
-  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,declared:true}),short?'Receipt saved — shortage reported to HQ':'Receipt confirmed. Site stock updated.')) closeModal()};
-A.signLater=d=>openModal({type:'signLater',id:d.id,d:{signedDocs:[]}});
-A.saveSignLater=async()=>{const m=ui.modal;if(!(m.d.signedDocs||[]).length){toast('Upload the signed and stamped challan first.','err');return}const x=S.dispatches.find(y=>y.id===m.id);
-  if(await run(()=>updDoc('dispatches',m.id,{signedDocs:(x.signedDocs||[]).concat(m.d.signedDocs)}),'Signed challan saved')) closeModal()};
+  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,...(x.type==='direct'?{billDocs:d.billDocs}:{}),declared:true}),short?'Receipt saved — shortage reported to HQ':'Receipt confirmed. Site stock updated.')) closeModal()};
+A.signLater=d=>openModal({type:'signLater',id:d.id,d:{signedDocs:[],billDocs:[]}});
+A.saveSignLater=async()=>{const m=ui.modal;const sd=m.d.signedDocs||[],bd=m.d.billDocs||[];if(!sd.length&&!bd.length){toast('Upload the document first.','err');return}const x=S.dispatches.find(y=>y.id===m.id);
+  const p={};if(sd.length) p.signedDocs=(x.signedDocs||[]).concat(sd);if(bd.length&&x.type==='direct') p.billDocs=(x.billDocs||[]).concat(bd);
+  if(await run(()=>updDoc('dispatches',m.id,p),'Documents saved')) closeModal()};
 A.rpAdd=()=>{const d=ui.modal.d;(d.receivers=d.receivers||[]).push({name:'',designation:'',phone:''});render();setTimeout(()=>{const el=document.getElementById('rp-n-'+(d.receivers.length-1));el&&el.focus()},30)};
 A.rpRm=d=>{ui.modal.d.receivers.splice(+d.i,1);render()};
 A.sendTransfer=d=>openModal({type:'sendTransfer',id:d.id,d:{vehicle:'',driver:'',lrNo:'',by:(ui.me&&ui.me.name)||'',photos:[]}});
@@ -447,7 +456,7 @@ A.reorderLow=d=>{const p=d.p||siteProject();const low=Object.values(D.site[p]||{
   for(const r of low){if(dr.lines.some(l=>itemKey(l.desc,l.spec,l.unit)===r.itemKey)) continue;const q=Math.max(r.min*2-r.bal,r.min);
     dr.lines.push({lid:newId(),desc:r.desc,spec:r.spec||'',qty:String(Math.ceil(q)),unit:r.unit,category:r.cat||'others',catSrc:'catalog',siteNote:'Below minimum stock',photo:''})}
   dr.remarks=dr.remarks||'Replenishment of items below minimum stock level';go('s_new');ui.cartOpen=true;toast(`${low.length} low-stock item${low.length>1?'s':''} added. Check quantities and send.`)};
-A.dlProjStock=d=>{const p=d.p;const code=projCode(p);const hq=ui.role==='hq';
+A.dlProjStock=d=>{const p=d.p;const code=projCodeOnly(p)||projCode(p);const hq=ui.role==='hq';
   const head=['Item','Specification','Category','Unit','Opening / added','Received','Issued','Sent to other sites','Damaged / lost','Returned to store','Count corrections','Balance','Minimum level','Status'].concat(hq?['Rate incl GST','Value']:[]);
   const rows=[head].concat(siteRows(p).map(r=>[r.desc,r.spec||'',catName(r.cat),r.unit,r.open,r.recv,r.used,r.out,r.dmg,r.ret,r.adj,r.bal,r.min||'',stockStatus(r).label].concat(hq?[D.rate[r.itemKey]?Math.round(D.rate[r.itemKey].rate*100)/100:'',Math.round(r.value)]:[])));
   const reg=[['Date','Entry','Item','Specification','Unit','Qty','Issued to','Location','Reason','Remarks','Entered by']].concat(S.sitelog.filter(e=>e.projectId===p).sort((a,b)=>(a.at||0)-(b.at||0)).map(e=>[e.date,(LOG_T[e.type]||LOG_T.opening)[0],e.desc,e.spec||'',e.unit,num(e.qty),e.issuedTo||'',e.location||'',e.reason||'',e.remarks||'',e.createdByName||'']));
@@ -538,7 +547,7 @@ A.dlStock=()=>{const L=storeLedger();const rv=seeRates();const rows=[['Item','Sp
   for(const r of Object.values(L).sort((a,b)=>String(a.desc).localeCompare(b.desc))) rows.push([r.desc,r.spec||'',catName(r.cat),r.unit,r.inQ,r.outQ,r.bal,r.forSites.map(x=>projName(x.p)+' '+x.q+(x.mrs.length?' ('+x.mrs.join(', ')+')':'')).join('; ')||(r.bal>0?'Free stock':''),r.reserved,r.free,r.lastIn,r.age??'',...(rv?[Math.round(r.value)]:[])]);
   const led=[['Item','Specification','Unit','Date','Document','Details','In','Out','Balance']];for(const r of Object.values(L)) for(const e of r.ent) led.push([r.desc,r.spec||'',r.unit,e.d,e.no||'',e.what,e.inQ||'',e.outQ||'',e.bal]);
   saveXlsx('hq-store-stock-'+today()+'.xlsx',[{name:'HQ store stock',rows},{name:'In and out register',rows:led}])};
-A.dlSiteStock=()=>{const rows=[['Project code','Project','Item','Specification','Category','Unit','Opening / added','Received','Sent to other sites','Issued','Damaged / lost','Returned to store','Count corrections','Balance','Minimum level','Status','Value']];for(const p in D.site) for(const r of Object.values(D.site[p])) rows.push([projCode(p),projLabel(p),r.desc,r.spec||'',catName(r.cat),r.unit,r.open,r.recv,r.out,r.used,r.dmg,r.ret,r.adj,r.bal,r.min||'',stockStatus(r).label,Math.round(r.value)]);saveXlsx('site-stock-'+today()+'.xlsx',[{name:'Site stock',rows}])};
+A.dlSiteStock=()=>{const rows=[['Project code','Project','Item','Specification','Category','Unit','Opening / added','Received','Sent to other sites','Issued','Damaged / lost','Returned to store','Count corrections','Balance','Minimum level','Status','Value']];for(const p in D.site) for(const r of Object.values(D.site[p])) rows.push([projCodeOnly(p),projName(p),r.desc,r.spec||'',catName(r.cat),r.unit,r.open,r.recv,r.out,r.used,r.dmg,r.ret,r.adj,r.bal,r.min||'',stockStatus(r).label,Math.round(r.value)]);saveXlsx('site-stock-'+today()+'.xlsx',[{name:'Site stock',rows}])};
 
 /* ================= SAMPLE DATA ================= */
 A.loadSample=()=>confirmBox({title:'Load sample data',body:'Adds 5 example projects, 8 example vendors, 7 site demands, one RFQ with quotes and some site stock — all marked as samples so you can remove them later from Settings.',yes:'Load samples',onYes:async()=>{ui.modal=null;await run(loadSample,'Sample data loaded');go('dashboard')}});

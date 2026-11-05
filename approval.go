@@ -165,6 +165,14 @@ func receiptGuard(col string, ex, nd map[string]any) error {
 	case "grns":
 		if ex == nil {
 			poID = str(nd, "poId")
+			if poID != "" || str(nd, "type") == "nopo" {
+				if len(anyList(nd["billDocs"])) == 0 {
+					return errors.New("Upload the vendor's bill (photo or PDF) with the receipt.")
+				}
+				if len(anyList(nd["signedDocs"])) == 0 {
+					return errors.New("Upload the receipt signed and stamped (photo or PDF).")
+				}
+			}
 		}
 	case "jobwork":
 		if ex == nil && str(nd, "type") == "in" && str(nd, "source") == "po" {
@@ -174,6 +182,14 @@ func receiptGuard(col string, ex, nd map[string]any) error {
 		if ex != nil && str(ex, "type") == "direct" && str(ex, "status") != str(nd, "status") {
 			if s := str(nd, "status"); s == "in_transit" || s == "delivered" || s == "short" {
 				poID = str(ex, "poId")
+			}
+			if s := str(nd, "status"); s == "delivered" || s == "short" {
+				if len(anyList(nd["billDocs"])) == 0 {
+					return errors.New("Upload the vendor's bill (photo or PDF).")
+				}
+				if len(anyList(nd["signedDocs"])) == 0 {
+					return errors.New("Upload the challan signed and stamped at site (photo or PDF).")
+				}
 			}
 		}
 	}

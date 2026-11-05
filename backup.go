@@ -410,7 +410,7 @@ func buildWorkbookLocked() []xSheet {
 					po = "Opening stock"
 				}
 			}
-			rows = append(rows, []any{str(g, "no"), str(g, "date"), po, firstNonEmpty(str(g, "vendorName"), str(g, "party")), str(g, "challan"), str(g, "invoice"), str(g, "vehicle"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["recv"]), fnum(l["rej"]), fnum(l["acc"]), str(g, "remarks"), len(subAny(g, "photos"))})
+			rows = append(rows, []any{str(g, "no"), str(g, "date"), po, firstNonEmpty(str(g, "vendorName"), str(g, "party")), str(g, "challan"), str(g, "invoice"), str(g, "vehicle"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["recv"]), fnum(l["rej"]), fnum(l["acc"]), str(g, "remarks"), len(subAny(g, "photos")) + len(subAny(g, "billDocs")) + len(subAny(g, "signedDocs"))})
 		}
 	}
 	sheets = append(sheets, xSheet{"HQ store inward (GRN)", rows})

@@ -251,6 +251,9 @@ func checkSiteReceipt(u *User, d map[string]any) error {
 			return errors.New(name + " is not on this site's list of persons authorised to receive material. Ask HQ to add the name.")
 		}
 	}
+	if str(d, "type") == "direct" && len(anyList(d["billDocs"])) == 0 {
+		return errors.New("Upload the vendor's bill (photo or PDF).")
+	}
 	if len(anyList(d["signedDocs"])) == 0 {
 		return errors.New("Upload the delivery challan signed and stamped at site (photo or PDF).")
 	}
