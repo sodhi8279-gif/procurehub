@@ -258,6 +258,12 @@ func checkProjectLists(ex, patch, nd map[string]any) error {
 
 // sitePMProject: the project manager may keep the stores and heads of his project, nothing else
 func sitePMProject(u *User, op string, ex, patch, merged map[string]any, id string) (map[string]any, error) {
+	if op == "update" && ex != nil && onlyPhotoKeys(patch) {
+		if !sitePhotoUser(u, id) {
+			return nil, errors.New("Only the project manager and site engineers of this site can manage its photos.")
+		}
+		return merged, nil // checked in checkProjectPhotos
+	}
 	if op != "update" || ex == nil || id != u.ProjectID || !sitePM(u) {
 		return nil, errors.New("Only the project manager can add stores and issue heads.")
 	}
@@ -624,7 +630,7 @@ func siteMgrLists(u *User, op, col, id string, patch map[string]any) bool {
 		return false
 	}
 	for k := range patch {
-		if k != "stores" && k != "heads" {
+		if k != "stores" && k != "heads" && k != "photos" && k != "photo" {
 			return false
 		}
 	}

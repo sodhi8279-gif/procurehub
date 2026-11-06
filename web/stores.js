@@ -214,17 +214,23 @@ function vHeads(pid){return `${storesSection(pid)}${headsSection(pid)}`}
     if(ui.view==='s_heads') return vHeads(pid);
     if(isSK()&&(ui.view==='s_new'||ui.view==='s_list'||ui.view==='s_indent'||ui.view==='done')) return emptyBox(ART.x('clip','e-art'),'Demands are raised by the project manager','As storekeeper you receive material and make gate passes. Tell the project manager what the site needs.',`<button class="btn primary" data-act="go" data-v="s_home">Home</button>`);
     if(isSK()&&(ui.view==='s_home'||!ui.view)) return vSKHome(pid);
-    let h=prev();if(ui.view==='s_home'&&isPM()) h=approvalsBlock(pid)+h;return h}
+    return prev()}
   if(ui.role==='hq'&&ui.view==='gatepasses') return vHQGatePasses();
   return prev()}}
 function vSKHome(pid){const p=proj(pid)||{};const inc=S.dispatches.filter(d=>d.projectId===pid&&(d.status==='in_transit'||d.status==='ordered'));const toSend=S.dispatches.filter(d=>d.fromProjectId===pid&&d.status==='to_send');
   const mine=S.siteissues.filter(g=>g.projectId===pid&&g.by===ui.uid).sort((a,b)=>(b.at||0)-(a.at||0));const st=myStores(pid);
-  return `<section class="site-hero">${cover(p)}<div class="site-hero-shade"></div><div class="site-hero-t"><span class="eyebrow">${greet()}, ${esc(firstName(ui.me.name))} · Storekeeper</span><h2>${esc(p.name||'')}</h2><span>${icon('box')} ${esc(st.map(s=>s.name).join(', '))}</span></div></section>
-  <div class="qa-grid">
-    <button class="qa hi" data-act="go" data-v="s_incoming"><span class="qa-art">${ART.x('truck')}</span><b>Receive material</b><small>${inc.length?inc.length+' on the way':'Nothing on the way'}</small>${inc.length?`<i class="qa-badge">${inc.length}</i>`:''}</button>
-    <button class="qa" data-act="gpNew" data-p="${esc(pid)}"><span class="qa-art">${ART.x('use')}</span><b>Issue material</b><small>Gate pass for the project manager</small></button>
-    <button class="qa" data-act="openStock" data-p="${esc(pid)}"><span class="qa-art">${ART.x('store')}</span><b>Add existing stock</b><small>Counts after approval</small></button>
-    <button class="qa" data-act="go" data-v="s_stock"><span class="qa-art">${ART.x('mix')}</span><b>Store stock</b><small>${st.length} store${st.length===1?'':'s'}</small></button></div>
+  const myWait=S.siteissues.filter(g=>g.projectId===pid&&g.by===ui.uid&&g.status==='pending').length;const out=S.siteissues.filter(g=>g.projectId===pid&&g.returnable&&g.kind!=='return'&&g.status==='approved'&&gpOpenQty(g)>1e-9);
+  const items=st.reduce((n,s)=>n+storeRows(pid,s.id).filter(r=>r.bal>1e-9).length,0);
+  return `${siteBanner(p,[
+      {act:'go',v:'s_incoming',k:'On the way',val:inc.length,d:'to receive into your stores',cls:inc.length?'go':'',dot:inc.length>0},
+      {act:'go',v:'s_gp',k:'Waiting for approval',val:myWait,d:'your gate passes'},
+      {act:'go',v:'s_gp',k:'Returnable out',val:out.length,d:out.filter(g=>g.dueDate<today()).length+' overdue',cls:out.some(g=>g.dueDate<today())?'warn':''},
+      {act:'go',v:'s_stock',k:'Items in stock',val:items,d:st.map(s=>s.name).join(', ')}],`${greet()}, ${esc(firstName(ui.me.name))} · storekeeper`)}
+  ${actionKeys([
+    {act:'go',v:'s_incoming',hi:true,ph:'receive',art:'truck',t:'Receive material',s:inc.length?inc.length+' on the way':'Nothing on the way',n:inc.length},
+    {act:'gpNew',p:pid,ph:'issue',art:'use',t:'Issue material',s:'Gate pass for the project manager'},
+    {act:'gpReturn',p:pid,ph:'contractor',art:'clip',t:'Material back',s:'From a contractor, on a return note'},
+    {act:'openStock',p:pid,ph:'stock',art:'store',t:'Add existing stock',s:'Counts after approval'}])}
   ${toSend.length?`<section class="card"><div class="card-h"><h2>Material to send to other sites</h2><span class="sub">HQ asked for these. Load them; the project manager lets them go</span></div><div class="list">${toSend.map(d=>dispCard(d,'from')).join('')}</div></section>`:''}
   ${inc.length?`<section class="card"><div class="card-h"><h2>On the way to your site</h2></div><div class="list">${inc.map(d=>dispCard(d)).join('')}</div></section>`:''}
   ${approvalsBlock(pid)}

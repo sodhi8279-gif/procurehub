@@ -17,7 +17,7 @@ async function boot(){
   applyTheme();document.body.insertAdjacentHTML('afterbegin',ART.sprite);render();
   let r,j=null;
   try{r=await fetch('/api/me',{credentials:'same-origin'});try{j=await r.json()}catch(e){}}catch(e){ui.view='fatal';ui.fatal='Cannot reach the ProcureHub server. Check that it is running and that this device is connected.';render();return}
-  if(j){ui.company=j.company;ui.logo=j.logo;ui.version=j.version||'';ui.dataNotes=j.dataNotes||null}
+  if(j){ui.company=j.company;ui.logo=j.logo;ui.heroSlot=j.heroPhoto||null;ui.version=j.version||'';ui.dataNotes=j.dataNotes||null}
   if(r.status===401){ui.view=j&&j.setup?'setup':'login';render();setTimeout(()=>{const el=document.getElementById(ui.view==='setup'?'a-name':'a-user');el&&el.focus()},50);return}
   if(!r.ok||!j||!j.user){ui.view='fatal';ui.fatal='The server returned an error. Try reloading the page.';render();return}
   ui.me=j.user;ui.me.hasSK=!!j.siteHasStorekeeper;ui.net=j.net||null;ui.uid=j.user.id;ui.isHQ=j.user.role==='hq';ui.role=ui.isHQ?'hq':'site';
@@ -469,8 +469,9 @@ A.saveProject=async()=>{const m=ui.modal;const p=m.d;if(!String(p.name||'').trim
   p.gstin=String(p.gstin||'').trim().toUpperCase();const ge=gstinCheck(p.gstin);if(ge){toast('Site GSTIN: '+ge,'err');return}
   if(p.pin&&!/^[1-9][0-9]{5}$/.test(String(p.pin).trim())){toast('PIN code must be 6 digits.','err');return}
   if(p.gstin&&GST_STATES[p.gstin.slice(0,2)]&&p.state&&stateCode(p.state)&&GST_STATES[p.gstin.slice(0,2)]!==p.state){toast(`The site GSTIN is registered in ${GST_STATES[p.gstin.slice(0,2)]}, but the project state is ${p.state}.`,'err');return}
-  const doc={code:(p.code||'').trim().toUpperCase(),name:p.name.trim(),scheme:p.scheme||'',client:p.client||'',city:p.city||'',state:p.state||'',siteContact:p.siteContact||'',phone:p.phone||'',address:p.address||'',receivers:(p.receivers||[]).map(r=>({name:String(r.name||'').trim(),designation:String(r.designation||'').trim(),phone:String(r.phone||'').trim()})).filter(r=>r.name),pin:String(p.pin||'').trim(),billName:String(p.billName||'').trim(),gstin:p.gstin,photo:p.photo||'',active:p.active!==false,at:p.at||Date.now()};if(p.sample) doc.sample=true;
-  if(await run(()=>setDoc('projects',m.id||newId(),doc),'Project saved')) closeModal()};
+  const doc={code:(p.code||'').trim().toUpperCase(),name:p.name.trim(),scheme:p.scheme||'',client:p.client||'',city:p.city||'',state:p.state||'',siteContact:p.siteContact||'',phone:p.phone||'',address:p.address||'',receivers:(p.receivers||[]).map(r=>({name:String(r.name||'').trim(),designation:String(r.designation||'').trim(),phone:String(r.phone||'').trim()})).filter(r=>r.name),pin:String(p.pin||'').trim(),billName:String(p.billName||'').trim(),gstin:p.gstin,active:p.active!==false,at:p.at||Date.now()};if(p.sample) doc.sample=true;
+  // an existing project is updated, so its photos, stores and issue heads are kept
+  if(await run(()=>m.id&&S.projects.some(x=>x.id===m.id)?updDoc('projects',m.id,doc):setDoc('projects',m.id||newId(),doc),'Project saved')) closeModal()};
 A.editVendor=d=>{const v=d.id?S.vendors.find(x=>x.id===d.id):null;openModal({type:'vendor',id:d.id||null,d:v?JSON.parse(JSON.stringify(v)):{name:'',gstin:'',contact:'',phone:'',email:'',city:'',address:'',payment:'',rating:'',categories:[]}})};
 A.vendCatQuick=async(d,el)=>{const v=S.vendors.find(x=>x.id===d.v);if(!v) return;const cats=(v.categories||[]).filter(c=>c!==d.c);if(el.checked) cats.push(d.c);
   const ok=await run(()=>updDoc('vendors',v.id,{categories:cats}),el.checked?`${v.name}: ${catName(d.c)} assigned`:`${v.name}: ${catName(d.c)} removed`);if(ok===false){el.checked=!el.checked;render()}};

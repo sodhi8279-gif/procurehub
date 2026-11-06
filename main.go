@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.7.0"
+const appVersion = "6.8.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -357,7 +357,7 @@ func hMe(w http.ResponseWriter, r *http.Request) {
 	logo := configLocked("logo")
 	mu.Unlock()
 	if u == nil {
-		writeJSON(w, 401, map[string]any{"error": "Please sign in.", "setup": setup, "company": company, "logo": logo, "version": appVersion})
+		writeJSON(w, 401, map[string]any{"error": "Please sign in.", "setup": setup, "company": company, "logo": logo, "version": appVersion, "heroPhoto": heroSlot()})
 		return
 	}
 	out := map[string]any{"user": publicUser(u), "company": company, "logo": logo, "version": appVersion}
@@ -1124,6 +1124,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 			return
 		}
 	}
+	if req.Col == "config" && req.ID == "photos" && req.Op != "delete" {
+		if err := checkSlotPhotos(newData); err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+	}
 	if u.Role == "hq" && req.Col == "config" && req.ID == "main" {
 		if err := precheckConfigGuard(exData, newData); err != nil {
 			fail(w, 400, err.Error())
@@ -1160,6 +1166,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		}
 		if req.Col == "projects" && u.Role == "hq" {
 			if err := checkProjectLists(exData, req.Data, newData); err != nil {
+				fail(w, 400, err.Error())
+				return
+			}
+		}
+		if req.Col == "projects" {
+			if err := checkProjectPhotos(u, exData, req.Data, newData); err != nil {
 				fail(w, 400, err.Error())
 				return
 			}
@@ -1318,7 +1330,7 @@ func hFile(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		logo := configLocked("logo")
 		mu.Unlock()
-		if id != logo {
+		if id != logo && !slotPhotoFile(id) {
 			fail(w, 401, "Please sign in.")
 			return
 		}

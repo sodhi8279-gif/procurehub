@@ -489,8 +489,14 @@ function shell(){
   </div>`;
 }
 function bottomNav(){const p=siteProject();const inc=S.dispatches.filter(d=>(d.projectId===p&&(d.status==='in_transit'||d.status==='ordered'))||(d.fromProjectId===p&&d.status==='to_send')).length;
-  const it=[['s_home','home','Home'],['s_list','inbox','Demands'],['s_new','plus','Raise'],['s_incoming','truck','Receive'],['s_stock','layers','Stock']];
-  return `<nav class="bnav" aria-label="Site menu">${it.map(([v,i,l])=>`<button data-act="go" data-v="${v}" class="${v==='s_new'?'raise':''}" ${isActive(v)?'aria-current="page"':''}>${icon(i)}<span>${l}</span>${v==='s_incoming'&&inc?`<i>${inc}</i>`:''}</button>`).join('')}</nav>`}
+  const sk=typeof isSK==='function'&&isSK(),pm=typeof isPM==='function'&&isPM();
+  const wait=pm?S.siteissues.filter(g=>g.projectId===p&&g.status==='pending').length+S.sitelog.filter(e=>e.projectId===p&&e.status==='pending').length:0;
+  // the storekeeper's middle button issues material; he does not raise demands
+  const it=sk?[['s_home','home','Home'],['s_incoming','truck','Receive'],['gpNew','plus','Issue'],['s_gp','doc','Gate passes'],['s_stock','layers','Stock']]
+    :pm?[['s_home','home','Home'],['s_list','inbox','Demands'],['s_new','plus','Raise'],['s_gp','doc','Approvals'],['s_stock','layers','Stock']]
+    :[['s_home','home','Home'],['s_list','inbox','Demands'],['s_new','plus','Raise'],['s_incoming','truck','Receive'],['s_stock','layers','Stock']];
+  const n=v=>v==='s_incoming'?inc:v==='s_gp'?wait:0;
+  return `<nav class="bnav" aria-label="Site menu">${it.map(([v,i,l])=>`<button ${v==='gpNew'?`data-act="gpNew" data-p="${esc(p)}"`:`data-act="go" data-v="${v}"`} class="${v==='s_new'||v==='gpNew'?'raise':''}" ${isActive(v)?'aria-current="page"':''}>${icon(i)}<span>${l}</span>${n(v)?`<i>${n(v)}</i>`:''}</button>`).join('')}</nav>`}
 function header(){
   const t=TITLES[ui.view]||['',''];
   if(ui.view==='indent'||ui.view==='s_indent'){const i=S.indents.find(x=>x.id===ui.param);return [i?esc(i.no):'Requisition',t[1]]}

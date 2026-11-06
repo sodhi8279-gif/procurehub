@@ -23,6 +23,8 @@ The web app in `web/` is embedded into the program at build time.
 - `gst.go` – HQ store GST challans / tax invoices, site receipt rules
 - `jobwork.go` – material with job workers (balance checks, Excel sheets)
 - `rates.go` – estimate before RFQ (approval), AI vendor search (6.7)
+- `projphotos.go` – project photo gallery rules and supporting photographs (6.8)
+- `web/ui.css`, `web/photos.js`, `web/gallery.js` – 6.8 design layer, photographs, project photo gallery
 - `stores.go` – stores at sites, storekeeper / project manager roles, issue heads, gate passes, site manager approvals, freight (6.6)
 - `backup.go`, `xlsx.go` – Excel backup
 - `install*.go`, `firewall*.go` – Windows update takeover and firewall setup
