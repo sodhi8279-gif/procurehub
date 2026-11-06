@@ -497,7 +497,13 @@ A.quickCat=()=>{const keep=ui.modal;confirmBox({title:'New category',body:'<p>Ad
     if(await run(()=>updDoc('config','main',{cats}),'Category “'+name+'” added')!==false){ui.modal=keep;keep.d.category=cats[cats.length-1].id;render()}}})};
 A.editItem=d=>{const it=d.id?D.itemMap[d.id]:null;openModal({type:'item',id:d.id||null,std:!!(it&&it.std),d:it?{desc:it.desc,spec:it.spec||'',unit:it.unit||'Nos',category:it.category||'others',photo:it.photo||'',sizesText:(it.sizes||[]).join(', '),hidden:!!it.hidden,gst:it.gst??'',hsn:it.hsn||''}:{desc:'',spec:'',unit:'Nos',category:'pipes',photo:'',sizesText:'',hidden:false,gst:'',hsn:''}})};
 A.saveItem=async()=>{const m=ui.modal,d=m.d;if(!String(d.desc).trim()){toast('Enter the item description.','err');return}const id=m.id||slug(d.desc);const gs=String(d.gst??'').trim();if(gs!==''&&!(num(gs)>=0&&num(gs)<=100)){toast('GST % must be between 0 and 100.','err');return}
-  if(await run(()=>setDoc('catalog',id,{gst:gs===''?'':num(gs),hsn:String(d.hsn||'').trim(),desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,category:d.category,photo:d.photo||'',sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean),hidden:!!d.hidden,at:Date.now()}),'Item saved')) closeModal()};
+  const doc={gst:gs===''?'':num(gs),hsn:String(d.hsn||'').trim(),desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,category:d.category,photo:d.photo||'',sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean),hidden:!!d.hidden,at:Date.now()};
+  // renamed: the item moves to its new name; a built-in item is marked as replaced so it does not come back
+  const newId=slug(doc.desc);
+  if(m.id&&newId&&newId!==m.id){if(D.itemMap[newId]){toast(`An item named “${D.itemMap[newId].desc}” is already in the catalogue. To join the two, use Find items → Edit.`,'err');return}
+    const it=D.itemMap[m.id];if(it&&it.kw) doc.kw=it.kw;
+    if(await run(async()=>{await setDoc('catalog',newId,doc);if(STD[m.id]) await setDoc('catalog',m.id,{desc:'',replacedBy:newId,at:Date.now()});else await delDoc('catalog',m.id)},'Item renamed')) closeModal();return}
+  if(await run(()=>setDoc('catalog',id,doc),'Item saved')) closeModal()};
 A.delItem=()=>{const id=ui.modal.id;confirmBox({title:'Delete item',body:'The item is removed from the catalogue. Past demands are not affected.',yes:'Delete',danger:true,onYes:async()=>{if(await run(()=>delDoc('catalog',id),'Item deleted')) closeModal()}})};
 A.saveStore=async()=>{const st=Object.assign({},ui.draft.store);st.gstin=String(st.gstin||'').trim().toUpperCase();const e=gstinCheck(st.gstin);if(e){toast(e,'err');return}
   for(const k of ['name','legal','address1','address2','city','district','pin','contact','phone','email']) st[k]=String(st[k]||'').trim();

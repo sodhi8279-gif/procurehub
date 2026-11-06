@@ -224,7 +224,7 @@ function itemIndex(){const site=ui.role==='site',pid=siteProject();const M={};
   if(!site) for(const p of S.pos){if(p.status==='cancelled') continue;for(const l of p.lines||[]){const o=get(l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(!o.pos.includes(p.no)) o.pos.push(p.no)}}
   return Object.values(M)}
 function vFind(){
-  const q=norm(ui.f.fq);const site=ui.role==='site';const adm=isAdm();
+  const q=norm(ui.f.fq);const site=ui.role==='site';const adm=ui.role==='hq'&&!ui.preview&&can('masters_items');
   const cat=q?D.items.filter(i=>norm(i.desc+' '+(i.spec||'')+' '+(i.sizes||[]).join(' ')+' '+catName(i.category||i.cat)).includes(q)).slice(0,60):[];
   let rows=itemIndex();if(q) rows=rows.filter(o=>norm(o.desc+' '+o.spec+' '+o.unit+' '+catName(o.cat)).includes(q));
   rows.sort((a,b)=>String(a.desc).localeCompare(b.desc)||String(a.spec).localeCompare(b.spec));const shown=rows.slice(0,300);
@@ -241,6 +241,7 @@ function vFind(){
   :`<div class="empty sm"><p>${q?'No item in stock, demands or orders matches “'+esc(ui.f.fq)+'”.':'No items in use yet.'}</p></div>`}</section>
   ${cat.length?`<section class="card"><div class="card-h"><h2>In the item catalogue</h2><span class="sub">What sites can pick when raising a demand</span></div><div class="tw"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Sizes</th>${adm?'<th></th>':''}</tr></thead><tbody>${cat.map(i=>`<tr><td><div class="who">${thumb({category:i.category||i.cat,desc:i.desc},'sm')}<span><b>${esc(i.desc)}</b><small class="muted block">${esc(i.spec||'')}</small></span></div></td><td>${esc(catName(i.category||i.cat))}</td><td>${esc(i.unit||'')}</td><td class="small">${esc((i.sizes||[]).join(', '))}</td>${adm?`<td><button class="btn sm" data-act="itemFix" data-cat="${esc(i.id)}">${icon('edit')} Edit</button></td>`:''}</tr>`).join('')}</tbody></table></div></section>`:''}`}
 
+Object.assign(ACT_PERM,{itemFix:'masters_items',saveItemFix:'masters_items'});
 A.itemFix=d=>{let from;
   if(d.cat){const it=D.itemMap[d.cat];if(!it) return;from={desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',catOnly:true,catId:it.id,dspec:it.spec||'',sizes:(it.sizes||[]).join(', ')}}
   else{const o=itemIndex().find(x=>x.key===d.k);if(!o) return;from={desc:o.desc,spec:o.spec||'',unit:o.unit,cat:o.cat||'others'}}
@@ -350,15 +351,19 @@ document.addEventListener('input',e=>{const el=e.target;if(el&&el.dataset&&el.da
 {const add=A.addCustom;A.addCustom=async()=>{const d=ui.modal&&ui.modal.d;const nw=d&&d.newItem&&ui.role==='hq'&&!ui.preview&&can('masters_items')&&String(d.desc||'').trim()&&num(d.qty)>0&&!D.itemMap[slug(d.desc)];
   const x=nw?{desc:d.desc.trim(),unit:d.unit,cat:d.category}:null;add();if(x&&!ui.modal){try{await setDoc('catalog',slug(x.desc),{desc:x.desc,spec:'',unit:x.unit,sizes:[],category:x.cat,at:Date.now()})}catch(e){}}}}
 
-// Item catalogue → edit item: when an administrator changes the category, the demands, orders and
-// stock entries of that item follow (on request).
-{const save=A.saveItem;A.saveItem=async(...a)=>{const m=ui.modal;const it=m&&m.id?D.itemMap[m.id]:null;const old=it&&(it.category||'others');const nw=m&&m.d&&m.d.category;
+// Item catalogue → edit item: when someone with Item catalogue rights changes the name, unit or category,
+// the demands, orders and stock entries of that item follow (on request).
+{const save=A.saveItem;A.saveItem=async(...a)=>{const m=ui.modal;const it=m&&m.id?D.itemMap[m.id]:null;
+  const old=it?{desc:it.desc,unit:it.unit||'Nos',cat:it.category||'others'}:null;const d=m&&m.d;
   await save(...a);
-  if(!it||!isAdm()||!nw||old===nw||(ui.modal&&ui.modal===m)) return;
-  const rows=itemIndex().filter(o=>norm(o.desc)===norm(it.desc)&&o.cat!==nw);if(!rows.length) return;
-  confirmBox({title:'Also change past records?',body:`<p><b>${esc(it.desc)}</b> is now in <b>${esc(catName(nw))}</b>. ${rows.length} size${rows.length===1?'':'s'} of it in demands, orders or stock still show <b>${esc(catName(old))}</b>.</p><p>Change them too, so the procurement queue, vendors and reports use the new category?</p>`,yes:'Change them too',onYes:async()=>{
-    const ok=await run(async()=>{let n=0;for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat:nw}});n+=j.docs}return n});
-    if(ok!==false){closeModal();toast(`Category changed in ${ok} record${ok===1?'':'s'}.`)}}})}}
+  if(!old||!d||!can('masters_items')||ui.preview||(ui.modal&&ui.modal===m)) return;
+  const nw={desc:String(d.desc||'').trim(),unit:d.unit||old.unit,cat:d.category||old.cat};
+  const descChg=nw.desc&&nw.desc!==old.desc,unitChg=nw.unit!==old.unit,catChg=nw.cat!==old.cat;if(!descChg&&!unitChg&&!catChg) return;
+  const rows=itemIndex().filter(o=>norm(o.desc)===norm(old.desc)&&(descChg||(unitChg&&o.unit===old.unit)||(catChg&&o.cat!==nw.cat)));if(!rows.length) return;
+  const what=[descChg?`name <b>${esc(old.desc)}</b> → <b>${esc(nw.desc)}</b>`:'',unitChg?`unit <b>${esc(old.unit)}</b> → <b>${esc(nw.unit)}</b> (relabelled, quantities not converted)`:'',catChg?`category <b>${esc(catName(old.cat))}</b> → <b>${esc(catName(nw.cat))}</b>`:''].filter(Boolean);
+  confirmBox({title:'Also change past records?',body:`<p>You changed the ${what.join(', ')}.</p><p>${rows.length} size${rows.length===1?'':'s'} of this item in demands, orders and stock still use the old one. Change them too, so every record, report and the procurement queue show the same item?</p>`,yes:'Change them too',onYes:async()=>{
+    const ok=await run(async()=>{let n=0;for(const o of rows){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:descChg?nw.desc:o.desc,spec:o.spec,unit:unitChg&&o.unit===old.unit?nw.unit:o.unit,cat:catChg?nw.cat:''}});n+=j.docs}return n});
+    if(ok!==false){closeModal();toast(`Changed in ${ok} record${ok===1?'':'s'}.`)}}})}}
 
 
 /* ================= 6. APPROVER CHANGES THE ITEM WHILE APPROVING =================
