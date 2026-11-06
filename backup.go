@@ -172,11 +172,15 @@ func siteStockLocked() map[string]map[string]*stockRow {
 		}
 	}
 	for _, x := range liveLocked("siteissues") {
-		if str(x.D, "status") != "approved" || str(x.D, "dest") != "head" {
+		if str(x.D, "status") != "approved" || (str(x.D, "dest") != "head" && str(x.D, "dest") != "repair") {
 			continue
 		}
+		sign := 1.0
+		if str(x.D, "kind") == "return" { // material back in the store
+			sign = -1
+		}
 		for _, l := range subList(x.D, "lines") {
-			row(str(x.D, "projectId"), itemKeyOf(l), l).Iss += fnum(l["qty"])
+			row(str(x.D, "projectId"), itemKeyOf(l), l).Iss += sign * fnum(l["qty"])
 		}
 	}
 	for _, x := range liveLocked("sitelog") {

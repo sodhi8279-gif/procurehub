@@ -254,8 +254,8 @@ function derive(){
     const f={use:'used',damage:'dmg',return:'ret',adjust:'adj'}[e.type]||'open';bump(e.projectId,e.storeId,ik,e,f,q,e.at||0);
     if(e.type==='return'){retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}}
   // gate passes: material issued to contractors / heads; pending ones are held back
-  for(const g of S.siteissues){if(g.status!=='approved'&&g.status!=='pending') continue;for(const l of g.lines||[]){const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
-    if(g.status==='pending') bump(g.projectId,g.storeId,ik,l,'piss',num(l.qty));else if(g.dest==='head') bump(g.projectId,g.storeId,ik,l,'iss',num(l.qty),(g.appr&&g.appr.at)||0)}}
+  for(const g of S.siteissues){if(g.status!=='approved'&&g.status!=='pending') continue;const ret=g.kind==='return';for(const l of g.lines||[]){const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
+    if(g.status==='pending'){if(!ret) bump(g.projectId,g.storeId,ik,l,'piss',num(l.qty))}else if(ret) bump(g.projectId,g.storeId,ik,l,'iss',-num(l.qty),(g.appr&&g.appr.at)||0);else if(g.dest==='head'||g.dest==='repair') bump(g.projectId,g.storeId,ik,l,'iss',num(l.qty),(g.appr&&g.appr.at)||0)}}
   // consumption reported by sites: counts once the site head / project manager authenticates it
   for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(c.status==='authenticated') bump(c.projectId,c.storeId,k,l,'cons',num(l.qty),(c.auth&&c.auth.at)||0);else bump(c.projectId,c.storeId,k,l,'pcons',num(l.qty))}}
   // material returned to vendors (rejected, wrong specification, damaged…)

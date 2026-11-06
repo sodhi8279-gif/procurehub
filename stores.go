@@ -27,6 +27,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -36,7 +37,9 @@ const mainStore = "main"
 
 var headTypes = map[string]string{"contractor": "Contractor", "works": "Works contractor", "company": "Company works (departmental)", "misc": "Misc. consumption"}
 
-var issueDests = map[string]bool{"head": true, "site": true, "hq": true, "vendor": true}
+var issueDests = map[string]bool{"head": true, "site": true, "hq": true, "vendor": true, "repair": true}
+
+var dateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
 func sitePM(u *User) bool    { return u != nil && u.Role == "site" && (u.SiteRole == "pm" || u.SiteHead) }
 func siteStore(u *User) bool { return u != nil && u.Role == "site" && u.SiteRole == "store" }
@@ -272,6 +275,11 @@ func sitePMProject(u *User, op string, ex, patch, merged map[string]any, id stri
 /* ---------------- gate passes ---------------- */
 
 func issueCheckNew(u *User, nd map[string]any) error {
+	if str(nd, "kind") == "return" {
+		return returnCheckNew(u, nd)
+	}
+	delete(nd, "kind")
+	delete(nd, "againstId")
 	pid := str(nd, "projectId")
 	if projectDoc(pid) == nil {
 		return errors.New("Choose the project.")
@@ -289,7 +297,7 @@ func issueCheckNew(u *User, nd map[string]any) error {
 		return errors.New("Choose where the material goes.")
 	}
 	for _, k := range []string{"headId", "headName", "headType", "toProjectId", "toStoreId", "toProjectName", "vendorName", "reason"} {
-		if dest == "head" && strings.HasPrefix(k, "head") || dest == "site" && strings.HasPrefix(k, "to") || dest == "vendor" && (k == "vendorName" || k == "reason") {
+		if dest == "head" && strings.HasPrefix(k, "head") || dest == "site" && strings.HasPrefix(k, "to") || dest == "vendor" && (k == "vendorName" || k == "reason") || dest == "repair" && k == "vendorName" {
 			continue
 		}
 		delete(nd, k)
@@ -314,6 +322,21 @@ func issueCheckNew(u *User, nd map[string]any) error {
 		if strings.TrimSpace(str(nd, "vendorName")) == "" {
 			return errors.New("Enter the vendor the material goes back to.")
 		}
+	case "repair":
+		if strings.TrimSpace(str(nd, "vendorName")) == "" {
+			return errors.New("Enter where it goes: repairer, testing lab or the party it is lent to.")
+		}
+	}
+	// returnable gate pass: tools, shuttering, pumps, testing equipment that must come back
+	if (dest == "head" && nd["returnable"] == true) || dest == "repair" {
+		due := str(nd, "dueDate")
+		if !dateRe.MatchString(due) || due < time.Now().Format("2006-01-02") {
+			return errors.New("Give the date by which the material must come back.")
+		}
+		nd["returnable"] = true
+	} else {
+		delete(nd, "returnable")
+		delete(nd, "dueDate")
 	}
 	rem := strings.TrimSpace(str(nd, "remarks"))
 	if rem == "" {
@@ -403,6 +426,9 @@ func issueGuard(u *User, id string, ex, patch, nd map[string]any) error {
 		return errors.New("Unknown step.")
 	}
 	// approved: number, values and what follows from it
+	if str(ex, "kind") == "return" {
+		return returnApprove(u, id, ex, patch, nd, now)
+	}
 	no := nextNo("GP")
 	nd["no"] = no
 	nd["appr"] = map[string]any{"by": u.ID, "byName": u.Name, "at": now, "note": clip(strings.TrimSpace(str(patch, "apprNote")), 500), "status": "approved", "designation": u.Designation}
@@ -635,10 +661,22 @@ func storeSheetsLocked(projects map[string]map[string]any, pcode func(string) st
 			return "Company warehouse (HQ store)"
 		case "vendor":
 			return "Return to vendor: " + str(d, "vendorName")
+		case "repair":
+			return "Out for repair / testing / hire: " + str(d, "vendorName")
 		}
 		return ""
 	}
-	rows := [][]any{{"Gate pass", "Date", "Project", "Store", "Issued to", "Item", "Specification", "Unit", "Qty", "Rate", "Value", "Remarks / narration", "Vehicle", "Freight (Rs)", "Prepared by", "Status", "Approved / rejected by", "Approval note"}}
+	label := func(d map[string]any) string {
+		if str(d, "kind") == "return" {
+			return "Back from " + strings.TrimPrefix(dest(d), "Out for repair / testing / hire: ")
+		}
+		s := dest(d)
+		if d["returnable"] == true {
+			s += " (returnable by " + str(d, "dueDate") + ")"
+		}
+		return s
+	}
+	rows := [][]any{{"Gate pass / return note", "Date", "Project", "Store", "Issued to / back from", "Item", "Specification", "Unit", "Qty", "Rate", "Value", "Remarks / narration", "Vehicle", "Freight (Rs)", "Prepared by", "Status", "Approved / rejected by", "Approval note"}}
 	type hk struct{ p, h, k string }
 	type hv struct {
 		desc, spec, unit, name, typ string
@@ -650,21 +688,25 @@ func storeSheetsLocked(projects map[string]map[string]any, pcode func(string) st
 		a, _ := d["appr"].(map[string]any)
 		f, _ := d["freight"].(map[string]any)
 		for _, l := range subList(d, "lines") {
-			rows = append(rows, []any{str(d, "no"), fmtDate(fnum(d["at"])), pcode(str(d, "projectId")), storeName(projects[str(d, "projectId")], storeOf(d, "storeId")), dest(d), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), fnum(l["rate"]), fnum(l["value"]), str(d, "remarks"), str(d, "vehicle"), fnum(f["amt"]), str(d, "byName"), str(d, "status"), str(a, "byName"), str(a, "note")})
-			if str(d, "status") == "approved" && str(d, "dest") == "head" {
+			rows = append(rows, []any{str(d, "no"), fmtDate(fnum(d["at"])), pcode(str(d, "projectId")), storeName(projects[str(d, "projectId")], storeOf(d, "storeId")), label(d), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), fnum(l["rate"]), fnum(l["value"]), str(d, "remarks"), str(d, "vehicle"), fnum(f["amt"]), str(d, "byName"), str(d, "status"), str(a, "byName"), str(a, "note")})
+			if str(d, "status") == "approved" && str(d, "dest") == "head" && str(d, "headId") != "" {
+				sign := 1.0
+				if str(d, "kind") == "return" {
+					sign = -1
+				}
 				key := hk{str(d, "projectId"), str(d, "headId"), itemKeyOf(l)}
 				h := heads[key]
 				if h == nil {
 					h = &hv{desc: str(l, "desc"), spec: str(l, "spec"), unit: str(l, "unit"), name: str(d, "headName"), typ: headTypes[str(d, "headType")]}
 					heads[key] = h
 				}
-				h.qty += fnum(l["qty"])
-				h.val += fnum(l["value"])
+				h.qty += sign * fnum(l["qty"])
+				h.val += sign * fnum(l["value"])
 			}
 		}
 	}
 	sheets = append(sheets, xSheet{"Gate passes", rows})
-	rows = [][]any{{"Project", "Head", "Type", "Item", "Specification", "Unit", "Qty issued", "Value issued (Rs)"}}
+	rows = [][]any{{"Project", "Head", "Type", "Item", "Specification", "Unit", "Qty with head (issued less returned)", "Value (Rs)"}}
 	keys := make([]hk, 0, len(heads))
 	for k := range heads {
 		keys = append(keys, k)
@@ -717,4 +759,188 @@ func storeSheetsLocked(projects map[string]map[string]any, pcode func(string) st
 	}
 	sheets = append(sheets, xSheet{"Freight", rows})
 	return sheets
+}
+
+/* ---------------- material coming back to the store ---------------- */
+
+func liveIssues() []map[string]any {
+	var out []map[string]any
+	for _, d := range st.Cols["siteissues"] {
+		if d != nil && !d.Deleted && d.Data != nil {
+			out = append(out, d.Data)
+		}
+	}
+	return out
+}
+
+// outstanding on a returnable gate pass: issued less what came back or is on a return note waiting
+func gpOutstanding(gid string) map[string]float64 {
+	open := map[string]float64{}
+	g := docData("siteissues", gid)
+	for _, l := range subList(g, "lines") {
+		open[str(l, "itemKey")] += fnum(l["qty"])
+	}
+	for _, r := range liveIssues() {
+		if str(r, "kind") == "return" && str(r, "againstId") == gid && (str(r, "status") == "approved" || str(r, "status") == "pending") {
+			for _, l := range subList(r, "lines") {
+				open[str(l, "itemKey")] -= fnum(l["qty"])
+			}
+		}
+	}
+	return open
+}
+
+// material with a head: issued on approved gate passes less returns (approved or waiting)
+func headNet(pid, hid string) (map[string]float64, map[string]float64) {
+	qty, val := map[string]float64{}, map[string]float64{}
+	for _, g := range liveIssues() {
+		if str(g, "projectId") != pid || str(g, "headId") != hid {
+			continue
+		}
+		ret := str(g, "kind") == "return"
+		if !(ret && (str(g, "status") == "approved" || str(g, "status") == "pending")) && !(!ret && str(g, "status") == "approved" && str(g, "dest") == "head") {
+			continue
+		}
+		for _, l := range subList(g, "lines") {
+			k := str(l, "itemKey")
+			if ret {
+				qty[k] -= fnum(l["qty"])
+			} else {
+				qty[k] += fnum(l["qty"])
+				val[k] += fnum(l["value"])
+			}
+		}
+	}
+	return qty, val
+}
+
+func returnCheckNew(u *User, nd map[string]any) error {
+	pid := str(nd, "projectId")
+	if projectDoc(pid) == nil {
+		return errors.New("Choose the project.")
+	}
+	if u.Role == "site" && pid != u.ProjectID {
+		return errors.New("You can only take material back into your own site's store.")
+	}
+	sid := storeOf(nd, "storeId")
+	nd["storeId"] = sid
+	if err := checkStore(u, pid, sid); err != nil {
+		return err
+	}
+	var open map[string]float64
+	from := ""
+	if gid := str(nd, "againstId"); gid != "" {
+		g := docData("siteissues", gid)
+		if g == nil || str(g, "projectId") != pid || str(g, "status") != "approved" || g["returnable"] != true || str(g, "kind") == "return" {
+			return errors.New("Choose the returnable gate pass the material comes back on.")
+		}
+		for _, k := range []string{"dest", "headId", "headName", "headType", "vendorName"} {
+			if v, ok := g[k]; ok {
+				nd[k] = v
+			} else {
+				delete(nd, k)
+			}
+		}
+		nd["againstNo"] = str(g, "no")
+		open = gpOutstanding(gid)
+		from = "on " + str(g, "no")
+	} else {
+		h := listItem(projectDoc(pid)["heads"], str(nd, "headId"))
+		if h == nil {
+			return errors.New("Choose the contractor or head the material comes back from.")
+		}
+		nd["dest"], nd["headName"], nd["headType"] = "head", str(h, "name"), str(h, "type")
+		delete(nd, "vendorName")
+		delete(nd, "againstNo")
+		open, _ = headNet(pid, str(nd, "headId"))
+		from = "with " + str(h, "name")
+	}
+	rem := strings.TrimSpace(str(nd, "remarks"))
+	if rem == "" {
+		return errors.New("Write the remarks: condition of the material and why it comes back.")
+	}
+	nd["remarks"] = clip(rem, 2000)
+	var out []any
+	for _, li := range anyList(nd["lines"]) {
+		m, ok := li.(map[string]any)
+		if !ok || strings.TrimSpace(str(m, "desc")) == "" {
+			return errors.New("Invalid item line.")
+		}
+		q, _ := m["qty"].(float64)
+		if !(q > 0) {
+			return errors.New("Enter the quantity of " + str(m, "desc") + ".")
+		}
+		k := str(m, "itemKey")
+		if k == "" {
+			k = keyOf(str(m, "desc"), str(m, "spec"), str(m, "unit"))
+		}
+		if q > open[k]+1e-9 {
+			return fmt.Errorf("Only %s %s of %s is %s.", trimNum(open[k]), str(m, "unit"), str(m, "desc"), from)
+		}
+		c := map[string]any{"itemKey": k}
+		for _, f := range []string{"desc", "spec", "unit", "cat", "qty", "cond"} {
+			if v, has := m[f]; has {
+				c[f] = v
+			}
+		}
+		out = append(out, c)
+	}
+	if len(out) == 0 {
+		return errors.New("Enter the quantity that comes back.")
+	}
+	nd["lines"] = out
+	for _, k := range []string{"no", "appr", "dispatchId", "vreturnId", "value", "freight", "returnable", "dueDate", "toProjectId", "toStoreId", "toProjectName", "reason"} {
+		delete(nd, k)
+	}
+	for _, k := range []string{"vehicle", "driver", "lrNo"} {
+		nd[k] = clip(strings.TrimSpace(str(nd, k)), 60)
+	}
+	nd["kind"], nd["status"] = "return", "pending"
+	nd["by"], nd["byName"], nd["at"] = u.ID, u.Name, float64(time.Now().UnixMilli())
+	return nil
+}
+
+func returnApprove(u *User, id string, ex, patch, nd map[string]any, now float64) error {
+	no := nextNo("MRN")
+	nd["no"] = no
+	nd["appr"] = map[string]any{"by": u.ID, "byName": u.Name, "at": now, "note": clip(strings.TrimSpace(str(patch, "apprNote")), 500), "status": "approved", "designation": u.Designation}
+	delete(nd, "apprNote")
+	// value back at the rate it was issued at
+	_, val := headNet(str(ex, "projectId"), str(ex, "headId"))
+	iq := map[string]float64{}
+	for _, g := range liveIssues() {
+		if str(g, "kind") != "return" && str(g, "status") == "approved" && str(g, "projectId") == str(ex, "projectId") && (str(g, "headId") == str(ex, "headId") && str(ex, "headId") != "" || g["no"] == ex["againstNo"]) {
+			for _, l := range subList(g, "lines") {
+				iq[str(l, "itemKey")] += fnum(l["qty"])
+				if str(ex, "headId") == "" {
+					val[str(l, "itemKey")] += fnum(l["value"])
+				}
+			}
+		}
+	}
+	var ls []any
+	total := 0.0
+	for _, l := range subList(ex, "lines") {
+		c := shallowCopy(l)
+		k := str(c, "itemKey")
+		r := rateOf(k)
+		if iq[k] > 0 && val[k] > 0 {
+			r = val[k] / iq[k]
+		}
+		c["rate"], c["value"] = r, r*fnum(c["qty"])
+		total += r * fnum(c["qty"])
+		ls = append(ls, c)
+	}
+	nd["lines"], nd["value"] = ls, total
+	st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "siteissues", ID: id, Op: "update", Ref: no, Keys: "material return approved"})
+	return nil
+}
+
+func trimNum(f float64) string {
+	s := fmt.Sprintf("%.3f", f)
+	s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	if s == "" || s == "-0" {
+		return "0"
+	}
+	return s
 }

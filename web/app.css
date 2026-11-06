@@ -865,3 +865,7 @@ tr.struck td:last-child{text-decoration:none;opacity:1}
 .fr-box legend{font-weight:600;font-size:13px;padding:0 6px}
 .card.appr-box{border-color:var(--amber,#e0a100);box-shadow:0 0 0 1px rgba(224,161,0,.25)}
 .pad-t{padding-top:9px}
+/* 6.7 returnable gate passes, earlier rates in the comparative */
+tr.row-red td{background:rgba(214,64,52,.06)}
+td.prev-r{min-width:190px;line-height:1.35}
+td.prev-r div{white-space:nowrap}

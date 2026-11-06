@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.6.0"
+const appVersion = "6.7.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1146,6 +1146,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				return
 			}
 		}
+		if req.Col == "rfqs" {
+			if err := rfqEstimateGuard(u, exData, req.Data, newData); err != nil {
+				fail(w, 403, err.Error())
+				return
+			}
+		}
 		if req.Col == "siteissues" {
 			if err := issueGuard(u, req.ID, exData, req.Data, newData); err != nil {
 				fail(w, 403, err.Error())
@@ -1675,6 +1681,10 @@ func hMail(w http.ResponseWriter, r *http.Request, u *User) {
 	mu.Unlock()
 	var atts []mailAttachment
 	if req.RfqSheet.Rfq != "" { // the quotation sheet the vendor fills in and sends back
+		if err := estimateBlocks(req.RfqSheet.Rfq); err != nil {
+			fail(w, 403, err.Error())
+			return
+		}
 		name, data, err := buildRFQSheet(req.RfqSheet.Rfq, req.RfqSheet.Vendor)
 		if err != nil {
 			fail(w, 400, err.Error())
@@ -1939,6 +1949,7 @@ func main() {
 	mux.HandleFunc("/api/mailin/check", permOnly(hMailInCheck, "quotes_enter", "rfq_create", "settings"))
 	mux.HandleFunc("/api/mailin/assign", permOnly(hMailInAssign, "quotes_enter"))
 	mux.HandleFunc("/api/rfqsheet", permOnly(hRFQSheet, "rfq_create", "quotes_enter"))
+	mux.HandleFunc("/api/ai/vendors", permOnly(hAIVendors, "rfq_create", "masters_vendors", "po_issue", "compare_approve"))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "Not found.") })
 	mux.HandleFunc("/files/", hFile)
 	mux.HandleFunc("/", hStatic)
