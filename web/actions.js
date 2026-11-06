@@ -20,7 +20,7 @@ async function boot(){
   if(j){ui.company=j.company;ui.logo=j.logo;ui.version=j.version||'';ui.dataNotes=j.dataNotes||null}
   if(r.status===401){ui.view=j&&j.setup?'setup':'login';render();setTimeout(()=>{const el=document.getElementById(ui.view==='setup'?'a-name':'a-user');el&&el.focus()},50);return}
   if(!r.ok||!j||!j.user){ui.view='fatal';ui.fatal='The server returned an error. Try reloading the page.';render();return}
-  ui.me=j.user;ui.net=j.net||null;ui.uid=j.user.id;ui.isHQ=j.user.role==='hq';ui.role=ui.isHQ?'hq':'site';
+  ui.me=j.user;ui.me.hasSK=!!j.siteHasStorekeeper;ui.net=j.net||null;ui.uid=j.user.id;ui.isHQ=j.user.role==='hq';ui.role=ui.isHQ?'hq':'site';
   if(j.user.mustChange){ui.view='pwchange';render();setTimeout(()=>{const el=document.getElementById('pw-old');el&&el.focus()},50);return}
   ui.view=ui.isHQ?'dashboard':'s_home';
   if(ui.isHQ){loadUsers();loadSmtp();loadMailIn()}
@@ -103,12 +103,12 @@ A.savePassword=async()=>{const d=ui.modal.d;if(d.nw!==d.nw2){toast('The two new 
 A.editUser=d=>{const u=d.id?ui.users.find(x=>x.id===d.id):null;const role=d.role||'site';
   const acc=u?(u.role==='hq'?(u.admin?{admin:true,role:'Administrator',perms:[],projects:[]}:Object.assign({admin:false,role:'Custom',perms:[],projects:[]},JSON.parse(JSON.stringify(u.access||{})))):{admin:false,role:'Viewer',perms:['demands_view','sitestock_view'],projects:[]}):{admin:false,role:'Purchase executive',perms:ROLE_PRESETS[1][2].slice(),projects:[]};
   if(!acc.perms) acc.perms=[];if(!acc.projects) acc.projects=[];acc.scope=acc.projects.length?'some':'all';
-  openModal({type:'user',id:d.id||null,d:u?Object.assign({},u,{password:'',acc}):{name:'',username:'',password:'',phone:'',role,projectId:'',active:true,acc}})};
-A.userPreset=d=>{const a=ui.modal.d.acc;if(d.k==='admin'){a.admin=true;a.role='Administrator'}else{const p=ROLE_PRESETS[+d.k];a.admin=false;a.role=p[0];a.perms=p[2].slice()}render()};
+  openModal({type:'user',id:d.id||null,d:u?Object.assign({},u,{password:'',acc,siteRole:siteRoleOf(u),stores:(u.stores||[]).slice()}):{name:'',username:'',password:'',phone:'',role,projectId:'',active:true,acc,siteRole:'',stores:[]}})};
+A.userPreset=d=>{const a=ui.modal.d.acc;if(d.k==='admin'){a.admin=true;a.role='Administrator'}else{const p=ROLE_PRESETS[+d.k];a.admin=false;a.role=p[0];a.perms=p[2].slice();if(p[2].includes('site_approve')) a.scope='some'}render()};
 A.userPerm=(d,el)=>{const a=ui.modal.d.acc;const s=new Set(a.perms);el.checked?s.add(d.k):s.delete(d.k);a.perms=[...s];a.admin=false;const m=ROLE_PRESETS.find(p=>p[2].length===a.perms.length&&p[2].every(x=>s.has(x)));a.role=m?m[0]:'Custom';render()};
 A.userScope=d=>{ui.modal.d.acc.scope=d.val;render()};
 A.userProj=(d,el)=>{const a=ui.modal.d.acc;const s=new Set(a.projects);el.checked?s.add(d.k):s.delete(d.k);a.projects=[...s];render()};
-A.saveUser=async()=>{const m=ui.modal;const u=m.d;if(u.role==='hq'&&!u.acc.admin){if(!u.acc.perms.length) return toast('Tick at least one permission, or make this person an administrator.','err');if(u.acc.scope==='some'&&!u.acc.projects.length) return toast('Choose at least one site.','err')}const r=await run(()=>api('/api/users',{id:m.id||'',name:u.name||'',username:u.username||'',password:u.password||'',phone:u.phone||'',role:u.role,projectId:u.role==='site'?u.projectId||'':'',siteHead:u.role==='site'&&!!u.siteHead,cashSpend:u.role==='site'&&!!u.cashSpend,cashLimit:Math.max(0,num(u.cashLimit)),active:u.active!==false,access:u.role==='hq'?{admin:!!u.acc.admin,role:u.acc.admin?'Administrator':u.acc.role,perms:u.acc.perms,projects:u.acc.scope==='some'?u.acc.projects:[]}:null}),m.id?'User updated':'User created');if(r){closeModal();loadUsers()}};
+A.saveUser=async()=>{const m=ui.modal;const u=m.d;if(u.role==='hq'&&!u.acc.admin){if(!u.acc.perms.length) return toast('Tick at least one permission, or make this person an administrator.','err');if(u.acc.scope==='some'&&!u.acc.projects.length) return toast('Choose at least one site.','err');if(u.acc.perms.includes('site_approve')&&u.acc.scope!=='some') return toast('Choose the sites this site manager looks after (Only selected sites).','err')}const r=await run(()=>api('/api/users',{id:m.id||'',name:u.name||'',username:u.username||'',password:u.password||'',phone:u.phone||'',role:u.role,projectId:u.role==='site'?u.projectId||'':'',siteHead:u.role==='site'&&u.siteRole==='pm',siteRole:u.role==='site'?u.siteRole||'':'',stores:u.role==='site'&&u.siteRole==='store'?u.stores||[]:[],cashSpend:u.role==='site'&&!!u.cashSpend,cashLimit:Math.max(0,num(u.cashLimit)),active:u.active!==false,access:u.role==='hq'?{admin:!!u.acc.admin,role:u.acc.admin?'Administrator':u.acc.role,perms:u.acc.perms,projects:u.acc.scope==='some'?u.acc.projects:[]}:null}),m.id?'User updated':'User created');if(r){closeModal();loadUsers()}};
 A.loadAudit=()=>loadAudit();
 A.delUser=()=>{const id=ui.modal.id;confirmBox({title:'Delete user',body:'This person can no longer sign in. Their past demands and receipts stay on record.',yes:'Delete user',danger:true,onYes:async()=>{if(await run(()=>api('/api/users?id='+encodeURIComponent(id),undefined,'DELETE'),'User deleted')){closeModal();loadUsers()}}})};
 
@@ -344,12 +344,12 @@ A.cancelPo=()=>{const po=poOf();confirmBox({title:'Cancel '+po.no,body:'The dema
 
 /* ================= RECEIPT, STORE, DISPATCH ================= */
 A.recordGrn=d=>{const po=S.pos.find(p=>p.id===d.id);if(!poIsApproved(po)){toast('This PO is waiting for approval by the Director (Procurement).','err');return}const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
-  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[],billDocs:[],signedDocs:[]}})};
+  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[],billDocs:[],signedDocs:[],freight:{}}})};
 A.saveGrn=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId);const d=m.d;
   const lines=po.lines.map(l=>{const rc=num(d.recv[l.key]),rj=num(d.rej[l.key]);return {key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,itemKey:l.itemKey||itemKey(l.desc,l.spec,l.unit),recv:rc,rej:rj,acc:Math.max(0,rc-rj)}}).filter(l=>l.recv>0);
   if(!lines.length){toast('Enter the received quantity.','err');return}
   if(!needReceiptDocs(d)) return;
-  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],billDocs:d.billDocs,signedDocs:d.signedDocs,lines,at:Date.now(),by:ui.uid||null});
+  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],billDocs:d.billDocs,signedDocs:d.signedDocs,...(frOut(d.freight)?{freight:frOut(d.freight)}:{}),lines,at:Date.now(),by:ui.uid||null});
     const received=Object.assign({},po.received||{});for(const l of lines) received[l.key]=num(received[l.key])+l.acc;await updDoc('pos',po.id,{received});toast(no+' saved. Store stock updated.')});
   if(ok) closeModal()};
 // a receipt needs the vendor's bill and the receipt signed & stamped
@@ -358,7 +358,7 @@ function needReceiptDocs(d){const go=k=>{const z=document.querySelector(`#modal 
   if(!(d.signedDocs||[]).length){toast('Upload the receipt signed and stamped (photo or PDF).','err');go('signedDocs');return false}
   return true}
 A.inwardPick=()=>openModal({type:'inwardPick'});
-A.inwardOther=d=>openModal({type:'inward',d:{type:d.t,date:today(),party:'',partyGstin:'',challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',photos:[],billDocs:[],signedDocs:[],lines:[{desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''}]}});
+A.inwardOther=d=>openModal({type:'inward',d:{type:d.t,date:today(),party:'',partyGstin:'',challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',photos:[],billDocs:[],signedDocs:[],freight:{},lines:[{desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''}]}});
 A.inwardAdd=()=>{ui.modal.d.lines.push({desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''});render()};
 A.inwardRm=d=>{ui.modal.d.lines.splice(+d.i,1);render()};
 A.saveInward=async()=>{const d=ui.modal.d;const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
@@ -367,7 +367,7 @@ A.saveInward=async()=>{const d=ui.modal.d;const lines=d.lines.filter(l=>String(l
     if(String(l.gst??'').trim()!==''&&!(num(l.gst)>=0&&num(l.gst)<=100)){toast(`GST % for ${l.desc} must be between 0 and 100.`,'err');return}}
   const pg=String(d.partyGstin||'').trim().toUpperCase();if(gstinCheck(pg)){toast('Supplier GSTIN: '+gstinCheck(pg),'err');return}
   if(d.type==='nopo'&&!needReceiptDocs(d)) return;
-  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:d.type,date:d.date||today(),party:String(d.party||'').trim(),partyGstin:pg,invoiceDate:d.invoiceDate||'',challan:d.challan||'',invoice:d.invoice||'',vehicle:d.vehicle||'',remarks:d.remarks||'',photos:d.photos||[],billDocs:d.billDocs||[],signedDocs:d.signedDocs||[],at:Date.now(),by:ui.uid||null,
+  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:d.type,date:d.date||today(),party:String(d.party||'').trim(),partyGstin:pg,invoiceDate:d.invoiceDate||'',challan:d.challan||'',invoice:d.invoice||'',vehicle:d.vehicle||'',remarks:d.remarks||'',photos:d.photos||[],billDocs:d.billDocs||[],signedDocs:d.signedDocs||[],...(d.type==='nopo'&&frOut(d.freight)?{freight:frOut(d.freight)}:{}),at:Date.now(),by:ui.uid||null,
     lines:lines.map((l,i)=>{const desc=String(l.desc).trim();const o={key:'L'+(i+1),desc,spec:String(l.spec||'').trim(),unit:l.unit||'Nos',cat:classify(desc,l.spec).cat,itemKey:itemKey(desc,String(l.spec||'').trim(),l.unit||'Nos'),recv:num(l.qty),rej:0,acc:num(l.qty),hsn:String(l.hsn||'').trim()||itemHsn(desc)};
       if(String(l.rate??'').trim()!==''){o.rate=num(l.rate);o.gst=String(l.gst??'').trim()===''?(itemGst(desc)??18):num(l.gst)}return o})});return no});
   if(ok!==false){closeModal();toast(ok+' saved. HQ store stock updated.');ui.tab.store='stock';render()}};
@@ -407,7 +407,7 @@ A.printChallan=d=>{const x=S.dispatches.find(y=>y.id===d.id);if(x) printHtml(x.n
 A.cancelDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);confirmBox({title:'Cancel '+x.no,body:x.type==='transfer'?'The transfer is cancelled and the demand line goes back to the procurement queue.':'Quantities return to store stock (or to the pending vendor delivery).',yes:'Cancel',danger:true,onYes:async()=>{
   const ok=await run(async()=>{await updDoc('dispatches',x.id,{status:'cancelled'});if(x.type==='transfer'){for(const l of x.lines) await patchLines(l.indentId,ls=>{const y=ls.find(z=>z.id===l.lineId);if(y&&y.transferId===x.id) for(const k of ['transferId','transferNo','transferFrom','transferAt']) delete y[k]})}},'Cancelled');if(ok) closeModal()}})};
 A.receiveDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);const recv={};x.lines.forEach((l,i)=>recv[i]=String(l.qty));const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
-  openModal({type:'receive',id:d.id,d:{recv,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],billDocs:[],declared:false}})};
+  openModal({type:'receive',id:d.id,d:{recv,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],billDocs:[],declared:false,storeId:(myStores(x.projectId)[0]||{id:'main'}).id,freight:{}}})};
 A.saveReceipt=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.id);const d=m.d;const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
   if(!String(d.by||'').trim()){toast(rs.length?'Choose the authorised person who received the material.':'Enter the name of the person who received the material.','err');return}
   if(x.type==='direct'&&!(d.billDocs||[]).length){toast("Upload the vendor's bill (photo or PDF).",'err');const z=document.querySelector('#modal [data-drop="modal.d.billDocs"]');z&&z.scrollIntoView({block:'center'});return}
@@ -415,20 +415,20 @@ A.saveReceipt=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.i
   if(!d.declared){toast('Tick the confirmation at the bottom.','err');return}
   const lines=x.lines.map((l,i)=>Object.assign({},l,{recvQty:num(d.recv[i])}));const short=lines.some(l=>l.recvQty+1e-9<num(l.qty));
   const who=rs.find(r=>r.name===d.by);
-  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,...(x.type==='direct'?{billDocs:d.billDocs}:{}),declared:true}),short?'Receipt saved — shortage reported to HQ':'Receipt confirmed. Site stock updated.')) closeModal()};
+  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,...(x.type==='direct'?{billDocs:d.billDocs}:{}),declared:true,storeId:d.storeId||'main',...(frOut(d.freight)?{freight:frOut(d.freight)}:{})}),short?'Receipt saved — shortage reported to HQ':'Receipt confirmed. Site stock updated.')) closeModal()};
 A.signLater=d=>openModal({type:'signLater',id:d.id,d:{signedDocs:[],billDocs:[]}});
 A.saveSignLater=async()=>{const m=ui.modal;const sd=m.d.signedDocs||[],bd=m.d.billDocs||[];if(!sd.length&&!bd.length){toast('Upload the document first.','err');return}const x=S.dispatches.find(y=>y.id===m.id);
   const p={};if(sd.length) p.signedDocs=(x.signedDocs||[]).concat(sd);if(bd.length&&x.type==='direct') p.billDocs=(x.billDocs||[]).concat(bd);
   if(await run(()=>updDoc('dispatches',m.id,p),'Documents saved')) closeModal()};
 A.rpAdd=()=>{const d=ui.modal.d;(d.receivers=d.receivers||[]).push({name:'',designation:'',phone:''});render();setTimeout(()=>{const el=document.getElementById('rp-n-'+(d.receivers.length-1));el&&el.focus()},30)};
 A.rpRm=d=>{ui.modal.d.receivers.splice(+d.i,1);render()};
-A.sendTransfer=d=>openModal({type:'sendTransfer',id:d.id,d:{vehicle:'',driver:'',lrNo:'',by:(ui.me&&ui.me.name)||'',photos:[]}});
-A.saveSendTransfer=async()=>{const m=ui.modal;if(await run(()=>updDoc('dispatches',m.id,{status:'in_transit',vehicle:m.d.vehicle,driver:m.d.driver,lrNo:m.d.lrNo,sentByName:m.d.by,shippedAt:Date.now(),sentPhotos:m.d.photos||[]}),'Marked as sent. The receiving site has been told.')) closeModal()};
+A.sendTransfer=d=>{const x=S.dispatches.find(y=>y.id===d.id)||{};openModal({type:'sendTransfer',id:d.id,d:{vehicle:'',driver:'',lrNo:'',by:(ui.me&&ui.me.name)||'',photos:[],fromStoreId:(myStores(x.fromProjectId)[0]||{id:'main'}).id,freight:{}}})};
+A.saveSendTransfer=async()=>{const m=ui.modal;const f=frOut(m.d.freight);if(await run(()=>updDoc('dispatches',m.id,{status:'in_transit',vehicle:m.d.vehicle,driver:m.d.driver,lrNo:m.d.lrNo,sentByName:m.d.by,shippedAt:Date.now(),sentPhotos:m.d.photos||[],fromStoreId:m.d.fromStoreId||'main',...(f?{freight:f}:{})}),isSK()?'Sent to the project manager to let it go.':'Marked as sent. The receiving site has been told.')) closeModal()};
 
 /* ================= SITE STOCK ================= */
 A.recordUse=()=>A.siteLog({t:'use',p:siteProject()});
 A.siteLog=d=>{const pid=d.p||siteProject();if(!pid){toast('Choose a project first.','err');return}
-  openModal({type:'sitelog',projectId:pid,d:{type:d.t||'use',key:d.k||'',desc:'',spec:'',unit:'Nos',qty:'',date:today(),location:'',issuedTo:'',reason:'',remarks:''}})};
+  openModal({type:'sitelog',projectId:pid,d:{type:isSK()?'opening':d.t||'use',key:d.k||'',desc:'',spec:'',unit:'Nos',qty:'',date:today(),location:'',issuedTo:'',reason:'',remarks:'',storeId:(myStores(pid)[0]||{id:'main'}).id}})};
 A.saveSiteLog=async()=>{const m=ui.modal,d=m.d,pid=m.projectId;const q=num(d.qty);let doc;
   if(d.type==='opening'){if(!String(d.desc).trim()){toast('Enter the item.','err');return}if(!(q>0)){toast('Enter the quantity.','err');return}
     doc={type:'opening',itemKey:itemKey(d.desc,d.spec,d.unit),desc:d.desc.trim(),spec:(d.spec||'').trim(),unit:d.unit,cat:classify(d.desc,d.spec).cat}}
@@ -436,8 +436,9 @@ A.saveSiteLog=async()=>{const m=ui.modal,d=m.d,pid=m.projectId;const q=num(d.qty
     const avail=row.bal-(row.pcons||0);if(q>avail+1e-9){toast(`Only ${fq(avail)} ${row.unit} is available${row.pcons?' ('+fq(row.pcons)+' is in consumption reports waiting for authentication)':''}.`,'err');return}
     if(d.type==='damage'&&!d.reason){toast('Choose the reason.','err');return}
     doc={type:d.type,itemKey:row.itemKey,desc:row.desc,spec:row.spec,unit:row.unit,cat:row.cat}}
+  if(d.type==='opening') doc.storeId=d.storeId||'main';
   Object.assign(doc,{projectId:pid,qty:q,date:d.date||today(),location:d.location||'',issuedTo:(d.issuedTo||'').trim(),reason:d.reason||'',remarks:d.remarks||'',at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''});
-  const msg={use:'Issue recorded',opening:'Stock added',damage:'Damage / loss recorded',return:'Return recorded. Central store stock updated.'}[d.type];
+  const msg={use:'Issue recorded',opening:isSK()?'Stock entry sent to the project manager for approval':'Stock added',damage:'Damage / loss recorded',return:'Return recorded. Central store stock updated.'}[d.type];
   if(await run(()=>setDoc('sitelog',newId(),doc),msg)) closeModal()};
 A.delSiteLog=d=>confirmBox({title:'Delete this entry?',body:'Site stock will be recalculated.',yes:'Delete',danger:true,onYes:async()=>{if(await run(()=>delDoc('sitelog',d.id),'Entry deleted')) closeModal()}});
 A.ledger=d=>{const lv=(D.lvl[d.p]||{})[d.k];openModal({type:'ledger',p:d.p,k:d.k,min:lv&&num(lv.min)?String(lv.min):''})};

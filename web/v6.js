@@ -97,7 +97,7 @@ function stiApproveModal(m,busy){const d=S.dispatches.find(x=>x.id===m.id);if(!d
 /* ================= 2. EXISTING STOCK WITH VALUE ================= */
 const osLine=()=>({desc:'',spec:'',unit:'Nos',qty:'',rate:'',value:''});
 A.openStock=d=>{const target=d.p||siteProject();if(!target){toast('Choose a project first.','err');return}
-  openModal({type:'openStock',target,d:{date:today(),basis:'actual',remarks:'',lines:[osLine(),osLine(),osLine()],paste:'',showPaste:false}})};
+  openModal({type:'openStock',target,d:{date:today(),basis:'actual',remarks:'',lines:[osLine(),osLine(),osLine()],paste:'',showPaste:false,storeId:target==='hq'?'':(myStores(target)[0]||{id:'main'}).id}})};
 A.osAdd=()=>{ui.modal.d.lines.push(osLine());render()};
 A.osRm=d=>{const ls=ui.modal.d.lines;ls.splice(+d.i,1);if(!ls.length) ls.push(osLine());render()};
 A.osPasteToggle=()=>{ui.modal.d.showPaste=!ui.modal.d.showPaste;render()};
@@ -108,10 +108,11 @@ A.osPaste=()=>{const d=ui.modal.d;const rows=String(d.paste||'').split(/\r?\n/).
 const osRate=l=>num(l.rate)>0?num(l.rate):(num(l.value)>0&&num(l.qty)>0?num(l.value)/num(l.qty):0);
 const osVal=l=>num(l.value)>0?num(l.value):num(l.qty)*num(l.rate);
 
-function openStockModal(m,busy){const d=m.d;const hq=m.target==='hq';const vals=ui.role==='hq'&&seeRates();
+function openStockModal(m,busy){const d=m.d;const hq=m.target==='hq';const vals=(ui.role==='hq'&&seeRates())||isSK()||isPM();
   const where=hq?'HQ store':projLabel(m.target);const total=sum(d.lines,osVal);const n=d.lines.filter(l=>String(l.desc).trim()&&num(l.qty)>0).length;
   return wrap('Existing stock · '+esc(where),`<datalist id="dl-os">${D.items.slice(0,800).map(c=>`<option value="${esc(c.desc)}">`).join('')}</datalist>
    <p class="small muted">Enter the material already lying in the ${hq?'HQ store':'site store'}${vals?' with its value. Give the rate per unit <b>or</b> the total value of each line.':'.'} It is added to the stock register as existing stock and can then be issued, transferred or dispatched like any other stock.</p>
+   ${!hq&&myStores(m.target).length>1?`<div class="f"><label for="f-modal-d-storeId">Store</label><select class="inp" id="f-modal-d-storeId" data-bind="modal.d.storeId">${selOpts(myStores(m.target).map(s=>({v:s.id,l:s.name})),d.storeId)}</select></div>`:''}${isSK()?'<p class="small t-amber">The entries count in the inventory after the project manager approves them.</p>':''}
    <div class="fields two">${field('Stock as on','modal.d.date',d.date,'type="date"')}${vals?`<div class="f"><label>Value is</label>${seg('osb',[['actual','Actual (from bills)'],['approx','Approximate (estimated)']],d.basis,'osBasis')}</div>`:'<div class="f"></div>'}</div>
    <div class="tw"><table class="t os-t"><thead><tr><th>#</th><th>Item</th><th>Specification / size</th><th>Unit</th><th class="num">Qty</th>${vals?'<th class="num">Rate (₹)</th><th class="num">Value (₹)</th>':''}<th></th></tr></thead><tbody>
    ${d.lines.map((l,i)=>`<tr><td class="muted">${i+1}</td><td>${inp('modal.d.lines.'+i+'.desc',l.desc,'list="dl-os" placeholder="Item name" style="min-width:180px"')}</td><td>${inp('modal.d.lines.'+i+'.spec',l.spec,'placeholder="e.g. 150 mm"')}</td>
@@ -125,7 +126,7 @@ function openStockModal(m,busy){const d=m.d;const hq=m.target==='hq';const vals=
    `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveOpenStock" ${busy}>${icon('plus')} Add to ${hq?'HQ store':'site stock'}</button>`,'wide')}
 A.osBasis=d=>{ui.modal.d.basis=d.val;render()};
 
-A.saveOpenStock=async()=>{const m=ui.modal,d=m.d;const hq=m.target==='hq';const vals=ui.role==='hq'&&seeRates();
+A.saveOpenStock=async()=>{const m=ui.modal,d=m.d;const hq=m.target==='hq';const vals=(ui.role==='hq'&&seeRates())||isSK()||isPM();
   const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
   for(const l of lines){if(!String(l.desc).trim()){toast('Enter the item name on every line.','err');return}if(!(num(l.qty)>0)){toast('Enter the quantity for '+l.desc+'.','err');return}}
   if(!lines.length){toast('Enter at least one item.','err');return}
@@ -137,7 +138,7 @@ A.saveOpenStock=async()=>{const m=ui.modal,d=m.d;const hq=m.target==='hq';const 
       await setDoc('grns',newId(),{no,poId:null,type:'opening',date:d.date||today(),basis:vals?d.basis:'',remarks:d.remarks||'',party:'Existing stock',at:now,by:ui.uid,byName:me,
         lines:lines.map((l,i)=>Object.assign(clean(l),{key:'O'+(i+1),recv:num(l.qty),rej:0,acc:num(l.qty)}))});return no}
     const no=await allocNo('OS',S.sitelog.filter(e=>e.batch).map(e=>({no:e.batch})).concat(S.grns));
-    for(const l of lines) await setDoc('sitelog',newId(),Object.assign(clean(l),{type:'opening',projectId:m.target,qty:num(l.qty),date:d.date||today(),reason:'Existing stock',remarks:d.remarks||'',batch:no,at:now,createdBy:ui.uid,createdByName:me}));
+    for(const l of lines) await setDoc('sitelog',newId(),Object.assign(clean(l),{type:'opening',projectId:m.target,storeId:d.storeId||'main',qty:num(l.qty),date:d.date||today(),reason:'Existing stock',remarks:d.remarks||'',batch:no,at:now,createdBy:ui.uid,createdByName:me}));
     return no});
   if(ok){closeModal();toast(`${ok}: ${lines.length} item${lines.length===1?'':'s'} added to ${hq?'the HQ store':projCode(m.target)+' stock'}`)}};
 

@@ -41,6 +41,7 @@ var permLabels = map[string]string{
 	"consume_auth":     "authenticate site consumption reports",
 	"cash_spend":       "make cash (counter) purchases",
 	"cash_approve":     "approve cash purchases and their consumption",
+	"site_approve":     "approve gate passes and stock entries of assigned sites (site manager)",
 }
 
 func isAdmin(u *User) bool { return u != nil && u.Role == "hq" && (u.Access == nil || u.Access.Admin) }
@@ -53,7 +54,7 @@ func can(u *User, p string) bool {
 		// Pre-check is a separate duty: administrators approve, pre-checkers pre-check.
 		// separate duties: administrators do not pre-check demands, approve
 		// purchase orders or authenticate site consumption themselves
-		return p != "demands_precheck" && p != "po_approve" && p != "consume_auth"
+		return p != "demands_precheck" && p != "po_approve" && p != "consume_auth" && p != "site_approve"
 	}
 	for _, x := range u.Access.Perms {
 		if x == p {
@@ -148,6 +149,10 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		if !inScope(u, str(src, "projectId")) && !inScope(u, str(src, "fromProjectId")) {
 			return errors.New("This project is not one of the sites assigned to you.")
 		}
+	case "siteissues":
+		if !inScope(u, str(src, "projectId")) {
+			return errors.New("This project is not one of the sites assigned to you.")
+		}
 	}
 	keys := func() []string {
 		ks := make([]string, 0, len(patch))
@@ -156,7 +161,29 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		}
 		return ks
 	}
+	onlyKeys := func(ok ...string) bool {
+		if len(patch) == 0 {
+			return false
+		}
+		for k := range patch {
+			found := false
+			for _, x := range ok {
+				if k == x {
+					found = true
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
 	switch col {
+	case "siteissues": // made at site; HQ only approves (site manager), checked in issueGuard
+		if op == "update" && onlyKeys("status", "apprNote", "cancelNote") {
+			return need(u, "site_approve")
+		}
+		return errors.New("Gate passes are made at site by the storekeeper.")
 	case "projects":
 		return need(u, "masters_projects")
 	case "vendors":
@@ -178,6 +205,13 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		}
 		return need(u, "settings")
 	case "sitelog", "stocklvl":
+		if col == "sitelog" && op == "update" && ex != nil && str(ex, "status") == "pending" && onlyKeys("status", "apprNote") {
+			if !siteApprover(u, str(ex, "projectId")) {
+				return errors.New("Only the project manager or the site manager can approve stock entries.")
+			}
+			_, err := stockApproval(u, ex, patch, merged)
+			return err
+		}
 		return need(u, "sitestock_edit")
 	case "cashbuys": // the steps are checked in cashGuard
 		if op == "delete" {
@@ -307,6 +341,29 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 // sanitizeFor hides prices from HQ users who may not see rates.
 func sanitizeFor(u *User, col string, data map[string]any) map[string]any {
 	if data == nil || can(u, "rates_view") {
+		return data
+	}
+	// gate passes carry the value of material issued: the project manager sees it, the storekeeper does not
+	if col == "siteissues" {
+		if sitePM(u) {
+			return data
+		}
+		out := shallowCopy(data)
+		var ls []any
+		for _, l := range subList(data, "lines") {
+			c := shallowCopy(l)
+			delete(c, "rate")
+			delete(c, "value")
+			ls = append(ls, c)
+		}
+		if ls != nil {
+			out["lines"] = ls
+		}
+		delete(out, "value")
+		out["ratesHidden"] = true
+		return out
+	}
+	if col == "sitelog" && sitePM(u) { // he approves the stock entered with its value
 		return data
 	}
 	if col == "sitelog" {

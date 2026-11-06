@@ -240,8 +240,10 @@ function dispCard(d,ctx){
   const p=siteProject();const n=(d.lines||[]).length;
   const title=d.type==='direct'?`Direct from ${esc(d.vendorName||'vendor')}`:d.type==='transfer'?(ctx==='from'||(ui.role==='site'&&d.fromProjectId===p)?`Send to ${esc(projLabel(d.projectId))}`:`Transfer from ${esc(projCode(d.fromProjectId))}`):'From central store';
   let acts='';
-  if(ui.role==='site'&&d.projectId===p&&(d.status==='in_transit'||d.status==='ordered')) acts+=`<button class="btn primary" data-act="receiveDispatch" data-id="${d.id}">${icon('check')} Confirm receipt</button>`;
-  if(ui.role==='site'&&d.fromProjectId===p&&d.status==='to_send') acts+=stiApproved(d)?`<button class="btn orange" data-act="sendTransfer" data-id="${d.id}">${icon('truck')} Mark as sent</button>`:`<span class="small t-amber">${icon('clock','xs')} Waiting for approval at HQ — do not send yet</span>`;
+  if(ui.role==='site'&&d.projectId===p&&(d.status==='in_transit'||d.status==='ordered')) acts+=ui.me&&ui.me.hasSK&&!isSK()&&!ui.preview?`<span class="small muted">${icon('box','xs')} The storekeeper receives it</span>`:`<button class="btn primary" data-act="receiveDispatch" data-id="${d.id}">${icon('check')} Confirm receipt</button>`;
+  if(ui.role==='site'&&d.fromProjectId===p&&d.status==='to_send') acts+=!stiApproved(d)?`<span class="small t-amber">${icon('clock','xs')} Waiting for approval at HQ — do not send yet</span>`
+    :d.sendReq?(isPM()?`<span class="small t-amber">Loaded by ${esc(d.sendReq.byName||'storekeeper')}</span><button class="btn orange" data-act="sendOk" data-id="${d.id}">${icon('check')} Let it go</button>`:`<span class="small t-amber">${icon('clock','xs')} Loaded — waiting for the project manager</span>`)
+    :`<button class="btn orange" data-act="sendTransfer" data-id="${d.id}">${icon('truck')} ${isSK()?'Load & send for approval':'Mark as sent'}</button>`;
   if(ui.role==='hq'&&d.type==='transfer') acts+=`<button class="btn sm" data-act="openSti" data-id="${d.id}">${icon('doc')} Indent</button>`;
   if(ui.role==='hq'&&d.status==='ordered') acts+=`<button class="btn sm" data-act="markShipped" data-id="${d.id}">Vendor dispatched</button>`;
   acts+=`<button class="btn sm ghost" data-act="viewDispatch" data-id="${d.id}">Details</button>`;
@@ -303,33 +305,43 @@ function receiptRegister(list,site){const pending=list.filter(d=>!(d.signedDocs|
 /* ================= SITE INVENTORY ================= */
 const LOG_T={opening:['Stock added','plus','green'],use:['Issued / used','minus','orange'],damage:['Damaged / lost','alert','red'],return:['Returned to central store','swap','violet'],adjust:['Count correction','layers','blue']};
 function stockStatus(r){if(r.bal<=1e-9) return {label:'Out of stock',tone:'red'};if(r.low) return {label:'Below minimum',tone:'amber'};return {label:'In stock',tone:'green'}}
-function siteRows(pid){return Object.values(D.site[pid]||{}).filter(r=>r.recv||r.open||r.used||r.cons||r.pcons||r.vret||r.out||r.dmg||r.ret||r.adj||r.min).sort((a,b)=>String(a.desc).localeCompare(b.desc))}
+const stoSel=pid=>{const s=ui.f.sto;return s&&projStores(pid).some(x=>x.id===s)?s:''};
+function siteRows(pid){const sid=stoSel(pid);const src=sid?((D.sst[pid]||{})[sid]||{}):(D.site[pid]||{});return Object.values(src).filter(r=>r.recv||r.open||r.used||r.cons||r.pcons||r.vret||r.out||r.dmg||r.ret||r.adj||r.iss||r.piss||r.min).sort((a,b)=>String(a.desc).localeCompare(b.desc))}
 function stockTable(pid){
   const showVal=ui.role==='hq'&&seeRates();const f=ui.f.stf||'all';const q=norm(ui.f.stq);
   let rows=siteRows(pid);const all=rows.length;
   if(f==='low') rows=rows.filter(r=>r.low||r.bal<=1e-9);else if(f==='in') rows=rows.filter(r=>r.bal>1e-9);
   if(q) rows=rows.filter(r=>norm(r.desc+' '+r.spec+' '+catName(r.cat)).includes(q));
-  if(!all) return emptyBox(ART.x('store','e-art'),'No stock recorded yet','Material appears here automatically when the site confirms a receipt. Add stock that was already lying at site with “Add stock”.',`<button class="btn primary" data-act="siteLog" data-t="opening" data-p="${pid}">${icon('plus')} Add stock</button>`);
+  if(!all) return emptyBox(ART.x('store','e-art'),'No stock recorded yet','Material appears here automatically when the site confirms a receipt. Add stock that was already lying at site with “Add stock”.',`<button class="btn primary" data-act="${isSK()||isPM()?'openStock':'siteLog'}" data-t="opening" data-p="${pid}">${icon('plus')} Add stock</button>`);
   if(!rows.length) return `<div class="empty sm"><p>No items match this filter.</p></div>`;
   return `<div class="tw"><table class="t stock-t"><thead><tr><th>Item</th><th class="num">Received</th><th class="num">Issued / consumed</th><th class="num" title="Sent to other sites, damaged/lost, returned to store, count corrections">Other</th><th class="num">Balance</th><th class="num">Min</th><th>Status</th>${showVal?'<th class="num">Value</th>':''}<th></th></tr></thead><tbody>${rows.map(r=>{const st=stockStatus(r);const other=r.out+r.dmg+r.ret+r.vret-r.adj;
     return `<tr class="click" data-act="ledger" data-p="${pid}" data-k="${esc(r.itemKey)}"><td><div class="who">${thumb({category:r.cat,desc:r.desc},'sm')}<span><b>${esc(r.desc)}</b><small class="muted block">${esc(r.spec||'')}${r.spec?' · ':''}${esc(catName(r.cat))}</small></span></div></td>
-    <td class="num mono">${fq(r.open+r.recv)}</td><td class="num mono" title="${r.cons?'includes '+fq(r.cons)+' consumed (authenticated reports)':''}">${fq(r.used+r.cons)}${r.pcons?`<small class="block t-amber">${fq(r.pcons)} pending</small>`:''}</td><td class="num mono ${other?'':'muted'}">${fq(other)}</td>
+    <td class="num mono">${fq(r.open+r.recv)}</td><td class="num mono" title="${r.cons?'includes '+fq(r.cons)+' consumed (authenticated reports)':''}${r.iss?' includes '+fq(r.iss)+' issued on gate passes':''}">${fq(r.used+r.cons+r.iss)}${r.pcons+r.piss?`<small class="block t-amber">${fq(r.pcons+r.piss)} pending</small>`:''}</td><td class="num mono ${other?'':'muted'}">${fq(other)}</td>
     <td class="num"><b class="mono big-num ${r.bal<0?'t-red':''}">${fq(r.bal)}</b> <small class="muted">${esc(r.unit)}</small></td><td class="num mono muted">${r.min?fq(r.min):'—'}</td><td>${chip(st)}</td>
     ${showVal?`<td class="num mono">${r.value?money0(r.value):'<span class="muted">—</span>'}</td>`:''}
-    <td class="nowrap">${r.bal>1e-9?`<button class="btn sm" data-act="siteLog" data-t="use" data-p="${pid}" data-k="${esc(r.itemKey)}">Issue</button>`:''}<button class="icon-btn sm" data-act="ledger" data-p="${pid}" data-k="${esc(r.itemKey)}" title="History and minimum level" aria-label="History">${icon('clock')}</button></td></tr>`}).join('')}</tbody></table></div>`;
+    <td class="nowrap">${r.bal>1e-9?(isSK()||isPM()?`<button class="btn sm" data-act="gpNew" data-p="${pid}" data-k="${esc(r.itemKey)}" data-s="${esc(stoSel(pid))}">Issue</button>`:`<button class="btn sm" data-act="siteLog" data-t="use" data-p="${pid}" data-k="${esc(r.itemKey)}">Issue</button>`):''}<button class="icon-btn sm" data-act="ledger" data-p="${pid}" data-k="${esc(r.itemKey)}" title="History and minimum level" aria-label="History">${icon('clock')}</button></td></tr>`}).join('')}</tbody></table></div>`;
 }
 function siteLogList(pid,limit=40){const ev=S.sitelog.filter(e=>e.projectId===pid).sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,limit);
   return ev.length?`<div class="list">${ev.map(e=>{const t=LOG_T[e.type]||LOG_T.opening;const q=num(e.qty);
-    return `<div class="li"><span class="n-ic ${t[2]}">${icon(t[1])}</span>${thumb({category:e.cat||classify(e.desc,e.spec).cat,desc:e.desc},'sm')}<div class="grow"><b>${esc(t[0])} · ${e.type==='adjust'&&q>0?'+':''}${fq(q)} ${esc(e.unit)} ${esc(e.desc)}</b><small>${fd(e.date)}${e.issuedTo?' · to '+esc(e.issuedTo):''}${e.location?' · '+esc(e.location):''}${e.reason?' · '+esc(e.reason):''}${e.remarks?' · '+esc(e.remarks):''} · ${esc(e.createdByName||'')}</small></div>${(e.createdBy===ui.uid||ui.isHQ)?`<button class="icon-btn sm" data-act="delSiteLog" data-id="${e.id}" aria-label="Delete entry">${icon('trash')}</button>`:''}</div>`}).join('')}</div>`:'<div class="empty sm"><p>No entries yet.</p></div>'}
+    return `<div class="li"><span class="n-ic ${t[2]}">${icon(t[1])}</span>${thumb({category:e.cat||classify(e.desc,e.spec).cat,desc:e.desc},'sm')}<div class="grow"><b>${esc(t[0])} · ${e.type==='adjust'&&q>0?'+':''}${fq(q)} ${esc(e.unit)} ${esc(e.desc)}</b>${e.status==='pending'?' <span class="chip amber plain">waiting for PM approval</span>':e.status==='rejected'?` <span class="chip red plain">rejected${e.appr&&e.appr.note?': '+esc(e.appr.note):''}</span>`:''}<small>${fd(e.date)}${multiStore(pid)?' · '+esc(storeLabel(pid,e.storeId)):''}${e.issuedTo?' · to '+esc(e.issuedTo):''}${e.location?' · '+esc(e.location):''}${e.reason?' · '+esc(e.reason):''}${e.remarks?' · '+esc(e.remarks):''} · ${esc(e.createdByName||'')}</small></div>${(e.createdBy===ui.uid&&!e.issueId&&(!isSK()||e.status==='pending'))||ui.isHQ?`<button class="icon-btn sm" data-act="delSiteLog" data-id="${e.id}" aria-label="Delete entry">${icon('trash')}</button>`:''}</div>`}).join('')}</div>`:'<div class="empty sm"><p>No entries yet.</p></div>'}
 function stockBody(pid){
   const rows=siteRows(pid);const low=rows.filter(r=>r.low);const out=rows.filter(r=>r.bal<=1e-9&&(r.recv||r.open));const inS=rows.filter(r=>r.bal>1e-9).length;
   const mth=today().slice(0,7);const iss=S.sitelog.filter(e=>e.projectId===pid&&e.type==='use'&&String(e.date).slice(0,7)===mth);
   const val=sum(rows,r=>r.value);const f=ui.f.stf||'all';
-  return `<div class="stock-acts">
-    <button class="sa hi" data-act="siteLog" data-t="use" data-p="${pid}"><span class="sa-ph">${ART.x('use')}</span><span><b>Issue / use</b><small>Material given out at site</small></span></button>
+  const gp=isSK()||isPM();const sto=multiStore(pid)?`<div class="toolbar">${seg('sto',[['','All stores'],...projStores(pid).map(s=>[s.id,esc(s.name)])],stoSel(pid))}<span class="muted small">${stoSel(pid)?'Stock of '+esc(storeLabel(pid,stoSel(pid))):'Stock of all stores of the site'}</span></div>`:'';
+  if(isSK()) return `${sto}<div class="stock-acts">
+    <button class="sa hi" data-act="gpNew" data-p="${pid}" data-s="${esc(stoSel(pid))}"><span class="sa-ph">${ART.x('use')}</span><span><b>Issue material</b><small>Gate pass for the project manager</small></span></button>
+    <button class="sa" data-act="openStock" data-p="${pid}"><span class="sa-ph">${ART.x('store')}</span><span><b>Add existing stock</b><small>Counts after the project manager approves</small></span></button>
+    <button class="sa" data-act="go" data-v="s_incoming"><span class="sa-ph">${ART.x('truck')}</span><span><b>Receive material</b><small>Arriving at your stores</small></span></button>
+    <button class="sa" data-act="go" data-v="s_gp"><span class="sa-ph">${ART.x('clip')}</span><span><b>Gate passes</b><small>Made by you and approved</small></span></button></div>
+    ${approvalsBlock(pid)}
+    <section class="card"><div class="card-h"><h2>Stock register · ${esc(stoSel(pid)?storeLabel(pid,stoSel(pid)):projName(pid))}</h2>${seg('stf',[['all','All'],['in','In stock'],['low','Low / out']],f)}<div class="search-inp">${icon('search')}<input class="inp sm" id="f-stq" placeholder="Search item" data-bind="f.stq" data-rerender="1" value="${esc(ui.f.stq||'')}"></div></div>${stockTable(pid)}</section>
+    <section class="card"><div class="card-h"><h2>Register entries</h2><span class="sub">Latest first</span></div>${siteLogList(pid)}</section>`;
+  return `${sto}<div class="stock-acts">
+    ${gp?`<button class="sa hi" data-act="gpNew" data-p="${pid}" data-s="${esc(stoSel(pid))}"><span class="sa-ph">${ART.x('use')}</span><span><b>Gate pass</b><small>Issue to contractor, site, HQ or vendor</small></span></button>`:`<button class="sa hi" data-act="siteLog" data-t="use" data-p="${pid}"><span class="sa-ph">${ART.x('use')}</span><span><b>Issue / use</b><small>Material given out at site</small></span></button>`}
     <button class="sa" data-act="siteLog" data-t="opening" data-p="${pid}"><span class="sa-ph">${ART.x('store')}</span><span><b>Add stock</b><small>Opening or found material</small></span></button>
     <button class="sa" data-act="stockCount" data-p="${pid}"><span class="sa-ph">${ART.x('clip')}</span><span><b>Physical count</b><small>Check and correct the register</small></span></button>
-    <button class="sa" data-act="siteLog" data-t="return" data-p="${pid}"><span class="sa-ph">${ART.x('truck')}</span><span><b>Return to store</b><small>Send surplus back to HQ store</small></span></button>
+    <button class="sa" ${gp?`data-act="gpNew" data-dest="hq"`:`data-act="siteLog" data-t="return"`} data-p="${pid}"><span class="sa-ph">${ART.x('truck')}</span><span><b>Return to store</b><small>Send surplus back to HQ store</small></span></button>
   </div>
   <div class="kpis four">
     <div class="kpi has-ph"><span class="kpi-ph">${ART.x('store')}</span><span class="k">Items in stock</span><span class="v">${inS}</span><span class="d">${rows.length} item${rows.length===1?'':'s'} on the register</span></div>
@@ -342,6 +354,7 @@ function stockBody(pid){
     <div class="acts"><button class="btn sm" data-act="consReport" data-p="${pid}">${icon('doc')} Report consumption</button><button class="btn sm" data-act="vretNew" data-p="${pid}">${icon('back')} Return to vendor</button><button class="btn sm" data-act="openStock" data-p="${pid}">${icon('plus')} Existing stock${ui.role==='hq'&&seeRates()?' with value':''}</button><button class="btn sm ghost" data-act="siteLog" data-t="damage" data-p="${pid}">${icon('alert')} Damage / loss</button><button class="btn sm" data-act="dlProjStock" data-p="${pid}">${icon('dl')} Excel</button></div></div>
     ${stockTable(pid)}<div class="card-f small muted">${icon('help')} Balance = stock added + received − issued − consumed (authenticated) − sent to other sites − returned to vendors − damaged − returned ± count corrections. Tap an item for its full history and to set a minimum level.</div></section>
   ${S.vreturns.some(v=>v.projectId===pid)?vretList(pid):''}
+  ${ui.role==='hq'?approvalsBlock(pid)+storesSection(pid)+headsSection(pid):''}
   <section class="card"><div class="card-h"><h2>Register entries</h2><span class="sub">Latest first</span></div>${siteLogList(pid)}</section>`;
 }
 function vSiteStock(){return stockBody(siteProject())}

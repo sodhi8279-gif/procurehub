@@ -22,9 +22,10 @@ The web app in `web/` is embedded into the program at build time.
 - `perms.go`, `precheck.go` – HQ permissions and demand pre-check rules
 - `gst.go` – HQ store GST challans / tax invoices, site receipt rules
 - `jobwork.go` – material with job workers (balance checks, Excel sheets)
+- `stores.go` – stores at sites, storekeeper / project manager roles, issue heads, gate passes, site manager approvals, freight (6.6)
 - `backup.go`, `xlsx.go` – Excel backup
 - `install*.go`, `firewall*.go` – Windows update takeover and firewall setup
-- `web/` – browser app (views, modals, actions, job work)
+- `web/` – browser app (views, modals, actions, job work; `stores.js` for stores and gate passes)
 - `deploy/` – setup guide, Windows network fix, Linux service file
 
 Data lives in `ProcureHub-Data/` next to the program and is never part of this repository.

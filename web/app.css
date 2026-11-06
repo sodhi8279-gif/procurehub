@@ -860,3 +860,8 @@ tr.struck td:last-child{text-decoration:none;opacity:1}
 .am-f .am-q .inp{width:96px}.am-f .am-s{flex:1;min-width:160px}
 .am-line.struck .who{opacity:.5;text-decoration:line-through}
 .join-box{display:grid;gap:8px;padding:12px;border:1px dashed var(--line);border-radius:12px;background:var(--surface-2,transparent)}
+/* 6.6 freight box and gate passes */
+.fr-box{border:1px dashed var(--line,#c9d3d6);border-radius:10px;padding:8px 12px 4px;margin:10px 0}
+.fr-box legend{font-weight:600;font-size:13px;padding:0 6px}
+.card.appr-box{border-color:var(--amber,#e0a100);box-shadow:0 0 0 1px rgba(224,161,0,.25)}
+.pad-t{padding-top:9px}

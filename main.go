@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.5.4"
+const appVersion = "6.6.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -74,6 +74,9 @@ type User struct {
 	// site login allowed to make cash (counter) purchases; limit per bill in rupees (0 = no limit, HQ users too)
 	CashSpend bool    `json:"cashSpend,omitempty"`
 	CashLimit float64 `json:"cashLimit,omitempty"`
+	// site role (6.6): "pm" project manager, "store" storekeeper, "" site user as before; stores given to a storekeeper
+	SiteRole string   `json:"siteRole,omitempty"`
+	Stores   []string `json:"stores,omitempty"`
 	// fields written by other versions are kept as they are
 	Extra map[string]json.RawMessage `json:"-"`
 }
@@ -119,7 +122,7 @@ var (
 	filesDir string
 )
 
-var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true, "cashbuys": true}
+var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true, "cashbuys": true, "siteissues": true}
 
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]{1,200}$`)
@@ -325,7 +328,7 @@ func hqOnly(h handler) http.HandlerFunc {
 
 func publicUser(u *User) map[string]any {
 	return map[string]any{"id": u.ID, "username": u.Username, "name": u.Name, "role": u.Role, "projectId": u.ProjectID, "active": u.Active, "created": u.Created, "phone": u.Phone, "mustChange": u.MustChange, "lastLogin": u.LastLogin, "access": u.Access, "admin": isAdmin(u),
-		"sign": u.Sign, "designation": u.Designation, "siteHead": u.SiteHead, "cashSpend": u.CashSpend, "cashLimit": u.CashLimit}
+		"sign": u.Sign, "designation": u.Designation, "siteHead": u.SiteHead, "cashSpend": u.CashSpend, "cashLimit": u.CashLimit, "siteRole": u.SiteRole, "stores": u.Stores}
 }
 
 func startSession(w http.ResponseWriter, r *http.Request, u *User) {
@@ -358,6 +361,11 @@ func hMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"user": publicUser(u), "company": company, "logo": logo, "version": appVersion}
+	if u.Role == "site" {
+		mu.Lock()
+		out["siteHasStorekeeper"] = hasStorekeeper(u.ProjectID)
+		mu.Unlock()
+	}
 	if isAdmin(u) && len(dataNotes) > 0 {
 		out["dataNotes"] = dataNotes
 	}
@@ -539,6 +547,8 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 			ID, Username, Name, Role, ProjectID, Password, Phone string
 			Active                                               *bool
 			SiteHead                                             *bool
+			SiteRole                                             *string
+			Stores                                               *[]string
 			CashSpend                                            *bool
 			CashLimit                                            *float64
 			Access                                               *Access
@@ -645,11 +655,37 @@ func hUsers(w http.ResponseWriter, r *http.Request, u *User) {
 			if req.SiteHead != nil {
 				target.SiteHead = *req.SiteHead
 			}
+			if req.SiteRole != nil {
+				switch *req.SiteRole {
+				case "", "pm", "store":
+					target.SiteRole = *req.SiteRole
+				default:
+					fail(w, 400, "Choose the site role.")
+					return
+				}
+			}
+			if req.Stores != nil {
+				var ss []string
+				for _, s := range *req.Stores {
+					if idRe.MatchString(s) && storeExists(req.ProjectID, s) {
+						ss = append(ss, s)
+					}
+				}
+				target.Stores = ss
+			}
+			switch target.SiteRole {
+			case "pm": // the project manager is the site head
+				target.SiteHead, target.Stores = true, nil
+			case "store":
+				target.SiteHead = false
+			default:
+				target.Stores = nil
+			}
 			if req.CashSpend != nil {
 				target.CashSpend = *req.CashSpend
 			}
 		} else {
-			target.SiteHead, target.CashSpend = false, false
+			target.SiteHead, target.CashSpend, target.SiteRole, target.Stores = false, false, "", nil
 		}
 		if req.CashLimit != nil && *req.CashLimit >= 0 {
 			target.CashLimit = *req.CashLimit
@@ -746,6 +782,8 @@ func visible(u *User, col, id string, d *Doc) bool {
 			return str(d.Data, "projectId") == "" || inScope(u, str(d.Data, "projectId"))
 		case "dispatches":
 			return inScope(u, str(d.Data, "projectId")) || inScope(u, str(d.Data, "fromProjectId"))
+		case "siteissues":
+			return inScope(u, str(d.Data, "projectId")) || inScope(u, str(d.Data, "toProjectId"))
 		}
 		return true
 	}
@@ -761,6 +799,8 @@ func visible(u *User, col, id string, d *Doc) bool {
 		return str(d.Data, "projectId") == u.ProjectID && str(d.Data, "location") == "site"
 	case "dispatches":
 		return str(d.Data, "projectId") == u.ProjectID || str(d.Data, "fromProjectId") == u.ProjectID
+	case "siteissues":
+		return str(d.Data, "projectId") == u.ProjectID
 	}
 	return false
 }
@@ -889,7 +929,10 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 						return nil, errDeny
 					}
 					out[k] = sv
-				case "receivedAt", "receivedByName", "siteRemarks", "photos", "signedDocs", "billDocs", "receiverDesignation", "receivedOn", "declared":
+				case "receivedAt", "receivedByName", "siteRemarks", "photos", "signedDocs", "billDocs", "receiverDesignation", "receivedOn", "declared", "storeId":
+					out[k] = v
+				case "freight":
+					out[k] = cleanFreight(v)
 					out[k] = v
 				case "receivedBy":
 				case "lines":
@@ -930,8 +973,10 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 						return nil, errDeny
 					}
 					out[k] = v
-				case "vehicle", "lrNo", "driver", "shippedAt", "sentByName", "sendRemarks", "sentPhotos":
+				case "vehicle", "lrNo", "driver", "shippedAt", "sentByName", "sendRemarks", "sentPhotos", "fromStoreId":
 					out[k] = v
+				case "freight":
+					out[k] = cleanFreight(v)
 				default:
 					return nil, errDeny
 				}
@@ -1046,19 +1091,31 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 	if u.Role != "hq" {
 		if req.Op == "delete" {
 			ownPending := req.Col == "consumption" && str(exData, "projectId") == u.ProjectID && str(exData, "reportedBy") == u.ID && str(exData, "status") == "pending"
-			if !ownPending && !(req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID) && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
+			ownLog := req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID && str(exData, "issueId") == "" && (!siteStore(u) || str(exData, "status") == "pending")
+			if !ownPending && !ownLog && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
 				fail(w, 403, errDeny.Error())
 				return
 			}
 		} else {
-			var err error
-			newData, err = siteCheck(u, req.Op, req.Col, exData, req.Data, newData)
+			out, handled, err := siteRoleCheck(u, req.Op, req.Col, req.ID, exData, req.Data, newData)
+			if err == nil && !handled {
+				orate := req.Data["orate"]
+				out, err = siteCheck(u, req.Op, req.Col, exData, req.Data, newData)
+				if err == nil && req.Col == "sitelog" && req.Op == "set" && exData == nil {
+					out["orate"] = orate
+					stockEntryNew(u, out, siteStore(u) || sitePM(u))
+				}
+				if err == nil && req.Col == "dispatches" {
+					holdForPM(u, exData, out)
+				}
+			}
 			if err != nil {
 				fail(w, 403, err.Error())
 				return
 			}
+			newData = out
 		}
-	} else if err := hqCheck(u, req.Op, req.Col, exData, req.Data, newData); err != nil {
+	} else if err := hqCheck(u, req.Op, req.Col, exData, req.Data, newData); err != nil && !siteMgrLists(u, req.Op, req.Col, req.ID, req.Data) {
 		fail(w, 403, err.Error())
 		return
 	} else if req.Col == "indents" && req.Op != "delete" {
@@ -1086,6 +1143,18 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		if req.Col == "indents" && exData != nil {
 			if err := amendGuard(u, exData, req.Data, newData); err != nil {
 				fail(w, 403, err.Error())
+				return
+			}
+		}
+		if req.Col == "siteissues" {
+			if err := issueGuard(u, req.ID, exData, req.Data, newData); err != nil {
+				fail(w, 403, err.Error())
+				return
+			}
+		}
+		if req.Col == "projects" && u.Role == "hq" {
+			if err := checkProjectLists(exData, req.Data, newData); err != nil {
+				fail(w, 400, err.Error())
 				return
 			}
 		}
@@ -1177,7 +1246,7 @@ func hCounter(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Invalid number series.")
 		return
 	}
-	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" && req.Prefix != "CP" {
+	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" && req.Prefix != "CP" && req.Prefix != "OS" {
 		fail(w, 403, "Not allowed.")
 		return
 	}

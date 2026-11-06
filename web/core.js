@@ -125,7 +125,7 @@ function taxLines(lines,intra){let taxable=0,cgst=0,sgst=0,igst=0;const out=line
   return {lines:out,taxable:r(taxable),cgst:r(cgst),sgst:r(sgst),igst:r(igst),total:r(taxable+cgst+sgst+igst)}}
 
 /* ================= STATE ================= */
-const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],vreturns:[],cashbuys:[],catalog:{},catalogList:[],config:{}};
+const S={projects:[],vendors:[],indents:[],rfqs:[],pos:[],grns:[],dispatches:[],sitelog:[],stocklvl:[],jobwork:[],mailquotes:[],consumption:[],vreturns:[],cashbuys:[],siteissues:[],catalog:{},catalogList:[],config:{}};
 const ui={view:'loading',param:null,modal:null,f:{},sel:{},draft:{},loaded:{},role:null,preview:'',uid:null,fatal:null,tab:{},busy:false,online:true,me:null,users:[],smtp:null,pop:null,q:'',drawer:false,uploading:0,pickCat:null,pickQ:'',cartOpen:false};
 let D={};
 const app=document.getElementById('app');
@@ -153,7 +153,7 @@ async function api(path,body,method){
 function applyDoc(d){const c=store.cols[d.col]||(store.cols[d.col]={});if(d.deleted) delete c[d.id];else c[d.id]=d.data}
 function rebuild(){
   const L=c=>Object.entries(store.cols[c]||{}).map(([id,d])=>Object.assign({},d,{id}));
-  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns','cashbuys']) S[k]=L(k);
+  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns','cashbuys','siteissues']) S[k]=L(k);
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
@@ -225,9 +225,12 @@ function photoStrip(ids){ids=(ids||[]).filter(Boolean);return ids.length?`<div c
 
 /* ================= DERIVED DATA ================= */
 function derive(){
-  const d={delivered:{},transit:{},storeOut:{},storeDisp:{},stock:{},directRecv:{},poDispatches:{},site:{},reserved:{},lineDisp:{}};
+  const d={delivered:{},transit:{},storeOut:{},storeDisp:{},stock:{},directRecv:{},poDispatches:{},site:{},sst:{},reserved:{},lineDisp:{}};
   D=d;d.items=catalogItems();d.itemMap=Object.fromEntries(d.items.map(x=>[x.id,x]));
-  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,vret:0,open:0,dmg:0,ret:0,adj:0,bal:0,min:0,last:0})};
+  const siteRow=(p,k,l)=>{const m=d.site[p]||(d.site[p]={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,vret:0,open:0,dmg:0,ret:0,adj:0,iss:0,piss:0,bal:0,min:0,last:0})};
+  // the same per store of the site (stock from before stores existed is in the main store)
+  const stRow=(p,sid,k,l)=>{const ps=d.sst[p]||(d.sst[p]={});const m=ps[sid||'main']||(ps[sid||'main']={});return m[k]||(m[k]={itemKey:k,desc:l.desc,spec:l.spec||'',unit:l.unit,cat:l.cat||l.category||classify(l.desc,l.spec).cat,recv:0,out:0,used:0,cons:0,pcons:0,vret:0,open:0,dmg:0,ret:0,adj:0,iss:0,piss:0,bal:0,min:0,last:0})};
+  const bump=(p,sid,k,l,f,q,at)=>{for(const r of [siteRow(p,k,l),stRow(p,sid,k,l)]){r[f]+=q;if(at) r.last=Math.max(r.last,at)}};
   d.rate={};for(const p of S.pos){if(p.status==='cancelled') continue;for(const l of p.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);const r=d.rate[k];if(!r||(p.at||0)>r.at) d.rate[k]={rate:num(l.rate)*(1+num(l.gst)/100),at:p.at||0}}}
   // value of existing stock entered with a rate (used when there is no PO rate)
   d.orate={};const oat={};const orate=(k,r,at)=>{if(num(r)>0&&(!(k in oat)||at>=oat[k])){d.orate[k]=num(r);oat[k]=at}};
@@ -237,25 +240,32 @@ function derive(){
   for(const x of S.dispatches){if(x.status==='cancelled') continue;
     for(const l of x.lines||[]){const k=l.indentId+'|'+l.lineId;const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
       if(l.indentId)(d.lineDisp[k]=d.lineDisp[k]||[]).push(x);
-      if(x.status==='delivered'||x.status==='short'){if(l.indentId) d.delivered[k]=(d.delivered[k]||0)+num(l.recvQty);const sr=siteRow(x.projectId,ik,l);sr.recv+=num(l.recvQty);sr.last=Math.max(sr.last,x.receivedAt||0)}
+      if(x.status==='delivered'||x.status==='short'){if(l.indentId) d.delivered[k]=(d.delivered[k]||0)+num(l.recvQty);bump(x.projectId,x.storeId,ik,l,'recv',num(l.recvQty),x.receivedAt||0)}
       if(x.status==='in_transit'&&l.indentId) d.transit[k]=(d.transit[k]||0)+num(l.qty);
       if(x.type==='store'){d.storeOut[ik]=(d.storeOut[ik]||0)+num(l.qty);if(l.indentId) d.storeDisp[k]=(d.storeDisp[k]||0)+num(l.qty)}
-      if(x.type==='transfer'&&x.fromProjectId){if(x.status==='to_send'){const m=d.reserved[x.fromProjectId]||(d.reserved[x.fromProjectId]={});m[ik]=(m[ik]||0)+num(l.qty)}else siteRow(x.fromProjectId,ik,l).out+=num(l.qty)}
+      if(x.type==='transfer'&&x.fromProjectId){if(x.status==='to_send'){const m=d.reserved[x.fromProjectId]||(d.reserved[x.fromProjectId]={});m[ik]=(m[ik]||0)+num(l.qty)}else bump(x.fromProjectId,x.fromStoreId,ik,l,'out',num(l.qty))}
       if(x.type==='direct'&&x.poId&&(x.status==='delivered'||x.status==='short')){const pk=x.poId+'|'+l.poKey;d.directRecv[pk]=(d.directRecv[pk]||0)+num(l.recvQty)}
     }
     if(x.poId)(d.poDispatches[x.poId]=d.poDispatches[x.poId]||[]).push(x);
   }
   const retIn={};
-  for(const e of S.sitelog){const ik=e.itemKey||itemKey(e.desc,e.spec,e.unit);const r=siteRow(e.projectId,ik,e);const q=num(e.qty);r.last=Math.max(r.last,e.at||0);
-    if(e.type==='use') r.used+=q;else if(e.type==='damage') r.dmg+=q;else if(e.type==='return'){r.ret+=q;retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}else if(e.type==='adjust') r.adj+=q;else r.open+=q}
+  // stock entered by the storekeeper counts once the project manager approves it
+  for(const e of S.sitelog){if(e.status==='pending'||e.status==='rejected') continue;const ik=e.itemKey||itemKey(e.desc,e.spec,e.unit);const q=num(e.qty);
+    const f={use:'used',damage:'dmg',return:'ret',adjust:'adj'}[e.type]||'open';bump(e.projectId,e.storeId,ik,e,f,q,e.at||0);
+    if(e.type==='return'){retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}}
+  // gate passes: material issued to contractors / heads; pending ones are held back
+  for(const g of S.siteissues){if(g.status!=='approved'&&g.status!=='pending') continue;for(const l of g.lines||[]){const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
+    if(g.status==='pending') bump(g.projectId,g.storeId,ik,l,'piss',num(l.qty));else if(g.dest==='head') bump(g.projectId,g.storeId,ik,l,'iss',num(l.qty),(g.appr&&g.appr.at)||0)}}
   // consumption reported by sites: counts once the site head / project manager authenticates it
-  for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const r=siteRow(c.projectId,l.itemKey||itemKey(l.desc,l.spec,l.unit),l);if(c.status==='authenticated'){r.cons+=num(l.qty);r.last=Math.max(r.last,(c.auth&&c.auth.at)||0)}else r.pcons+=num(l.qty)}}
+  for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(c.status==='authenticated') bump(c.projectId,c.storeId,k,l,'cons',num(l.qty),(c.auth&&c.auth.at)||0);else bump(c.projectId,c.storeId,k,l,'pcons',num(l.qty))}}
   // material returned to vendors (rejected, wrong specification, damaged…)
-  d.vretRepl={};for(const v of S.vreturns){if(v.status==='cancelled') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(v.from==='site'&&v.projectId){const r=siteRow(v.projectId,k,l);r.vret+=num(l.qty);r.last=Math.max(r.last,v.at||0)}if(v.replace&&v.poId&&l.poKey) d.vretRepl[v.poId+'|'+l.poKey]=(d.vretRepl[v.poId+'|'+l.poKey]||0)+num(l.qty)}}
+  d.vretRepl={};for(const v of S.vreturns){if(v.status==='cancelled') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(v.from==='site'&&v.projectId) bump(v.projectId,v.storeId,k,l,'vret',num(l.qty),v.at||0);if(v.replace&&v.poId&&l.poKey) d.vretRepl[v.poId+'|'+l.poKey]=(d.vretRepl[v.poId+'|'+l.poKey]||0)+num(l.qty)}}
   // cash (counter) purchases count once finally approved, with what was consumed from them
-  for(const c of S.cashbuys){if(c.status!=='final'||c.location!=='site') continue;const ls=c.lines||[];const fu=cashUsedFinal(c);ls.forEach((l,i)=>{const r=siteRow(c.projectId,itemKey(l.desc,l.spec,l.unit),l);r.recv+=num(l.qty);r.cons+=fu[i]||0;r.last=Math.max(r.last,(c.fin&&c.fin.at)||0)})}
+  for(const c of S.cashbuys){if(c.status!=='final'||c.location!=='site') continue;const ls=c.lines||[];const fu=cashUsedFinal(c);ls.forEach((l,i)=>{const k=itemKey(l.desc,l.spec,l.unit);bump(c.projectId,c.storeId,k,l,'recv',num(l.qty),(c.fin&&c.fin.at)||0);bump(c.projectId,c.storeId,k,l,'cons',fu[i]||0)})}
   d.lvl={};for(const v of S.stocklvl){(d.lvl[v.projectId]=d.lvl[v.projectId]||{})[v.itemKey]=v;const r=d.site[v.projectId]&&d.site[v.projectId][v.itemKey];if(r) r.min=num(v.min)}
-  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=Math.round((r.open+r.recv-r.out-r.used-r.cons-r.vret-r.dmg-r.ret+r.adj)*1000)/1000;r.free=r.bal-r.pcons-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
+  const sbal=r=>Math.round((r.open+r.recv-r.out-r.used-r.cons-r.vret-r.dmg-r.ret+r.adj-r.iss)*1000)/1000;
+  for(const p in d.site) for(const k in d.site[p]){const r=d.site[p][k];r.bal=sbal(r);r.free=r.bal-r.pcons-r.piss-((d.reserved[p]||{})[k]||0);r.low=r.min>0&&r.bal<r.min;r.value=r.bal>0?r.bal*d.rateOf(k):0}
+  for(const p in d.sst) for(const s in d.sst[p]) for(const k in d.sst[p][s]){const r=d.sst[p][s][k];r.bal=sbal(r);r.free=r.bal-r.pcons-r.piss;r.value=r.bal>0?r.bal*d.rateOf(k):0}
   for(const g of S.grns){for(const l of g.lines||[]){const s=d.stock[l.itemKey]||(d.stock[l.itemKey]={itemKey:l.itemKey,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,inQ:0,outQ:0});s.inQ+=num(l.acc)}}
   for(const k in retIn){const s=d.stock[k]||(d.stock[k]={itemKey:k,desc:retIn[k].l.desc,spec:retIn[k].l.spec,unit:retIn[k].l.unit,cat:retIn[k].l.cat,inQ:0,outQ:0});s.inQ+=retIn[k].q}
   for(const k in d.storeOut){const s=d.stock[k];if(s) s.outQ+=d.storeOut[k];else d.stock[k]={itemKey:k,desc:k.split('|')[0],spec:'',unit:k.split('|')[2],cat:'others',inQ:0,outQ:d.storeOut[k]}}
