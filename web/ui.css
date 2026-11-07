@@ -312,3 +312,30 @@ label.icon-btn{cursor:pointer}
 .slot-ph img,.slot-ph .cover-empty{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
 .slot-row .grow{display:grid;gap:3px;min-width:0}.slot-row a.small{display:inline-flex;gap:4px;align-items:center;width:max-content}
 @media (max-width:760px){.slot-row{flex-wrap:wrap;padding:12px 14px}.slot-ph{width:72px;height:48px}.slot-row .grow{flex:1 1 60%}}
+
+/* ---------- 7.0 · emergency purchase, extra charges & round off ---------- */
+.chip.emg{background:var(--red);color:#fff;font-weight:700;letter-spacing:.03em;display:inline-flex;align-items:center;gap:4px;margin:2px 4px 0 0}
+.chip.emg .ic{color:#fff}
+.prio.Emergency{color:#fff;background:var(--red);padding:2px 7px;border-radius:6px}
+.btn.emg-btn{border-color:color-mix(in srgb,var(--red) 45%,var(--line));color:var(--red);background:var(--red-soft);font-weight:700}
+.btn.emg-btn .ic{color:var(--red)}
+.btn.emg-btn:hover{background:var(--red);color:#fff}.btn.emg-btn:hover .ic{color:#fff}
+.btn.primary.emg-go{background:var(--red);border-color:var(--red)}
+.notice.emg-note{background:var(--red-soft);border-color:color-mix(in srgb,var(--red) 35%,var(--line));margin:10px 0}
+.notice.emg-note>.ic{color:var(--red)}
+.chg-box{border:1px dashed var(--line);border-radius:10px;padding:8px 12px 10px;margin:12px 0}
+.chg-box legend{font-weight:600;font-size:13px;padding:0 6px}
+.chg-box .row{margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap}
+.chg-box table.chg input.inp{min-width:0}
+.chg-box table.chg td:first-child input{min-width:190px}
+.bill-sum{margin:10px 0 0 auto;max-width:380px}
+.bill-sum td{padding:4px 8px}
+.bill-sum tr.tot td{border-top:2px solid var(--ink-3);font-size:15px}
+.t.emg-lines th,.t.emg-lines td{padding-left:5px;padding-right:5px}
+.t.emg-lines input.inp,.t.emg-lines select.inp{min-width:0;width:100%}
+.t.emg-lines td:first-child{min-width:190px}
+.t.emg-lines td:nth-child(2){min-width:120px}
+.t.emg-lines td:nth-child(3){width:72px}.t.emg-lines td:nth-child(4){width:84px}
+.t.emg-lines td:nth-child(5){width:96px}.t.emg-lines td:nth-child(6){width:62px}.t.emg-lines td:nth-child(7){width:80px}
+.t.emg-lines td:nth-child(8){width:90px;white-space:nowrap}.t.emg-lines td:nth-child(9){width:36px}
+.chg-box table.chg td:nth-child(3){width:110px}.chg-box table.chg td:nth-child(4){width:72px}

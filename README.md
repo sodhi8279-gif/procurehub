@@ -22,6 +22,7 @@ The web app in `web/` is embedded into the program at build time.
 - `perms.go`, `precheck.go` – HQ permissions and demand pre-check rules
 - `gst.go` – HQ store GST challans / tax invoices, site receipt rules
 - `jobwork.go` – material with job workers (balance checks, Excel sheets)
+- `emergency.go`, `web/emergency.js` – emergency purchase (site demand + PO + direct delivery in one step), extra charges and round off on quotations and POs (7.0)
 - `rates.go` – estimate before RFQ (approval), AI vendor search (6.7)
 - `projphotos.go` – project photo gallery rules and supporting photographs (6.8)
 - `web/ui.css`, `web/photos.js`, `web/gallery.js` – 6.8 design layer, photographs, project photo gallery

@@ -20,28 +20,29 @@ type Access struct {
 }
 
 var permLabels = map[string]string{
-	"demands_view":     "see site demands",
-	"demands_approve":  "approve or reject demands",
-	"demands_precheck": "pre-check demands",
-	"raise_demand":     "raise demands for sites",
-	"rfq_create":       "call for quotations",
-	"quotes_enter":     "upload or enter quotations",
-	"compare_approve":  "approve comparative statements",
-	"po_issue":         "issue purchase orders",
-	"rates_view":       "see rates and values",
-	"store":            "work in the central store and dispatch",
-	"sitestock_view":   "see site stock",
-	"sitestock_edit":   "change site stock",
-	"masters_projects": "add or edit projects",
-	"masters_vendors":  "add or edit vendors",
-	"masters_items":    "edit the item catalogue",
-	"reports":          "see reports and download data",
-	"settings":         "change company, email and backup settings",
-	"po_approve":       "approve purchase orders and site transfer indents",
-	"consume_auth":     "authenticate site consumption reports",
-	"cash_spend":       "make cash (counter) purchases",
-	"cash_approve":     "approve cash purchases and their consumption",
-	"site_approve":     "approve gate passes and stock entries of assigned sites (site manager)",
+	"demands_view":       "see site demands",
+	"demands_approve":    "approve or reject demands",
+	"demands_precheck":   "pre-check demands",
+	"raise_demand":       "raise demands for sites",
+	"rfq_create":         "call for quotations",
+	"quotes_enter":       "upload or enter quotations",
+	"compare_approve":    "approve comparative statements",
+	"po_issue":           "issue purchase orders",
+	"emergency_purchase": "enter emergency purchases",
+	"rates_view":         "see rates and values",
+	"store":              "work in the central store and dispatch",
+	"sitestock_view":     "see site stock",
+	"sitestock_edit":     "change site stock",
+	"masters_projects":   "add or edit projects",
+	"masters_vendors":    "add or edit vendors",
+	"masters_items":      "edit the item catalogue",
+	"reports":            "see reports and download data",
+	"settings":           "change company, email and backup settings",
+	"po_approve":         "approve purchase orders and site transfer indents",
+	"consume_auth":       "authenticate site consumption reports",
+	"cash_spend":         "make cash (counter) purchases",
+	"cash_approve":       "approve cash purchases and their consumption",
+	"site_approve":       "approve gate passes and stock entries of assigned sites (site manager)",
 }
 
 func isAdmin(u *User) bool { return u != nil && u.Role == "hq" && (u.Access == nil || u.Access.Admin) }
@@ -62,7 +63,7 @@ func can(u *User, p string) bool {
 		}
 	}
 	if p == "rates_view" { // people who handle quotes or orders must see prices
-		return canAny(u, "quotes_enter", "compare_approve", "po_issue", "po_approve", "reports")
+		return canAny(u, "quotes_enter", "compare_approve", "po_issue", "po_approve", "reports", "emergency_purchase")
 	}
 	return false
 }

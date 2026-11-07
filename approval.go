@@ -47,7 +47,7 @@ func isTransfer(col string, d map[string]any) bool {
 // what makes up the substance of a document; changing it after approval
 // needs a fresh approval.
 var approvalKeys = map[string][]string{
-	"pos":        {"lines", "freight", "deliveryMode", "deliveryDays", "payment", "terms", "vendorId", "shipToVendorId", "jwBillTo"},
+	"pos":        {"lines", "freight", "charges", "roundOff", "roundAuto", "deliveryMode", "deliveryDays", "payment", "terms", "vendorId", "shipToVendorId", "jwBillTo"},
 	"dispatches": {"lines", "fromProjectId", "projectId"},
 }
 

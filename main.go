@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "6.8.1"
+const appVersion = "7.0.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1956,6 +1956,7 @@ func main() {
 	mux.HandleFunc("/api/smtp", permOnly(hSMTP, "settings"))
 	mux.HandleFunc("/api/https", adminOnly(hHTTPS))
 	mux.HandleFunc("/api/smtp/test", permOnly(hSMTPTest, "settings"))
+	mux.HandleFunc("/api/emergency", authed(hEmergency))
 	mux.HandleFunc("/api/mail", permOnly(hMail, "rfq_create", "po_issue"))
 	mux.HandleFunc("/api/mailin", permOnly(hMailIn, "settings"))
 	mux.HandleFunc("/api/mailin/check", permOnly(hMailInCheck, "quotes_enter", "rfq_create", "settings"))
