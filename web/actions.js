@@ -482,7 +482,10 @@ A.saveVendor=async()=>{const m=ui.modal;const v=m.d;if(!String(v.name||'').trim(
   if(await run(()=>setDoc('vendors',m.id||newId(),doc),'Vendor saved')) closeModal()};
 A.delVendor=()=>{const id=ui.modal.id;confirmBox({title:'Delete vendor',body:'Existing RFQs and POs keep the vendor name. The vendor is no longer offered for new RFQs.',yes:'Delete',danger:true,onYes:async()=>{if(await run(()=>delDoc('vendors',id),'Vendor deleted')) closeModal()}})};
 function catDraft(){return ((S.config&&S.config.cats)||[]).map(c=>Object.assign({},c,{kwText:(c.kw||[]).join(', ')}))}
-A.editCats=()=>openModal({type:'cats',d:{cats:catDraft()}});
+A.editCats=()=>openModal({type:'cats',d:{cats:catDraft(),std:Object.assign({},(S.config&&S.config.catPhotos)||{})}});
+A.catStd=d=>{delete ui.modal.d.std[d.id];render()};
+// the built-in picture of a standard category, ignoring any picture of your own
+function IMG_STD(id){const c=CAT[id];const ph=c&&c.photo;if(c) delete c.photo;const h=ART.cat(id);if(c&&ph) c.photo=ph;return h}
 A.catAdd=()=>{ui.modal.d.cats.push({id:'',name:'',kwText:'',photo:'',hidden:false,isNew:true});render();setTimeout(()=>{const el=document.getElementById('ce-n-'+(ui.modal.d.cats.length-1));el&&el.focus()},40)};
 A.catRm=d=>{ui.modal.d.cats.splice(+d.i,1);render()};
 function catsToSave(list){const out=[];const names=new Set(CATS.filter(c=>!c.custom).map(c=>norm(c.name)));
@@ -492,7 +495,8 @@ function catsToSave(list){const out=[];const names=new Set(CATS.filter(c=>!c.cus
     out.push({id,name,kw:String(c.kwText||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean),photo:c.photo||'',hidden:!!c.hidden,h:c.h!=null&&c.h!==''?+c.h:hash(id)%360})}
   return out}
 A.saveCats=async()=>{let cats;try{cats=catsToSave(ui.modal.d.cats)}catch(e){toast(e.message,'err');return}
-  if(await run(()=>updDoc('config','main',{cats}),'Categories saved')!==false) closeModal()};
+  const catPhotos={};for(const [k,v] of Object.entries(ui.modal.d.std||{})) if(v&&CAT[k]&&!CAT[k].custom) catPhotos[k]=v;
+  if(await run(()=>updDoc('config','main',{cats,catPhotos}),'Categories saved')!==false) closeModal()};
 A.quickCat=()=>{const keep=ui.modal;confirmBox({title:'New category',body:'<p>Add a category for items that do not fit the existing ones. You can add keywords and a picture later under Item catalogue → Categories.</p>',note:'Category name',yes:'Add category',
   onYes:async m=>{const name=String(m.noteVal||'').trim();if(!name){toast('Enter the category name.','err');return}let cats;try{cats=catsToSave(catDraft().concat({name,kwText:'',photo:'',hidden:false}))}catch(e){toast(e.message,'err');return}
     if(await run(()=>updDoc('config','main',{cats}),'Category “'+name+'” added')!==false){ui.modal=keep;keep.d.category=cats[cats.length-1].id;render()}}})};

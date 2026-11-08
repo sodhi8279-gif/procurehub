@@ -31,7 +31,8 @@ function itemFile(desc,cat){
 window.ART={
   sprite,
   cat:(id,cls='')=>CAT[id]&&CAT[id].photo?`<img class="art photo ${cls}" src="/files/${CAT[id].photo}" alt="" draggable="false">`:IMG(`cat-${CAT_IDS.includes(id)?id:'others'}.jpg`,cls),
-  item:(desc,cat,cls='')=>{const f=itemFile(desc,cat);return !f.startsWith('items/')&&CAT[cat]&&CAT[cat].photo?ART.cat(cat,cls):IMG(f,cls)},
+  // an item with its own built-in picture keeps it; any other item shows its category's picture when you have set one (7.0.1)
+  item:(desc,cat,cls='')=>{const f=itemFile(desc,cat);if(CAT[cat]&&CAT[cat].photo&&!(IDX||[]).some(x=>x.id===slugify(desc))) return ART.cat(cat,cls);return IMG(f,cls)},
   x:(id,cls='')=>IMG((XMAP[id]||'x-ok')+'.jpg',cls),
   hero:(cls='')=>IMG('hero.jpg',cls),
   scene:(kind,v,cls='')=>IMG(`scene-${kind}.jpg`,cls,`object-position:${['50%','30%','70%'][(v||1)-1]} 50%`),

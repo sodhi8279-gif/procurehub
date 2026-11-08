@@ -160,6 +160,8 @@ function rebuild(){
 }
 // Categories added by the user (Item catalogue → Categories) are merged into the standard list, before "Others".
 function applyCustomCats(){const cs=(S.config&&S.config.cats)||[];
+  // 7.0.1: your own pictures for the standard categories (Item catalogue → Categories → Change picture)
+  {const cp=(S.config&&S.config.catPhotos)||{};for(const id of Object.keys(CAT)){const c=CAT[id];if(!c||c.custom) continue;if(cp[id]) c.photo=cp[id];else delete c.photo}}
   for(let i=CATS.length-1;i>=0;i--) if(CATS[i].custom) CATS.splice(i,1);
   for(const k of Object.keys(CAT)) if(CAT[k].custom) delete CAT[k];
   const add=cs.filter(c=>c&&c.id&&c.name).map(c=>({id:c.id,name:c.name,h:c.h!=null&&c.h!==''?+c.h:hash(c.id)%360,blurb:c.blurb||'',kw:(c.kw||[]).filter(Boolean),photo:c.photo||'',hidden:!!c.hidden,custom:true}));

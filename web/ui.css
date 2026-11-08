@@ -339,3 +339,10 @@ label.icon-btn{cursor:pointer}
 .t.emg-lines td:nth-child(5){width:96px}.t.emg-lines td:nth-child(6){width:62px}.t.emg-lines td:nth-child(7){width:80px}
 .t.emg-lines td:nth-child(8){width:90px;white-space:nowrap}.t.emg-lines td:nth-child(9){width:36px}
 .chg-box table.chg td:nth-child(3){width:110px}.chg-box table.chg td:nth-child(4){width:72px}
+
+/* ---------- 7.0.1 · pictures of the standard categories ---------- */
+.std-cat-ed{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px}
+.std-cat-row{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.std-cat-row .cat-art{width:52px;height:52px;flex:none;border-radius:8px;overflow:hidden}
+.std-cat-row .cat-art img{width:100%;height:100%;object-fit:cover}
+.std-cat-row .btn{white-space:nowrap}
