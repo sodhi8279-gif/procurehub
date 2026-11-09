@@ -343,7 +343,7 @@ function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;
   if(vq) return {label:`${vq} of ${(r.vendorIds||[]).length} quotes in`,tone:'violet'};
   if(r.status==='sent') return {label:'Awaiting quotes',tone:'amber'};
   return {label:'Draft · not sent',tone:'plain'}}
-function dispStatus(d){if(d.type==='transfer'&&d.status==='to_send'&&d.approval){if(d.approval.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(d.approval.status==='returned') return {label:'Sent back',tone:'red'}}return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
+function dispStatus(d){if(d.type==='transfer'&&d.status==='to_send'&&d.approval){if(d.approval.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(d.approval.status==='returned') return {label:'Sent back',tone:'red'}}return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.excess&&d.status==='delivered'?{label:'Received more',tone:'amber'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
 const chip=s=>`<span class="chip ${s.tone||''}">${esc(s.label)}</span>`;
 function siteProject(){return ui.role==='site'?(ui.preview||(ui.me&&ui.me.projectId)||''):''}
 const GST_SLABS=[0,0.1,0.25,1.5,3,5,6,12,18,28,40];

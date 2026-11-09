@@ -346,12 +346,14 @@ A.cancelPo=()=>{const po=poOf();const emgInd=po.emergency?S.indents.find(i=>i.id
 
 /* ================= RECEIPT, STORE, DISPATCH ================= */
 A.recordGrn=d=>{const po=S.pos.find(p=>p.id===d.id);if(!poIsApproved(po)){toast('This PO is waiting for approval by the Director (Procurement).','err');return}const recv={};for(const l of po.lines){const b=Math.max(0,num(l.qty)-poRecv(po,l.key));recv[l.key]=b?String(b):''}
-  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,rej:{},photos:[],billDocs:[],signedDocs:[],freight:{}}})};
+  openModal({type:'grn',poId:po.id,d:{date:today(),challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',recv,sup:{},rej:{},photos:[],billDocs:[],signedDocs:[],freight:{}}})};
 A.saveGrn=async()=>{const m=ui.modal;const po=S.pos.find(p=>p.id===m.poId);const d=m.d;
-  const lines=po.lines.map(l=>{const rc=num(d.recv[l.key]),rj=num(d.rej[l.key]);return {key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,itemKey:l.itemKey||itemKey(l.desc,l.spec,l.unit),recv:rc,rej:rj,acc:Math.max(0,rc-rj)}}).filter(l=>l.recv>0);
+  // sup = quantity as per the vendor's challan / invoice (e.g. TMT by weight); blank means the same as received
+  const lines=po.lines.map(l=>{const rc=num(d.recv[l.key]),rj=num(d.rej[l.key]);const sv=String((d.sup||{})[l.key]??'').trim();return {key:l.key,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,itemKey:l.itemKey||itemKey(l.desc,l.spec,l.unit),sup:sv===''?rc:num(sv),recv:rc,rej:rj,acc:Math.max(0,rc-rj)}}).filter(l=>l.recv>0||l.sup>0);
   if(!lines.length){toast('Enter the received quantity.','err');return}
+  if(lines.some(l=>l.rej>l.recv+1e-9)){toast('Rejected cannot be more than received.','err');return}
   if(!needReceiptDocs(d)) return;
-  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],billDocs:d.billDocs,signedDocs:d.signedDocs,...(frOut(d.freight)?{freight:frOut(d.freight)}:{}),lines,at:Date.now(),by:ui.uid||null});
+  const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:po.id,poNo:po.no,vendorName:po.vendorName,date:d.date,challan:d.challan,invoice:d.invoice,invoiceDate:d.invoiceDate||'',vehicle:d.vehicle,remarks:d.remarks,photos:d.photos||[],billDocs:d.billDocs,signedDocs:d.signedDocs,...(frOut(d.freight)?{freight:frOut(d.freight)}:{}),lines,...(lines.some(l=>Math.abs(l.sup-l.recv)>1e-9)?{qtyDiff:true}:{}),at:Date.now(),by:ui.uid||null});
     const received=Object.assign({},po.received||{});for(const l of lines) received[l.key]=num(received[l.key])+l.acc;await updDoc('pos',po.id,{received});toast(no+' saved. Store stock updated.')});
   if(ok) closeModal()};
 // a receipt needs the vendor's bill and the receipt signed & stamped
@@ -394,7 +396,9 @@ A.saveOpening=async()=>{const d=ui.modal.d;if(!String(d.desc).trim()||!(num(d.qt
   const cat=classify(d.desc,d.spec).cat;const ok=await run(async()=>{const no=await allocNo('GRN',S.grns);await setDoc('grns',newId(),{no,poId:null,type:'opening',date:today(),lines:[{key:'O1',desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,cat,itemKey:itemKey(d.desc,d.spec,d.unit),recv:num(d.qty),rej:0,acc:num(d.qty)}],at:Date.now()})},'Added to store stock');
   if(ok) closeModal()};
 A.newChallan=d=>{const R=readyToDispatch().filter(x=>x.ind.projectId===d.p);const bal={};for(const x of R){const k=itemKey(x.l.desc,x.l.spec,x.l.unit);if(bal[k]==null) bal[k]=x.bal}
-  const lines=R.map(x=>{const k=itemKey(x.l.desc,x.l.spec,x.l.unit);const q=Math.max(0,Math.min(x.pend,bal[k]));bal[k]-=q;return {k:x.k,itemKey:k,desc:x.l.desc,spec:x.l.spec||'',unit:x.l.unit,cat:x.l.category,pend:x.pend,bal:x.bal,qty:q?String(q):'',mr:x.ind.no,indentId:x.ind.id,lineId:x.l.id}});
+  // the vendor may have supplied a little more than ordered (e.g. TMT by weight): if no other site is waiting for this item, offer the whole store balance up to 10% over
+  const others=new Set(readyToDispatch().filter(x=>x.ind.projectId!==d.p).map(x=>itemKey(x.l.desc,x.l.spec,x.l.unit)));const lastOf={};R.forEach((x,i)=>lastOf[itemKey(x.l.desc,x.l.spec,x.l.unit)]=i);
+  const lines=R.map((x,i)=>{const k=itemKey(x.l.desc,x.l.spec,x.l.unit);let q=Math.max(0,Math.min(x.pend,bal[k]));if(lastOf[k]===i&&!others.has(k)&&bal[k]>q&&bal[k]<=q*1.1+1e-9) q=Math.round(bal[k]*1000)/1000;bal[k]-=q;return {k:x.k,itemKey:k,desc:x.l.desc,spec:x.l.spec||'',unit:x.l.unit,cat:x.l.category,pend:x.pend,bal:x.bal,qty:q?String(q):'',more:q>x.pend+1e-9,mr:x.ind.no,indentId:x.ind.id,lineId:x.l.id}});
   openModal({type:'challan',projectId:d.p,d:{date:today(),vehicle:'',lrNo:'',driver:'',lines}})};
 A.saveChallan=async()=>{const m=ui.modal;const d=m.d;const lines=d.lines.filter(l=>num(l.qty)>0);if(!lines.length){toast('Enter quantities to dispatch.','err');return}
   const need={};for(const l of lines) need[l.itemKey]=(need[l.itemKey]||0)+num(l.qty);
@@ -402,22 +406,28 @@ A.saveChallan=async()=>{const m=ui.modal;const d=m.d;const lines=d.lines.filter(
   const ok=await run(async()=>{const no=await allocNo('DC',S.dispatches);await setDoc('dispatches',newId(),{no,type:'store',projectId:m.projectId,date:d.date,vehicle:d.vehicle,lrNo:d.lrNo,driver:d.driver,status:'in_transit',shippedAt:Date.now(),at:Date.now(),
     lines:lines.map(l=>({itemKey:l.itemKey,desc:l.desc,spec:l.spec,unit:l.unit,cat:l.cat,qty:num(l.qty),indentId:l.indentId,lineId:l.lineId,mrNo:l.mr,recvQty:null}))});return no});
   if(ok){closeModal();toast(ok+' created. The site can now confirm receipt.')}};
-A.markShipped=d=>{const x=S.dispatches.find(y=>y.id===d.id);openModal({type:'shipped',id:d.id,d:{vehicle:x.vehicle||'',lrNo:x.lrNo||'',expectedDate:x.expectedDate||today()}})};
-A.saveShipped=async()=>{const m=ui.modal;if(await run(()=>updDoc('dispatches',m.id,{status:'in_transit',vehicle:m.d.vehicle,lrNo:m.d.lrNo,expectedDate:m.d.expectedDate,shippedAt:Date.now()}),'Marked as on the way')) closeModal()};
+A.markShipped=d=>{const x=S.dispatches.find(y=>y.id===d.id);const sup={};(x.lines||[]).forEach((l,i)=>sup[i]=String(num(l.qty)));openModal({type:'shipped',id:d.id,d:{vehicle:x.vehicle||'',lrNo:x.lrNo||'',expectedDate:x.expectedDate||today(),challan:x.vendorChallan||'',invoice:x.vendorInvoice||'',sup,supplyDocs:[]}})};
+// the vendor's quantity (e.g. TMT by weight) replaces the ordered quantity on the delivery; the ordered quantity is kept as ordQty
+function withSupplied(x,sup){return (x.lines||[]).map((l,i)=>{const v=String((sup||{})[i]??'').trim();if(v==='') return l;const q=num(v);const o=l.ordQty!=null?l.ordQty:num(l.qty);return Object.assign({},l,{ordQty:o,supQty:q,qty:q})})}
+A.saveShipped=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.id);const d=m.d;
+  if(Object.values(d.sup||{}).some(v=>String(v).trim()!==''&&!(num(v)>=0))){toast('Enter valid quantities.','err');return}
+  const lines=withSupplied(x,d.sup);
+  if(await run(()=>updDoc('dispatches',m.id,{status:'in_transit',vehicle:d.vehicle,lrNo:d.lrNo,expectedDate:d.expectedDate,shippedAt:Date.now(),vendorChallan:String(d.challan||'').trim(),vendorInvoice:String(d.invoice||'').trim(),lines,...((d.supplyDocs||[]).length?{supplyDocs:(x.supplyDocs||[]).concat(d.supplyDocs)}:{})}),'Marked as on the way'+(lines.some(l=>l.ordQty!=null&&qtyDiff(l.ordQty,l.qty))?' with the vendor\'s quantities. The site receives against these.':''))) closeModal()};
 A.viewDispatch=d=>openModal({type:'dispatchView',id:d.id});
 A.printChallan=d=>{const x=S.dispatches.find(y=>y.id===d.id);if(x) printHtml(x.no,challanDoc(x))};
 A.cancelDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);confirmBox({title:'Cancel '+x.no,body:x.type==='transfer'?'The transfer is cancelled and the demand line goes back to the procurement queue.':'Quantities return to store stock (or to the pending vendor delivery).',yes:'Cancel',danger:true,onYes:async()=>{
   const ok=await run(async()=>{await updDoc('dispatches',x.id,{status:'cancelled'});if(x.type==='transfer'){for(const l of x.lines) await patchLines(l.indentId,ls=>{const y=ls.find(z=>z.id===l.lineId);if(y&&y.transferId===x.id) for(const k of ['transferId','transferNo','transferFrom','transferAt']) delete y[k]})}},'Cancelled');if(ok) closeModal()}})};
-A.receiveDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);const recv={};x.lines.forEach((l,i)=>recv[i]=String(l.qty));const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
-  openModal({type:'receive',id:d.id,d:{recv,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],billDocs:[],declared:false,storeId:(myStores(x.projectId)[0]||{id:'main'}).id,freight:{}}})};
+A.receiveDispatch=d=>{const x=S.dispatches.find(y=>y.id===d.id);const recv={},sup={};x.lines.forEach((l,i)=>{recv[i]=String(l.qty);sup[i]=String(l.qty)});const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
+  openModal({type:'receive',id:d.id,d:{recv,sup,by:rs.length===1?rs[0].name:(rs.length?'':(ui.me&&ui.me.name)||''),designation:'',date:today(),remarks:'',photos:[],signedDocs:[],billDocs:[],declared:false,storeId:(myStores(x.projectId)[0]||{id:'main'}).id,freight:{}}})};
 A.saveReceipt=async()=>{const m=ui.modal;const x=S.dispatches.find(y=>y.id===m.id);const d=m.d;const rs=((proj(x.projectId)||{}).receivers||[]).filter(r=>r.name);
   if(!String(d.by||'').trim()){toast(rs.length?'Choose the authorised person who received the material.':'Enter the name of the person who received the material.','err');return}
   if(x.type==='direct'&&!(d.billDocs||[]).length){toast("Upload the vendor's bill (photo or PDF).",'err');const z=document.querySelector('#modal [data-drop="modal.d.billDocs"]');z&&z.scrollIntoView({block:'center'});return}
   if(!(d.signedDocs||[]).length){toast('Upload the challan signed and stamped at site (photo or PDF).','err');const z=document.querySelector('#modal [data-drop="modal.d.signedDocs"]');z&&z.scrollIntoView({block:'center'});return}
   if(!d.declared){toast('Tick the confirmation at the bottom.','err');return}
-  const lines=x.lines.map((l,i)=>Object.assign({},l,{recvQty:num(d.recv[i])}));const short=lines.some(l=>l.recvQty+1e-9<num(l.qty));
+  if(x.lines.some((l,i)=>String(d.recv[i]??'').trim()===''||!(num(d.recv[i])>=0))){toast('Enter the received quantity for every item (0 if nothing came).','err');return}
+  const lines=(x.type==='direct'?withSupplied(x,d.sup):x.lines).map((l,i)=>Object.assign({},l,{recvQty:num(d.recv[i])}));const short=lines.some(l=>l.recvQty+1e-9<num(l.qty));const excess=lines.some(l=>l.recvQty>num(l.qty)+1e-9);
   const who=rs.find(r=>r.name===d.by);
-  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,...(x.type==='direct'?{billDocs:d.billDocs}:{}),declared:true,storeId:d.storeId||'main',...(frOut(d.freight)?{freight:frOut(d.freight)}:{})}),short?'Receipt saved — shortage reported to HQ':'Receipt confirmed. Site stock updated.')) closeModal()};
+  if(await run(()=>updDoc('dispatches',x.id,{lines,status:short?'short':'delivered',receivedAt:Date.now(),receivedOn:d.date||today(),receivedByName:String(d.by).trim(),receiverDesignation:who?who.designation||'':String(d.designation||'').trim(),siteRemarks:d.remarks||'',photos:d.photos||[],signedDocs:d.signedDocs,...(x.type==='direct'?{billDocs:d.billDocs}:{}),declared:true,storeId:d.storeId||'main',excess:excess&&!short?true:null,...(frOut(d.freight)?{freight:frOut(d.freight)}:{})}),short?'Receipt saved — shortage reported to HQ':excess?'Receipt confirmed with more than was sent. HQ can see the difference. Site stock updated.':'Receipt confirmed. Site stock updated.')) closeModal()};
 A.signLater=d=>openModal({type:'signLater',id:d.id,d:{signedDocs:[],billDocs:[]}});
 A.saveSignLater=async()=>{const m=ui.modal;const sd=m.d.signedDocs||[],bd=m.d.billDocs||[];if(!sd.length&&!bd.length){toast('Upload the document first.','err');return}const x=S.dispatches.find(y=>y.id===m.id);
   const p={};if(sd.length) p.signedDocs=(x.signedDocs||[]).concat(sd);if(bd.length&&x.type==='direct') p.billDocs=(x.billDocs||[]).concat(bd);

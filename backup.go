@@ -415,7 +415,7 @@ func buildWorkbookLocked() []xSheet {
 	}
 	sheets = append(sheets, xSheet{"Purchase orders", rows})
 	// GRNs
-	rows = [][]any{{"GRN no", "Date", "Against PO", "Vendor", "Challan", "Invoice", "Vehicle", "Item", "Specification", "Unit", "Received", "Rejected", "Accepted", "Remarks", "Documents attached"}}
+	rows = [][]any{{"GRN no", "Date", "Against PO", "Vendor", "Challan", "Invoice", "Vehicle", "Item", "Specification", "Unit", "Received", "Rejected", "Accepted", "Remarks", "Documents attached", "As per vendor challan / invoice", "Short (-) / excess (+)"}}
 	for _, x := range liveLocked("grns") {
 		g := x.D
 		for _, l := range subList(g, "lines") {
@@ -426,13 +426,13 @@ func buildWorkbookLocked() []xSheet {
 					po = "Opening stock"
 				}
 			}
-			rows = append(rows, []any{str(g, "no"), str(g, "date"), po, firstNonEmpty(str(g, "vendorName"), str(g, "party")), str(g, "challan"), str(g, "invoice"), str(g, "vehicle"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["recv"]), fnum(l["rej"]), fnum(l["acc"]), str(g, "remarks"), len(subAny(g, "photos")) + len(subAny(g, "billDocs")) + len(subAny(g, "signedDocs"))})
+			rows = append(rows, []any{str(g, "no"), str(g, "date"), po, firstNonEmpty(str(g, "vendorName"), str(g, "party")), str(g, "challan"), str(g, "invoice"), str(g, "vehicle"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["recv"]), fnum(l["rej"]), fnum(l["acc"]), str(g, "remarks"), len(subAny(g, "photos")) + len(subAny(g, "billDocs")) + len(subAny(g, "signedDocs")), supOf(l), diffOf(supOf(l), fnum(l["recv"]))})
 		}
 	}
 	sheets = append(sheets, xSheet{"HQ store inward (GRN)", rows})
 	sheets = append(sheets, jobworkSheets()...)
 	// Dispatches
-	rows = [][]any{{"Challan no", "Type", "From", "To project", "Date", "PO", "Vendor", "Vehicle", "LR / e-way", "Item", "Specification", "Unit", "Qty sent", "Qty received", "MR no", "Status", "Received on", "Received by", "Site remarks"}}
+	rows = [][]any{{"Challan no", "Type", "From", "To project", "Date", "PO", "Vendor", "Vehicle", "LR / e-way", "Item", "Specification", "Unit", "Qty sent", "Qty received", "MR no", "Status", "Received on", "Received by", "Site remarks", "Qty ordered", "Received minus sent", "Vendor challan", "Vendor invoice"}}
 	statusName := map[string]string{"ordered": "Ordered from vendor", "to_send": "Waiting to be sent", "in_transit": "On the way", "delivered": "Received", "short": "Received short", "cancelled": "Cancelled"}
 	for _, x := range liveLocked("dispatches") {
 		d := x.D
@@ -448,7 +448,7 @@ func buildWorkbookLocked() []xSheet {
 			if v, ok := l["recvQty"]; ok && v != nil {
 				rq = fnum(v)
 			}
-			rows = append(rows, []any{str(d, "no"), typ, from, pcode(str(d, "projectId")), str(d, "date"), str(d, "poNo"), str(d, "vendorName"), str(d, "vehicle"), str(d, "lrNo"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), rq, str(l, "mrNo"), firstNonEmpty(statusName[str(d, "status")], str(d, "status")), msDate(d["receivedAt"]), str(d, "receivedByName"), str(d, "siteRemarks")})
+			rows = append(rows, []any{str(d, "no"), typ, from, pcode(str(d, "projectId")), str(d, "date"), str(d, "poNo"), str(d, "vendorName"), str(d, "vehicle"), str(d, "lrNo"), str(l, "desc"), str(l, "spec"), str(l, "unit"), fnum(l["qty"]), rq, str(l, "mrNo"), firstNonEmpty(statusName[str(d, "status")], str(d, "status")), msDate(d["receivedAt"]), str(d, "receivedByName"), str(d, "siteRemarks"), ordOf(l), recvDiff(l, rq), str(d, "vendorChallan"), str(d, "vendorInvoice")})
 		}
 	}
 	sheets = append(sheets, xSheet{"Dispatches", rows})
@@ -1047,3 +1047,33 @@ func quoteGst(q map[string]any, key string) float64 {
 }
 
 func subAny(m map[string]any, k string) []any { a, _ := m[k].([]any); return a }
+
+// quantity as per the vendor's challan / invoice on a GRN line (older GRNs: same as received)
+func supOf(l map[string]any) float64 {
+	if v, ok := l["sup"]; ok && v != nil {
+		return fnum(v)
+	}
+	return fnum(l["recv"])
+}
+
+func diffOf(sup, recv float64) any {
+	if d := round2(recv - sup); d != 0 {
+		return d
+	}
+	return nil
+}
+
+// quantity originally ordered on a dispatch line (before the vendor's quantity replaced it)
+func ordOf(l map[string]any) float64 {
+	if v, ok := l["ordQty"]; ok && v != nil {
+		return fnum(v)
+	}
+	return fnum(l["qty"])
+}
+
+func recvDiff(l map[string]any, rq any) any {
+	if rq == nil {
+		return nil
+	}
+	return diffOf(fnum(l["qty"]), rq.(float64))
+}

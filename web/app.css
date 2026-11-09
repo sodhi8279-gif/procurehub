@@ -487,6 +487,7 @@ button.li{cursor:pointer}button.li:hover{background:color-mix(in srgb,var(--acce
 .recv-list{display:grid;gap:8px}
 .recv-line{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:13px;flex-wrap:wrap}
 .recv-line b{display:block}.recv-line small{display:block}
+.recv-line .sup-row{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}.recv-line .sup-row .inp{width:110px}.recv-line .rc-q{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
 .src-list{display:grid;gap:8px}
 .src-opt{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:13px;cursor:pointer}
 .src-opt input{accent-color:var(--accent)}.src-opt.on{border-color:var(--accent);background:var(--accent-soft)}
