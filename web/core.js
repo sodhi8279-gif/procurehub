@@ -239,6 +239,7 @@ function derive(){
   for(const g of S.grns) if(g.type==='opening') for(const l of g.lines||[]) orate(l.itemKey||itemKey(l.desc,l.spec,l.unit),l.orate,g.at||0);
   for(const e of S.sitelog) if(e.type==='opening') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
   d.rateOf=k=>d.rate[k]?d.rate[k].rate:(d.orate[k]||0);
+  d.closedPo={};for(const p of S.pos) if(p.closed&&p.status!=='cancelled') d.closedPo[p.id]=p;
   for(const x of S.dispatches){if(x.status==='cancelled') continue;
     for(const l of x.lines||[]){const k=l.indentId+'|'+l.lineId;const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
       if(l.indentId)(d.lineDisp[k]=d.lineDisp[k]||[]).push(x);
@@ -291,6 +292,8 @@ function lineInfo(ind,l){
   if(l.status==='hold') return {st:'review',label:'On hold',tone:'amber',del,need,hold:true};
   if(l.status!=='approved') return {st:'review',label:'Awaiting HQ review',tone:'amber',del,need};
   if(need>0&&del>=need-1e-9) return {st:'delivered',label:'Delivered',tone:'green',del,need};
+  // PO closed short: what was received is final (for HQ-store POs, once nothing of it is left in the store to send)
+  if(l.poId&&D.closedPo&&D.closedPo[l.poId]&&tr<=0){const cp=D.closedPo[l.poId];const sk=D.stock[itemKey(l.desc,l.spec,l.unit)];if(cp.deliveryMode==='site'||!sk||sk.bal<=1e-9) return {st:'delivered',label:del>0?'Closed short · '+fq(del)+' of '+fq(need)+' received':'Closed · PO closed before delivery',tone:'green',del,need,closedShort:true}}
   if(tr>0) return {st:'transit',label:del>0?'Part received · rest on the way':'On the way',tone:'amber',del,need};
   if(del>0) return {st:'transit',label:'Part received',tone:'amber',del,need};
   if(l.transferId){const t=S.dispatches.find(x=>x.id===l.transferId);const a=t&&t.status==='to_send'&&t.approval;const w=a&&a.status!=='approved'?(a.status==='returned'?' · indent sent back':' · indent awaiting approval'):'';return {st:'po',label:'Transfer from '+(l.transferFrom||'another site')+w,tone:'blue',del,need}}
@@ -335,7 +338,7 @@ const delivLabel=p=>p.deliveryMode==='site'?'Direct to sites':p.deliveryMode==='
 // received against the PO, less material returned to the vendor for replacement
 function poRecv(po,key){return Math.max(0,(po.deliveryMode==='site'?(D.directRecv[po.id+'|'+key]||0):num((po.received||{})[key]))-((D.vretRepl||{})[po.id+'|'+key]||0))}
 function poProgress(po){const o=sum(po.lines||[],l=>num(l.qty));const r=sum(po.lines||[],l=>Math.min(num(l.qty),poRecv(po,l.key)));return {o,r,pct:o?r/o:0}}
-function poStatus(po){if(po.status==='cancelled') return {label:'Cancelled',tone:'red'};const ap=po.approval;if(ap&&ap.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(ap&&ap.status==='returned') return {label:'Sent back',tone:'red'};const p=poProgress(po);if(p.pct>=1-1e-9) return {label:'Completed',tone:'green'};if(p.r>0) return {label:'Part received',tone:'amber'};return {label:'Open',tone:'blue'}}
+function poStatus(po){if(po.status==='cancelled') return {label:'Cancelled',tone:'red'};if(po.closed) return {label:poProgress(po).pct>=1-1e-9?'Completed':'Closed short',tone:'green'};const ap=po.approval;if(ap&&ap.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(ap&&ap.status==='returned') return {label:'Sent back',tone:'red'};const p=poProgress(po);if(p.pct>=1-1e-9) return {label:'Completed',tone:'green'};if(p.r>0) return {label:'Part received',tone:'amber'};return {label:'Open',tone:'blue'}}
 function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;
   if(r.status==='cancelled') return {label:'Cancelled',tone:'red'};
   if(r.status==='ordered') return {label:'PO issued',tone:'green'};
@@ -343,7 +346,7 @@ function rfqStatus(r){const vq=Object.keys(r.quotes||{}).length;
   if(vq) return {label:`${vq} of ${(r.vendorIds||[]).length} quotes in`,tone:'violet'};
   if(r.status==='sent') return {label:'Awaiting quotes',tone:'amber'};
   return {label:'Draft · not sent',tone:'plain'}}
-function dispStatus(d){if(d.type==='transfer'&&d.status==='to_send'&&d.approval){if(d.approval.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(d.approval.status==='returned') return {label:'Sent back',tone:'red'}}return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.excess&&d.status==='delivered'?{label:'Received more',tone:'amber'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
+function dispStatus(d){if(d.type==='transfer'&&d.status==='to_send'&&d.approval){if(d.approval.status==='pending') return {label:'Awaiting approval',tone:'violet'};if(d.approval.status==='returned') return {label:'Sent back',tone:'red'}}return d.status==='ordered'?{label:'Ordered from vendor',tone:'blue'}:d.status==='to_send'?{label:'Waiting to be sent',tone:'violet'}:d.status==='in_transit'?{label:'On the way',tone:'amber'}:d.status==='ordered'&&d.partFrom?{label:'Balance · awaiting next vehicle',tone:'amber'}:d.status==='short'?{label:'Received short',tone:'red'}:d.excess&&d.status==='delivered'?{label:'Received more',tone:'amber'}:d.status==='cancelled'?{label:'Cancelled',tone:'red'}:{label:'Received',tone:'green'}}
 const chip=s=>`<span class="chip ${s.tone||''}">${esc(s.label)}</span>`;
 function siteProject(){return ui.role==='site'?(ui.preview||(ui.me&&ui.me.projectId)||''):''}
 const GST_SLABS=[0,0.1,0.25,1.5,3,5,6,12,18,28,40];

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.2.0"
+const appVersion = "7.3.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -935,6 +935,10 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 					out[k] = cleanFreight(v)
 					out[k] = v
 				case "receivedBy":
+				case "excess", "moreToCome", "vehicle", "vendorChallan", "vendorInvoice":
+					if siteRecvExtra[k] {
+						out[k] = v
+					}
 				case "lines":
 					nl, _ := v.([]any)
 					ol, _ := ex["lines"].([]any)
@@ -947,6 +951,12 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 						m := shallowCopy(om)
 						if nm, ok := nl[i].(map[string]any); ok {
 							m["recvQty"] = nm["recvQty"]
+							// direct from vendor: the vendor's challan quantity for this vehicle
+							if v, has := nm["supQty"]; has && str(ex, "type") == "direct" {
+								if v == nil || fnum(v) >= 0 {
+									m["supQty"] = v
+								}
+							}
 						}
 						cp[i] = m
 					}
@@ -1227,6 +1237,9 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 			enrichGrn(newData)
 		}
 	}
+	if req.Col == "dispatches" && req.Op != "delete" && newData != nil {
+		directReceiptLocked(req.ID, newData, exData, time.Now().UnixMilli())
+	}
 	auditLocked(u, req.Op, req.Col, req.ID, firstMap(newData, exData), req.Data)
 	st.Rev++
 	d := &Doc{Rev: st.Rev}
@@ -1236,6 +1249,9 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		d.Data = newData
 	}
 	c[req.ID] = d
+	if req.Col == "pos" && req.Op != "delete" && newData != nil {
+		poClosedLocked(req.ID, newData, exData, u.Name, time.Now().UnixMilli())
+	}
 	if req.Col == "pos" && req.Op != "delete" && str(exData, "status") != "cancelled" {
 		if mr, ok := emgCancelIndentLocked(req.ID, newData, u.Name, time.Now().UnixMilli()); ok {
 			st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "indents", ID: str(newData, "indentId"), Op: "update", Ref: mr,
