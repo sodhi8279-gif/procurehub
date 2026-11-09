@@ -208,3 +208,13 @@ func installAndRestart(exe, target, dataDir string, records int, args []string) 
 	time.Sleep(6 * time.Second)
 	os.Exit(0)
 }
+
+// hideWindow runs a helper process without a console window.
+func hideWindow(c *exec.Cmd) {
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+}
+
+// detach starts the restarted ProcureHub in its own console window.
+func detach(c *exec.Cmd) {
+	c.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000010} // CREATE_NEW_CONSOLE
+}

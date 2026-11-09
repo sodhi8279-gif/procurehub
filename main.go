@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.1.0"
+const appVersion = "7.2.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1878,7 +1878,10 @@ func main() {
 	noFw := flag.Bool("no-firewall", false, "Windows: do not set up Windows Firewall")
 	installed := flag.Bool("installed", false, "internal: started by an update")
 	here := flag.Bool("here", false, "use this folder's data even if another ProcureHub data folder exists")
+	selftest := flag.Bool("selftest", false, "internal: check that this version opens the data folder, then exit")
+	waitPort := flag.Bool("wait-port", false, "internal: after an update, wait until the old version has freed the port")
 	flag.Parse()
+	selfArgs = append([]string(nil), os.Args[1:]...)
 
 	setTitle(appName)
 	log.SetFlags(log.Ldate | log.Ltime)
@@ -1916,7 +1919,21 @@ func main() {
 	_, statErr := os.Stat(dbPath)
 	freshData := os.IsNotExist(statErr)
 	if err := load(); err != nil {
+		if *selftest {
+			fmt.Println("SELFTEST FAILED:", err)
+			os.Exit(1)
+		}
 		die("%v", err)
+	}
+	if *selftest {
+		fmt.Printf("SELFTEST OK %s %d records\n", appVersion, func() int {
+			n := 0
+			for _, c := range st.Cols {
+				n += len(c)
+			}
+			return n
+		}())
+		return
 	}
 	if n := emgTidyLocked(); n > 0 {
 		log.Printf("Cancelled %d emergency demand(s) whose emergency PO had been cancelled.", n)
@@ -1965,6 +1982,8 @@ func main() {
 	mux.HandleFunc("/api/export.xlsx", permOnly(hExportXLSX, "reports"))
 	mux.HandleFunc("/api/xlsx", authed(hXLSX))
 	mux.HandleFunc("/api/restore", adminOnly(hRestore))
+	mux.HandleFunc("/api/update", adminOnly(hUpdate))
+	mux.HandleFunc("/api/update/info", adminOnly(hUpdateInfo))
 	mux.HandleFunc("/api/smtp", permOnly(hSMTP, "settings"))
 	mux.HandleFunc("/api/https", adminOnly(hHTTPS))
 	mux.HandleFunc("/api/smtp/test", permOnly(hSMTPTest, "settings"))
@@ -1988,6 +2007,10 @@ func main() {
 	}
 	fwStatus := ensureFirewall(*port, *noFw)
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	for i := 0; err != nil && *waitPort && i < 120; i++ {
+		time.Sleep(500 * time.Millisecond)
+		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	}
 	if err != nil {
 		die("port %d is already in use. ProcureHub may already be running in another window.\nTo use another port, start it with:  RGS-ProcureHub.exe --port 8090", *port)
 	}

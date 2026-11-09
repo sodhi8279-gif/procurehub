@@ -543,6 +543,24 @@ CH.restoreFile=el=>{const f=el.files&&el.files[0];el.value='';if(!f) return;cons
       let data;try{data=JSON.parse(await f.text())}catch(e){throw {message:'That file is not a ProcureHub backup.'}}return api('/api/restore',data)});
     if(r){closeModal();toast(`${r.records} records restored${r.files?' with '+r.files+' photos':''}`)}}})};
 
+// Software update: upload the release zip / program file; the server checks it, backs up, test-starts it and restarts
+CH.updateFile=el=>{const f=el.files&&el.files[0];el.value='';if(!f) return;
+  if(f.size<1<<20){toast('That file is too small to be a ProcureHub update. Choose the RGS-ProcureHub zip.','err');return}
+  confirmBox({title:'Install software update',body:`Install <b>${esc(f.name)}</b> (${(f.size/1048576).toFixed(1)} MB) on the server? A backup is made first and your data is kept. Everyone is disconnected for about half a minute while ProcureHub restarts.`,yes:'Install update',onYes:()=>updUpload(f,false)})};
+function updUpload(f,older){ui.upd={stage:'upload',pct:0,name:f.name,from:ui.version};openModal({type:'updating'});
+  const x=new XMLHttpRequest();x.open('POST','/api/update'+(older?'?older=1':''));x.withCredentials=true;x.setRequestHeader('Content-Type','application/octet-stream');
+  x.upload.onprogress=e=>{if(e.lengthComputable){ui.upd.pct=e.loaded/e.total;if(e.loaded>=e.total) ui.upd.stage='install';render()}};
+  x.onerror=()=>{ui.upd={stage:'error',msg:'The upload was interrupted. Check the connection and try again.'};render()};
+  x.onload=()=>{let j=null;try{j=JSON.parse(x.responseText)}catch(e){}
+    if(x.status===409&&j&&j.older){ui.upd=null;closeModal();confirmBox({title:'Install an older version?',body:esc(j.error)+' Install it anyway?',yes:'Install older version',danger:true,onYes:()=>updUpload(f,true)});return}
+    if(x.status!==200||!j||!j.ok){ui.upd={stage:'error',msg:(j&&j.error)||'The update could not be installed.'};render();return}
+    ui.upd={stage:'restart',from:j.from,to:j.version,t0:Date.now()};render();updWait(j.version)};
+  x.send(f)}
+async function updWait(v){for(let i=0;i<90;i++){await sleep(2000);
+    try{const r=await fetch('/api/update/info',{credentials:'same-origin',cache:'no-store'});const j=await r.json().catch(()=>null);if(j&&j.version===v){ui.upd.stage='done';render();await sleep(1500);location.reload();return}}catch(e){}}
+  ui.upd={stage:'error',msg:'ProcureHub did not come back within 3 minutes. Look at the server computer: the new version may be waiting in its window. Your data and a backup are safe.'};render()}
+A.updClose=()=>{if(ui.upd&&['upload','install','restart'].includes(ui.upd.stage)) return;ui.upd=null;closeModal()};
+
 /* ================= DOWNLOADS ================= */
 A.dlDemand=()=>{const rows=[['MR no','Project code','Project','Raised','Required by','Priority','Requested by','Item','Specification','Category','Asked qty','Approved qty','Unit','Status','RFQ','PO','Vendor','Transfer','Received qty','Approval remark','Decided by']];
   for(const x of allLines().sort((a,b)=>(a.ind.at||0)-(b.ind.at||0))){const p=proj(x.ind.projectId)||{};rows.push([x.ind.no,p.code||'',p.name||'',x.ind.date,x.ind.requiredBy,x.ind.priority,x.ind.requestedBy||'',x.l.desc,x.l.spec||'',catName(x.l.category),x.l.qty,x.l.status==='approved'?needQty(x.l):'',x.l.unit,x.info.label,x.l.rfqNo||'',x.l.poNo||'',x.l.vendorName||'',x.l.transferNo||'',x.info.del,x.l.approvalNote||'',x.l.decidedByName||''])}

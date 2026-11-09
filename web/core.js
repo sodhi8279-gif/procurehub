@@ -91,7 +91,7 @@ const ACT_PERM={pcSave:'demands_precheck',pcPass:'demands_precheck',pcDelete:'de
  editProject:'masters_projects',saveProject:'masters_projects',editVendor:'masters_vendors',vendCatQuick:'masters_vendors',saveVendor:'masters_vendors',delVendor:'masters_vendors',editItem:'masters_items',editCats:'masters_items',saveCats:'masters_items',catAdd:'masters_items',catRm:'masters_items',quickCat:'masters_items',saveItem:'masters_items',delItem:'masters_items',
  siteLog:'sitestock_edit',saveSiteLog:'sitestock_edit',stockCount:'sitestock_edit',saveCount:'sitestock_edit',saveMin:'sitestock_edit',delSiteLog:'sitestock_edit',reorderLow:'raise_demand',dlSiteStock:'sitestock_view',dlProjStock:'sitestock_view',
  dlDemand:'demands_view',dlInward:'rates_view',dlOutward:'rates_view',
- newSiteLogin:'__admin',resetLogin:'__admin',bulkLogins:'__admin',editUser:'__admin',saveUser:'__admin',delUser:'__admin',loadSample:'__admin',clearSample:'__admin',wipeAll:'__admin',restoreFile:'__admin',loadAudit:'__admin',
+ newSiteLogin:'__admin',resetLogin:'__admin',bulkLogins:'__admin',editUser:'__admin',saveUser:'__admin',delUser:'__admin',loadSample:'__admin',clearSample:'__admin',wipeAll:'__admin',restoreFile:'__admin',updateFile:'__admin',loadAudit:'__admin',
  saveConfig:'settings',saveStore:'settings',saveSmtp:'settings',testSmtp:'settings',backupNow:'settings',saveBackupConf:'settings',dlBackup:'settings'};
 const actOk=a=>{if(!ui.me||ui.me.role!=='hq'||!ACT_PERM[a]) return true;const p=ACT_PERM[a];return Array.isArray(p)?p.some(permOk):permOk(p)};
 function applyPerms(root){if(!ui.me||ui.me.role!=='hq'||isAdm()) return;
