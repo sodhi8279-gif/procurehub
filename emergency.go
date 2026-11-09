@@ -253,3 +253,68 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	writeJSON(w, 200, map[string]any{"ok": true, "indentId": indID, "mrNo": mrNo, "poId": poID, "poNo": poNo, "dispatchId": ddID, "ddNo": ddNo,
 		"approval": str(func() map[string]any { a, _ := po["approval"].(map[string]any); return a }(), "status")})
 }
+
+// An emergency demand (MR) exists only for its own emergency PO. When that PO
+// is cancelled (for example after the Director sent it back and a corrected
+// emergency purchase was entered instead), the MR is cancelled with it, so it
+// no longer shows as an open demand in the Demand inbox next to the new one.
+// It is left alone if any of its items was sourced again on another live
+// RFQ, PO or transfer, or if material already reached the site.
+func emgCancelIndentLocked(poID string, po map[string]any, byName string, now int64) (string, bool) {
+	if po == nil || po["emergency"] != true || str(po, "status") != "cancelled" {
+		return "", false
+	}
+	indID := str(po, "indentId")
+	ind := docData("indents", indID)
+	if ind == nil || ind["cancelled"] == true {
+		return "", false
+	}
+	if emg, _ := ind["emergency"].(map[string]any); emg == nil || str(emg, "poId") != poID {
+		return "", false
+	}
+	live := func(col, id string) bool {
+		x := docData(col, id)
+		return x != nil && str(x, "status") != "cancelled"
+	}
+	for _, l := range subList(ind, "lines") {
+		if p := str(l, "poId"); p != "" && p != poID && live("pos", p) {
+			return "", false
+		}
+		if r := str(l, "rfqId"); r != "" && live("rfqs", r) {
+			return "", false
+		}
+		if t := str(l, "transferId"); t != "" && live("dispatches", t) {
+			return "", false
+		}
+	}
+	for _, d := range st.Cols["dispatches"] {
+		if d == nil || d.Deleted || str(d.Data, "poId") != poID {
+			continue
+		}
+		if s := str(d.Data, "status"); s == "delivered" || s == "short" {
+			return "", false
+		}
+	}
+	nd := shallowCopy(ind)
+	nd["cancelled"], nd["cancelledAt"], nd["cancelledByName"] = true, now, byName
+	nd["cancelReason"] = "Emergency PO " + str(po, "no") + " was cancelled"
+	nd["emgPoCancelled"] = true
+	putDocLocked("indents", indID, nd)
+	return str(ind, "no"), true
+}
+
+// emgTidyLocked runs at start-up: emergency demands whose PO was cancelled
+// before this rule existed are cancelled now.
+func emgTidyLocked() int {
+	n := 0
+	now := time.Now().UnixMilli()
+	for id, d := range st.Cols["pos"] {
+		if d == nil || d.Deleted {
+			continue
+		}
+		if _, ok := emgCancelIndentLocked(id, d.Data, "ProcureHub (PO cancelled)", now); ok {
+			n++
+		}
+	}
+	return n
+}

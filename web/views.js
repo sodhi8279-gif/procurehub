@@ -99,7 +99,9 @@ function vDemands(){
   const waitingPc=S.indents.filter(pcPending).length;
   let list=S.indents.filter(i=>!pcPending(i)).sort((a,b)=>(b.at||0)-(a.at||0));
   if(f.dp) list=list.filter(i=>i.projectId===f.dp);
-  list=list.filter(i=>{const s=indentStatus(i).label;if(st==='review') return s==='Awaiting review';if(st==='open') return !['Completed','Cancelled','Rejected'].includes(s);if(st==='closed') return ['Completed','Cancelled','Rejected'].includes(s);return true});
+  // any cancelled demand (cancelled, deleted at pre-check, or cancelled with its emergency PO) is closed, never open
+  const shut=i=>!!i.cancelled||['Completed','Rejected'].includes(indentStatus(i).label);
+  list=list.filter(i=>{const s=indentStatus(i).label;if(st==='review') return s==='Awaiting review';if(st==='open') return !shut(i);if(st==='closed') return shut(i);return true});
   if(q) list=list.filter(i=>norm(i.no+' '+(i.requestedBy||'')+' '+(i.lines||[]).map(l=>l.desc).join(' ')).includes(q));
   const pendingAll=allLines().filter(x=>(!x.l.status||x.l.status==='pending')&&!pcPending(x.ind)&&!amendIsOpen(x.ind)&&!(x.ind.precheck&&x.ind.precheck.by===ui.uid)).length;const td=today();
   return `<div class="toolbar">${seg('ds',[['review','To review'],['open','Open'],['closed','Closed'],['all','All']],st)}

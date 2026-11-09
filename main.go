@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.0.1"
+const appVersion = "7.0.2"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1236,6 +1236,12 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		d.Data = newData
 	}
 	c[req.ID] = d
+	if req.Col == "pos" && req.Op != "delete" && str(exData, "status") != "cancelled" {
+		if mr, ok := emgCancelIndentLocked(req.ID, newData, u.Name, time.Now().UnixMilli()); ok {
+			st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "indents", ID: str(newData, "indentId"), Op: "update", Ref: mr,
+				Keys: "cancelled with emergency " + str(newData, "no")})
+		}
+	}
 	if err := saveLocked(); err != nil {
 		fail(w, 500, "The server could not save to disk: "+err.Error())
 		return
@@ -1911,6 +1917,12 @@ func main() {
 	freshData := os.IsNotExist(statErr)
 	if err := load(); err != nil {
 		die("%v", err)
+	}
+	if n := emgTidyLocked(); n > 0 {
+		log.Printf("Cancelled %d emergency demand(s) whose emergency PO had been cancelled.", n)
+		if err := saveLocked(); err != nil {
+			die("%v", err)
+		}
 	}
 	loadAssets()
 

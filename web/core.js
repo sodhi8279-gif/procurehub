@@ -318,7 +318,7 @@ function stepper(steps,rej,rejText){if(rej) return `<div class="steps rej"><span
   return `<div class="steps">${steps.map(s=>`<span class="step ${s.on?'on':''}"><i></i><b>${s.l}</b>${s.d&&s.on?`<em>${fd(s.d).replace(/ \d{4}$/,'')}</em>`:''}</span>`).join('')}</div>`}
 function allLines(projectId){const o=[];for(const ind of S.indents){if(ind.cancelled) continue;if(projectId&&ind.projectId!==projectId) continue;for(const l of ind.lines||[]) o.push({ind,l,k:ind.id+'|'+l.id,info:lineInfo(ind,l)})}return o}
 function indentStatus(ind){
-  if(ind.cancelled) return {label:ind.pcDeleted?'Deleted at pre-check':'Cancelled',tone:'red',pct:0};
+  if(ind.cancelled) return {label:ind.pcDeleted?'Deleted at pre-check':ind.emgPoCancelled?'Cancelled · PO cancelled':'Cancelled',tone:'red',pct:0};
   if(amendIsOpen(ind)) return {label:'Sent back to site',tone:'red',pct:0};
   if(pcPending(ind)) return {label:'Awaiting pre-check',tone:'violet',pct:0};
   const ls=(ind.lines||[]).map(l=>lineInfo(ind,l));const act=ls.filter(x=>x.st!=='rejected');
