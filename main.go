@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.3.0"
+const appVersion = "7.4.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -122,7 +122,7 @@ var (
 	filesDir string
 )
 
-var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true, "cashbuys": true, "siteissues": true}
+var collections = map[string]bool{"projects": true, "vendors": true, "indents": true, "rfqs": true, "pos": true, "grns": true, "dispatches": true, "catalog": true, "config": true, "sitelog": true, "stocklvl": true, "jobwork": true, "mailquotes": true, "consumption": true, "vreturns": true, "cashbuys": true, "siteissues": true, "corrections": true}
 
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_.:@+~-]{1,200}$`)
@@ -776,7 +776,7 @@ func visible(u *User, col, id string, d *Doc) bool {
 		switch col {
 		case "projects":
 			return inScope(u, id)
-		case "indents", "sitelog", "stocklvl", "consumption":
+		case "indents", "sitelog", "stocklvl", "consumption", "corrections":
 			return inScope(u, str(d.Data, "projectId"))
 		case "vreturns", "cashbuys":
 			return str(d.Data, "projectId") == "" || inScope(u, str(d.Data, "projectId"))
@@ -793,7 +793,7 @@ func visible(u *User, col, id string, d *Doc) bool {
 	switch col {
 	case "projects", "catalog", "config":
 		return true
-	case "indents", "sitelog", "stocklvl", "consumption", "vreturns":
+	case "indents", "sitelog", "stocklvl", "consumption", "vreturns", "corrections":
 		return str(d.Data, "projectId") == u.ProjectID
 	case "cashbuys":
 		return str(d.Data, "projectId") == u.ProjectID && str(d.Data, "location") == "site"
@@ -1098,7 +1098,16 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Unknown operation.")
 		return
 	}
-	if u.Role != "hq" {
+	isCorr := req.Op == "update" && req.Data["_correction"] != nil // checked against an approved request in corrApply
+	if req.Col == "corrections" || isCorr {
+		// correction requests and approved corrections of site records (corrections.go)
+		out, err := correctionWriteLocked(u, req.Op, req.Col, req.ID, exData, req.Data, time.Now().UnixMilli())
+		if err != nil {
+			fail(w, 403, err.Error())
+			return
+		}
+		newData = out
+	} else if u.Role != "hq" {
 		if req.Op == "delete" {
 			ownPending := req.Col == "consumption" && str(exData, "projectId") == u.ProjectID && str(exData, "reportedBy") == u.ID && str(exData, "status") == "pending"
 			ownLog := req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID && str(exData, "issueId") == "" && (!siteStore(u) || str(exData, "status") == "pending")
@@ -1168,7 +1177,7 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				return
 			}
 		}
-		if req.Col == "siteissues" {
+		if req.Col == "siteissues" && !isCorr {
 			if err := issueGuard(u, req.ID, exData, req.Data, newData); err != nil {
 				fail(w, 403, err.Error())
 				return
@@ -1210,7 +1219,7 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				newData["from"], newData["projectId"] = "hq", ""
 			}
 		}
-		if req.Col == "consumption" {
+		if req.Col == "consumption" && !isCorr {
 			if err := consumptionGuard(u, exData, req.Data, newData); err != nil {
 				fail(w, 403, err.Error())
 				return
@@ -1286,7 +1295,7 @@ func hCounter(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 400, "Invalid number series.")
 		return
 	}
-	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" && req.Prefix != "CP" && req.Prefix != "OS" {
+	if u.Role != "hq" && req.Prefix != "MR" && req.Prefix != "CR" && req.Prefix != "RTV" && req.Prefix != "CP" && req.Prefix != "OS" && req.Prefix != "AR" {
 		fail(w, 403, "Not allowed.")
 		return
 	}

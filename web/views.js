@@ -43,7 +43,7 @@ function vDashboard(){
   const projs=S.projects.filter(p=>p.active!==false);
   const att=overdue.concat(open.filter(x=>x.ind.priority&&x.ind.priority!=='Normal'&&!overdue.includes(x))).filter(x=>can('demands_precheck')||!pcPending(x.ind)).slice(0,7);
   const poWait=poPendingCount(),stiWait=can('po_approve')?stiPendingList().length:0,poOnly=poWait-stiWait;
-  return `${dataNoteBox()}${poWait?`<div class="notice warn">${icon('clock')}<span><b>${[poOnly?poOnly+' purchase order'+(poOnly===1?'':'s'):'',stiWait?stiWait+' site transfer indent'+(stiWait===1?'':'s'):''].filter(Boolean).join(' and ')} waiting for your approval.</b> Nothing goes to a vendor or leaves a site until you approve and sign.</span><button class="btn sm primary" data-act="setF" data-k="ps" data-val="appr" data-go="pos">Review now</button></div>`:''}<section class="hero">
+  return `${dataNoteBox()}${typeof corrHQCard==='function'?corrHQCard():''}${poWait?`<div class="notice warn">${icon('clock')}<span><b>${[poOnly?poOnly+' purchase order'+(poOnly===1?'':'s'):'',stiWait?stiWait+' site transfer indent'+(stiWait===1?'':'s'):''].filter(Boolean).join(' and ')} waiting for your approval.</b> Nothing goes to a vendor or leaves a site until you approve and sign.</span><button class="btn sm primary" data-act="setF" data-k="ps" data-val="appr" data-go="pos">Review now</button></div>`:''}<section class="hero">
     <div class="hero-text"><span class="eyebrow">${fdLong(td)}</span><h2>${greet()}, ${esc(firstName(ui.me.name))}</h2>
       <p>${parts.length?parts.join(' · ')+'.':'Everything is moving. No demand is waiting for you right now.'}</p>
       <div class="row">${rev.length?`<button class="btn orange" data-act="go" data-v="demands">${icon('inbox')} Review demands</button>`:''}<button class="btn glass" data-act="go" data-v="queue">${icon('queue')} Procurement queue</button><button class="btn glass" data-act="go" data-v="s_new">${icon('plus')} Demand for a site</button>${emgBtn()}</div></div>
@@ -264,7 +264,7 @@ function vSiteHome(){
   const stockN=Object.values(D.site[pid]||{}).filter(r=>r.bal>0).length;
   const od=open.filter(x=>x.ind.requiredBy&&x.ind.requiredBy<td).length;
   const pm=typeof isPM==='function'&&isPM();const wait=pm?S.siteissues.filter(g=>g.projectId===pid&&g.status==='pending').length+S.sitelog.filter(e=>e.projectId===pid&&e.status==='pending').length:0;
-  return `${siteBanner(p,[
+  return `${typeof corrSiteCard==='function'?corrSiteCard(pid):''}${siteBanner(p,[
       {act:'go',v:'s_list',k:'Open demand lines',val:open.length,d:`${open.filter(x=>x.info.st==='review').length} awaiting HQ review`},
       {act:'go',v:'s_incoming',k:'On the way',val:inc.length,d:'consignments to receive',cls:inc.length?'go':'',dot:inc.length>0},
       {act:'go',v:'s_list',k:'Overdue',val:od,d:'past your required date',cls:od?'warn':''},

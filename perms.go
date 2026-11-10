@@ -43,6 +43,7 @@ var permLabels = map[string]string{
 	"cash_spend":         "make cash (counter) purchases",
 	"cash_approve":       "approve cash purchases and their consumption",
 	"site_approve":       "approve gate passes and stock entries of assigned sites (site manager)",
+	"site_amend_approve": "approve corrections to site receipts, gate passes and consumption",
 }
 
 func isAdmin(u *User) bool { return u != nil && u.Role == "hq" && (u.Access == nil || u.Access.Admin) }

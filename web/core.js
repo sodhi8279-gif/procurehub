@@ -153,7 +153,7 @@ async function api(path,body,method){
 function applyDoc(d){const c=store.cols[d.col]||(store.cols[d.col]={});if(d.deleted) delete c[d.id];else c[d.id]=d.data}
 function rebuild(){
   const L=c=>Object.entries(store.cols[c]||{}).map(([id,d])=>Object.assign({},d,{id}));
-  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns','cashbuys','siteissues']) S[k]=L(k);
+  for(const k of ['projects','vendors','indents','rfqs','pos','grns','dispatches','sitelog','stocklvl','jobwork','mailquotes','consumption','vreturns','cashbuys','siteissues','corrections']) S[k]=L(k);
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
