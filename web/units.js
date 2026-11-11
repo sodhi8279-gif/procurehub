@@ -86,3 +86,29 @@ for(const [act,sets] of [['saveReceipt',['recv','sup']],['saveShipped',['sup']]]
   if(!x||!d.uu||!Object.values(d.uu).some((u,i)=>u)) return prev(...a);
   const keep={};for(const f of sets) keep[f]=Object.assign({},d[f]||{});const uu=d.uu;d._entered=withVendorUnit(x.lines,d,sets);d.uu={};
   try{return await prev(...a)}finally{if(ui.modal===m){for(const f of sets) d[f]=keep[f];d.uu=uu;delete d._entered}}}}
+
+// ---- convert stock already received to another unit (e.g. cement received in MT, issued in bags) ----
+// Two linked stock adjustments: − the quantity in the old unit, + the same material in the new unit.
+const ucStoreBal=(p,sid,k)=>{const r=((D.sst||{})[p]||{})[sid||'main'];const x=r&&r[k];return x?num(x.bal!=null?x.bal:0):0};
+function ucCan(){return ui.role==='hq'?(ui.me.admin||can('sitestock_edit')):(!ui.preview&&isPM())}
+function unitConvBtn(p,k,r){if(!r||!(r.bal>1e-9)||!altUnits(r).length||!ucCan()) return '';return `<button class="btn" data-act="ucOpen" data-p="${p}" data-k="${esc(k)}">${icon('swap')} Convert unit</button>`}
+A.ucOpen=d=>{const r=(D.site[d.p]||{})[d.k];if(!r) return;const alts=altUnits(r);
+  const stores=Object.keys((D.sst||{})[d.p]||{}).filter(sid=>ucStoreBal(d.p,sid,d.k)>1e-9);const sid=stores[0]||'main';
+  openModal({type:'unitConv',p:d.p,k:d.k,d:{to:alts.includes('Bag')?'Bag':alts[0],storeId:sid,qty:String(ucStoreBal(d.p,sid,d.k)||r.bal),reason:''}})};
+function ucModal(m,busy){const r=(D.site[m.p]||{})[m.k];if(!r) return '';const d=m.d;const alts=altUnits(r);
+  const stores=Object.keys((D.sst||{})[m.p]||{}).filter(sid=>ucStoreBal(m.p,sid,m.k)>1e-9);const inStore=stores.length?ucStoreBal(m.p,d.storeId,m.k):r.bal;
+  const q=num(d.qty),out=q>0?qtyConv(q,r.unit,d.to,lDesc(r)):0;
+  return wrap('Convert unit · '+esc(r.desc),`<p class="small muted">${esc(r.spec||'')} · in stock <b>${fq(inStore)} ${esc(r.unit)}</b>${stores.length>1?' in this store':''}. The quantity you convert is taken out in ${esc(r.unit)} and put back as the same material in the new unit, so issues and consumption can be entered in that unit.</p>
+    <div class="fields">${stores.length>1?`<div class="f"><label for="f-modal-d-storeId">Store</label><select class="inp" id="f-modal-d-storeId" data-bind="modal.d.storeId">${stores.map(s=>`<option value="${esc(s)}" ${s===d.storeId?'selected':''}>${esc(storeLabel(m.p,s))}</option>`).join('')}</select></div>`:''}
+    <div class="f"><label for="f-modal-d-qty">Quantity to convert (${esc(r.unit)})</label>${inp('modal.d.qty',d.qty,'inputmode="decimal" data-rerender="1"')}</div>
+    <div class="f"><label for="f-modal-d-to">Convert to</label><select class="inp" id="f-modal-d-to" data-bind="modal.d.to">${alts.map(u=>`<option ${u===d.to?'selected':''}>${esc(u)}</option>`).join('')}</select></div></div>
+    <div class="notice">${icon('swap')}<span>${q>0?`<b>${fq(q)} ${esc(r.unit)}</b> becomes <b>${fq(out)} ${esc(d.to)}</b>`:'Enter the quantity.'} <small class="muted">(${normUnit(r.unit)==='bag'||normUnit(d.to)==='bag'?'bag of '+fq(r&&D.itemMap[slug(r.desc)]&&num(D.itemMap[slug(r.desc)].bagKg)>0?num(D.itemMap[slug(r.desc)].bagKg):bagKg())+' kg':'1 MT = 1000 kg = 10 quintal'})</small></span></div>
+    ${field('Reason (optional)','modal.d.reason',d.reason)}`,
+    `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="ucSave" ${busy}>${icon('check')} Convert</button>`)}
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='unitConv'?ucModal(m,busy):prev(m,busy)}
+A.ucSave=async()=>{const m=ui.modal;const r=(D.site[m.p]||{})[m.k];if(!r) return;const d=m.d;const q=Math.round(num(d.qty)*1000)/1000;
+  const stores=Object.keys((D.sst||{})[m.p]||{}).filter(sid=>ucStoreBal(m.p,sid,m.k)>1e-9);const avail=stores.length?ucStoreBal(m.p,d.storeId,m.k):r.bal;
+  if(!(q>0)){toast('Enter the quantity to convert.','err');return}if(q>avail+1e-9){toast(`Only ${fq(avail)} ${r.unit} is in stock${stores.length>1?' in this store':''}.`,'err');return}
+  const out=qtyConv(q,r.unit,d.to,lDesc(r));const conv=newId();const note=`Unit conversion: ${fq(q)} ${r.unit} → ${fq(out)} ${d.to}`;
+  const base={type:'adjust',projectId:m.p,storeId:d.storeId||'main',desc:r.desc,spec:r.spec,cat:r.cat,date:today(),reason:String(d.reason||'').trim()||'Unit conversion',remarks:note,convId:conv,at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''};
+  if(await run(async()=>{await setDoc('sitelog',newId(),Object.assign({},base,{itemKey:r.itemKey,unit:r.unit,qty:-q}));await setDoc('sitelog',newId(),Object.assign({},base,{itemKey:itemKey(r.desc,r.spec,d.to),unit:d.to,qty:out}))},note+'. Site stock updated.')) closeModal()};
