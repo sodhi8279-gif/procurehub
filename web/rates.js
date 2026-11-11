@@ -15,15 +15,17 @@ Object.assign(ACT_PERM,{estApprove:['compare_approve','demands_approve'],estRetu
 let RH=null,RHrev=null;
 function rateIndex(){if(RH&&RHrev===D) return RH;const m={};const add=(k,x)=>(m[k]=m[k]||[]).push(x);
   for(const p of S.pos){if(p.status==='cancelled'||p.ratesHidden) continue;const at=p.at||Date.parse(p.date)||0;
-    for(const l of p.lines||[]){const r=num(l.rate);if(!(r>0)) continue;add(l.itemKey||itemKey(l.desc,l.spec,l.unit),{kind:'po',rate:r,gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''});if(l.bu&&num(l.rateBu)>0) add(itemKey(l.desc,l.spec,l.bu),{kind:'po',rate:num(l.rateBu),gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''})}}
+    for(const l of p.lines||[]){const r=num(l.rate);if(!(r>0)) continue;add(l.itemKey||itemKey(l.desc,l.spec,l.unit),{kind:'po',emg:!!p.emergency,rate:r,gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''});if(l.bu&&num(l.rateBu)>0) add(itemKey(l.desc,l.spec,l.bu),{kind:'po',rate:num(l.rateBu),gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''})}}
   for(const r of S.rfqs){for(const [vid,q] of Object.entries(r.quotes||{})){const at=q.at||r.at||0;
     for(const l of r.lines||[]){const rt=num((q.rates||{})[l.key]);if(!(rt>0)) continue;add(itemKey(l.desc,l.spec,l.unit),{kind:'quote',rate:rt,gst:qGst(q,l.key),vendorId:vid,vendorName:(vend(vid)||{}).name||'',at,no:r.no,id:r.id})}}}
   for(const k in m) m[k].sort((a,b)=>b.at-a.at);RH=m;RHrev=D;return m}
 // reference rates for an item (excl. GST): last purchase, and the lowest received in the last 3 months
-function rateRef(k,skipId){const all=(rateIndex()[k]||[]).filter(x=>!skipId||(x.id!==skipId&&x.rfqId!==skipId));const since=Date.now()-REF_DAYS*864e5;const recent=all.filter(x=>x.at>=since);
+// rate records for an item key (made tolerant of spelling, size and unit in units.js)
+let rateMatches=k=>rateIndex()[k]||[];
+function rateRef(k,skipId){const all=rateMatches(k).filter(x=>!skipId||(x.id!==skipId&&x.rfqId!==skipId));const since=Date.now()-REF_DAYS*864e5;const recent=all.filter(x=>x.at>=since);
   const last=all.find(x=>x.kind==='po')||null;const low=recent.slice().sort((a,b)=>a.rate-b.rate)[0]||null;
   const est=low||last;return {last,low,n:recent.length,est,basis:low?'low3':last?'last':''}}
-const refTxt=x=>x?`${money(x.rate)}<small class="muted block">${esc(x.vendorName||'')} · ${x.kind==='po'?'PO':'quote'} ${esc(x.no||'')} · ${fd(msDate(x.at))}</small>`:'<span class="muted small">—</span>';
+const refTxt=x=>x?`${money(x.rate)}<small class="muted block">${esc(x.vendorName||'')} · ${x.kind==='po'?(x.emg?'emergency PO':'PO'):'quote'} ${esc(x.no||'')} · ${fd(msDate(x.at))}</small>${x.similar?`<small class="block t-amber">similar item: ${esc(x.simDesc)}${x.simSpec?' · '+esc(x.simSpec):''}${x.simUnit&&normUnit(x.simUnit)!==normUnit(x.wantUnit)?' · '+money(x.origRate)+' per '+esc(x.simUnit):''}</small>`:''}`:'<span class="muted small">—</span>';
 const lineKey=l=>itemKey(l.desc,l.spec,l.unit);
 
 /* ---------- estimate made with the RFQ ---------- */
@@ -66,7 +68,7 @@ function prevRateCell(r,l){const rf=rateRef(lineKey(l),r.id);const e=estOf(r);co
 
 /* ---------- item rate history (Find items, queue) ---------- */
 A.rateHist=d=>openModal({type:'rateHist',k:d.k,desc:d.desc||''});
-function rateHistModal(m){const list=rateIndex()[m.k]||[];const rf=rateRef(m.k);const name=m.desc||(list[0]&&'')||m.k.split('|')[0];
+function rateHistModal(m){const list=rateMatches(m.k);const rf=rateRef(m.k);const name=m.desc||(list[0]&&'')||m.k.split('|')[0];
   return wrap('Rates · '+esc(name),`${list.length?`<div class="kpis three"><div class="kpi"><span class="k">Last purchase</span><span class="v small-v">${rf.last?money(rf.last.rate):'—'}</span><span class="d">${rf.last?esc(rf.last.vendorName)+' · '+fd(msDate(rf.last.at)):''}</span></div><div class="kpi"><span class="k">Lowest in 3 months</span><span class="v small-v">${rf.low?money(rf.low.rate):'—'}</span><span class="d">${rf.low?esc(rf.low.vendorName)+' · '+(rf.low.kind==='po'?'PO':'quote'):''}</span></div><div class="kpi"><span class="k">Rates in 3 months</span><span class="v small-v">${rf.n}</span><span class="d">purchases and quotations</span></div></div>
    <div class="tw"><table class="t"><thead><tr><th>Date</th><th>Vendor</th><th>From</th><th class="num">Rate excl. GST</th><th class="num">GST</th></tr></thead><tbody>${list.slice(0,60).map(x=>`<tr><td>${fd(msDate(x.at))}</td><td>${esc(x.vendorName)}</td><td class="small">${x.kind==='po'?'Purchase order':'Quotation'} ${esc(x.no)}</td><td class="num mono">${money(x.rate)}</td><td class="num mono">${fq(x.gst)}%</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty sm"><p>No purchases or quotations for this item yet.</p></div>'}`,`<button class="btn" data-act="closeModal">Close</button>`,'wide')}
 

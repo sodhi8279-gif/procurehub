@@ -53,3 +53,17 @@ function rfqBillCell(l,i){if(l.bf>0) return `<small class="block bill-hint t-blu
 function itemBillFields(d){return `<div class="f"><label for="f-modal-d-billUnit">Billing unit (optional)</label>${inp('modal.d.billUnit',d.billUnit||'','placeholder="MT"')}</div>
   <div class="f"><label for="f-modal-d-billPer">${esc(d.unit||'units')} in 1 billing unit</label>${inp('modal.d.billPer',d.billPer||'','inputmode="decimal" placeholder="e.g. 20 bags / 1000 kg"')}</div>
   ${normUnit(d.unit)==='bag'?`<div class="f"><label for="f-modal-d-bagKg">Weight of one bag (kg)</label>${inp('modal.d.bagKg',d.bagKg||'','inputmode="decimal" placeholder="'+fq(bagKg())+'"')}</div>`:''}`}
+
+// ---- earlier rates: tolerant matching (spelling, size written differently, unit) ----
+const UNIT_ALIAS={no:'nos',nos:'nos',number:'nos',pc:'nos',piece:'nos',cum:'cum',m3:'cum','cu m':'cum',cmt:'cum',sqm:'sqm',m2:'sqm','sq m':'sqm',rmt:'rmt',mtr:'rmt',meter:'rmt',metre:'rmt',rm:'rmt',ltr:'ltr',litre:'ltr',liter:'ltr'};
+function kgPer(u,desc){const n=normUnit(u);if(n==='kg'||n==='kilogram') return 1;if(isMT(n)) return 1000;if(n==='quintal'||n==='qtl') return 100;if(n==='bag'&&/cement/i.test(desc||'')) return bagKg();return 0}
+// multiply a rate per `from` by this to get the rate per `to` (0 = not convertible)
+function unitConv(from,to,desc){const a=normUnit(from),b=normUnit(to);if(a===b||(UNIT_ALIAS[a]&&UNIT_ALIAS[a]===UNIT_ALIAS[b])||(isMT(a)&&isMT(b))) return 1;const kf=kgPer(from,desc),kt=kgPer(to,desc);return kf>0&&kt>0?kt/kf:0}
+const looseDesc=s=>String(s||'').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(w=>w.length>3&&/[^s]s$/.test(w)?w.slice(0,-1):w).join(' ');
+const specToks=s=>new Set(String(s||'').toLowerCase().replace(/(\d)\s+(mm|cm|m|mtr|inch|in|kg|kgs|mt|ft|sqmm|grade)\b/g,'$1$2').replace(/(\d+(?:\.\d+)?)\s*(?:mm|cm|inch|ft|sqmm|kg|kgs)?\s*(dia|diameter|thick|thk)\b/g,'$1').split(/[^a-z0-9.]+/).filter(t=>t&&!['of','and','the','x','with','grade','gr','size','dia'].includes(t)));
+function specCompat(a,b){if(!a.size&&!b.size) return true;let n=0;for(const t of a) if(b.has(t)) n++;if(!n) return false;return n===a.size||n===b.size}
+rateMatches=function(k){const [d,s,u]=String(k).split('|');const idx=rateIndex();const want=looseDesc(d),st=specToks(s);const out=[];
+  for(const [kk,arr] of Object.entries(idx)){const [d2,s2,u2]=kk.split('|');if(kk!==k){if(looseDesc(d2)!==want||!specCompat(st,specToks(s2))) continue}
+    const f=kk===k?1:unitConv(u2,u,d+' '+d2);if(!(f>0)) continue;
+    for(const x of arr) out.push(kk===k?x:Object.assign({},x,{rate:Math.round(x.rate*f*100)/100,origRate:x.rate,similar:true,simDesc:d2,simSpec:s2,simUnit:u2,wantUnit:u}))}
+  return out.sort((a,b)=>b.at-a.at)};
