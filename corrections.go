@@ -19,7 +19,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 )
 
 var corrKinds = map[string]string{"dispatches": "receipt", "siteissues": "gate pass", "consumption": "consumption report"}
@@ -158,7 +160,71 @@ func corrRequestWrite(u *User, op string, ex, patch map[string]any, now int64) (
 	return out, nil
 }
 
-// corrApply: the project manager corrects the quantities of a record under an approved request.
+// fields of each record the project manager may correct (besides line quantities)
+var corrFields = map[string][]string{
+	"dispatches":  {"receivedOn", "receivedByName", "receiverDesignation", "siteRemarks", "vehicle", "vendorChallan", "vendorInvoice", "billDocs", "signedDocs", "photos"},
+	"siteissues":  {"remarks", "vehicle", "driver", "lrNo"},
+	"consumption": {"date", "description", "location", "remarks", "photos"},
+}
+
+var corrDateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
+
+// corrField checks one corrected field and returns its clean value.
+func corrField(col, k string, v any, ex map[string]any) (any, error) {
+	switch k {
+	case "receivedOn", "date":
+		d := strings.TrimSpace(fmt.Sprint(v))
+		if !corrDateRe.MatchString(d) {
+			return nil, errors.New("Enter a valid date.")
+		}
+		if t, err := time.ParseInLocation("2006-01-02", d, time.Local); err != nil || t.After(time.Now()) {
+			return nil, errors.New("The date cannot be in the future.")
+		}
+		return d, nil
+	case "billDocs", "signedDocs", "photos":
+		a, ok := v.([]any)
+		if !ok || len(a) > 30 {
+			return nil, errors.New("Invalid documents.")
+		}
+		for _, x := range a {
+			switch x.(type) {
+			case string, map[string]any:
+			default:
+				return nil, errors.New("Invalid documents.")
+			}
+		}
+		if col == "dispatches" && k != "photos" && len(a) == 0 && len(anyList(ex[k])) > 0 {
+			return nil, errors.New("The vendor's bill and the signed challan cannot be removed; upload the right one instead.")
+		}
+		return a, nil
+	case "siteRemarks", "remarks", "description":
+		t := clip(strings.TrimSpace(fmt.Sprint(v)), 500)
+		if k == "description" && t == "" {
+			return nil, errors.New("The description cannot be empty.")
+		}
+		return t, nil
+	case "receivedByName":
+		t := clip(strings.TrimSpace(fmt.Sprint(v)), 80)
+		if t == "" {
+			return nil, errors.New("Write who received the material.")
+		}
+		return t, nil
+	}
+	return clip(strings.TrimSpace(fmt.Sprint(v)), 80), nil
+}
+
+// corrShow is how a changed field is recorded in the history.
+func corrShow(v any) any {
+	if a, ok := v.([]any); ok {
+		return fmt.Sprintf("%d file(s)", len(a))
+	}
+	if v == nil {
+		return ""
+	}
+	return v
+}
+
+// corrApply: the project manager corrects a record under an approved request.
 func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64) (map[string]any, error) {
 	cid := str(patch, "_correction")
 	c := docData("corrections", cid)
@@ -171,44 +237,100 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 	if !sitePM(u) {
 		return nil, errors.New("Only the project manager can make an approved correction.")
 	}
+	allowed := map[string]bool{"_correction": true, "lines": true, "corrNote": true}
+	for _, k := range corrFields[col] {
+		allowed[k] = true
+	}
 	for k := range patch {
-		if k != "_correction" && k != "lines" && k != "corrNote" {
-			return nil, errors.New("Only the quantities can be corrected.")
+		if !allowed[k] {
+			return nil, errors.New("This detail cannot be corrected.")
 		}
 	}
-	key := corrQtyKey(col)
-	exl := subList(ex, "lines")
-	nl, _ := patch["lines"].([]any)
-	if len(nl) != len(exl) {
-		return nil, errors.New("Invalid request.")
-	}
-	var lines, before, after []any
+	out := shallowCopy(ex)
 	changed := false
-	for i, l := range exl {
-		m := shallowCopy(l)
-		nm, _ := nl[i].(map[string]any)
-		v, ok := nm[key].(float64)
-		if !ok || v < 0 || v > 1e9 {
-			return nil, errors.New("Enter a valid quantity on every line.")
+	// line quantities (and, for a delivery direct from the vendor, the vendor's quantity)
+	key := corrQtyKey(col)
+	direct := col == "dispatches" && str(ex, "type") == "direct"
+	exl := subList(ex, "lines")
+	var before, after, supBefore, supAfter []any
+	if nl, has := patch["lines"].([]any); has {
+		if len(nl) != len(exl) {
+			return nil, errors.New("Invalid request.")
 		}
-		v = round3(v)
-		old := fnum(l[key])
-		if v != old {
-			changed = true
+		var lines []any
+		for i, l := range exl {
+			m := shallowCopy(l)
+			nm, _ := nl[i].(map[string]any)
+			v, ok := nm[key].(float64)
+			if !ok || v < 0 || v > 1e9 {
+				return nil, errors.New("Enter a valid quantity on every line.")
+			}
+			v = round3(v)
+			old := fnum(l[key])
+			if v != old {
+				changed = true
+			}
+			before, after = append(before, old), append(after, v)
+			m[key] = v
+			if direct {
+				if sv, ok := nm["supQty"].(float64); ok && sv >= 0 {
+					sv = round3(sv)
+					os := fnum(l["qty"])
+					if sv != os {
+						changed = true
+						if m["ordQty"] == nil {
+							m["ordQty"] = os
+						}
+						m["qty"], m["supQty"] = sv, sv
+					}
+					supBefore, supAfter = append(supBefore, os), append(supAfter, sv)
+				}
+			}
+			lines = append(lines, m)
 		}
-		before, after = append(before, old), append(after, v)
-		m[key] = v
-		lines = append(lines, m)
+		out["lines"] = lines
+	}
+	// other details
+	fields := map[string]any{}
+	for _, k := range corrFields[col] {
+		v, has := patch[k]
+		if !has {
+			continue
+		}
+		nv, err := corrField(col, k, v, ex)
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(nv) == fmt.Sprint(ex[k]) {
+			continue
+		}
+		fields[k] = map[string]any{"from": corrShow(ex[k]), "to": corrShow(nv)}
+		out[k] = nv
+		changed = true
+		if k == "receivedOn" {
+			// screens and stock movements use receivedAt: move it to the corrected date, same time of day
+			t := time.Now()
+			if ra := fnum(ex["receivedAt"]); ra > 0 {
+				t = time.UnixMilli(int64(ra))
+				if ex["origReceivedAt"] == nil {
+					out["origReceivedAt"] = ex["receivedAt"]
+				}
+			}
+			if d, err := time.ParseInLocation("2006-01-02", nv.(string), time.Local); err == nil {
+				nt := time.Date(d.Year(), d.Month(), d.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.Local)
+				if nt.After(time.Now()) {
+					nt = time.Now()
+				}
+				out["receivedAt"] = float64(nt.UnixMilli())
+			}
+		}
 	}
 	if !changed {
 		return nil, errors.New("Nothing was changed.")
 	}
-	out := shallowCopy(ex)
-	out["lines"] = lines
 	if col == "dispatches" {
 		short, excess := false, false
-		for _, l := range lines {
-			m := l.(map[string]any)
+		for _, m := range subList(out, "lines") {
 			if fnum(m["recvQty"])+1e-9 < fnum(m["qty"]) {
 				short = true
 			}
@@ -230,12 +352,20 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 	}
 	dec, _ := c["decision"].(map[string]any)
 	note := clip(strings.TrimSpace(str(patch, "corrNote")), 500)
+	done := map[string]any{"at": float64(now), "by": u.ID, "byName": u.Name, "before": before, "after": after, "note": note}
+	if len(fields) > 0 {
+		done["fields"] = fields
+	}
+	if supBefore != nil {
+		done["supBefore"], done["supAfter"] = supBefore, supAfter
+	}
+	h := shallowCopy(done)
+	h["id"], h["no"], h["reason"], h["approvedBy"] = cid, str(c, "no"), str(c, "reason"), str(dec, "byName")
 	hist, _ := ex["corrections"].([]any)
-	out["corrections"] = append(append([]any{}, hist...), map[string]any{"id": cid, "no": str(c, "no"), "at": float64(now), "byName": u.Name,
-		"reason": str(c, "reason"), "approvedBy": str(dec, "byName"), "before": before, "after": after, "note": note})
+	out["corrections"] = append(append([]any{}, hist...), h)
 	nc := shallowCopy(c)
 	nc["status"] = "done"
-	nc["done"] = map[string]any{"at": float64(now), "by": u.ID, "byName": u.Name, "before": before, "after": after, "note": note}
+	nc["done"] = done
 	putDocLocked("corrections", cid, nc)
 	return out, nil
 }
