@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.6.1"
+const appVersion = "7.6.2"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"

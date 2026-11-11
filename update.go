@@ -38,6 +38,7 @@ var (
 	buildTagRe = regexp.MustCompile(`PROCUREHUB-BUILD:([0-9]+\.[0-9]+\.[0-9]+):([a-z0-9]+)/([a-z0-9]+):END`)
 	updMu      sync.Mutex
 	updBusy    bool
+	updSince   time.Time
 	selfArgs   []string // the arguments ProcureHub was started with, for the restart
 )
 
@@ -179,13 +180,21 @@ func hUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 405, "Method not allowed.")
 		return
 	}
-	updMu.Lock()
-	if updBusy {
-		updMu.Unlock()
-		fail(w, 409, "An update is already being installed.")
+	// receive the whole file first, with a time limit: a phone upload that stalls
+	// (screen locked, network lost) must not keep the update blocked
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(20 * time.Minute))
+	body, err := io.ReadAll(io.LimitReader(r.Body, 500<<20))
+	if err != nil {
+		fail(w, 400, "The file could not be received completely (the connection was slow or interrupted). Try again, preferably on Wi-Fi or from a computer.")
 		return
 	}
-	updBusy = true
+	updMu.Lock()
+	if updBusy && time.Since(updSince) < 15*time.Minute {
+		updMu.Unlock()
+		fail(w, 409, "Another update is being installed right now. Wait a minute; ProcureHub restarts by itself when it is done.")
+		return
+	}
+	updBusy, updSince = true, time.Now()
 	updMu.Unlock()
 	done := false
 	defer func() {
@@ -195,12 +204,6 @@ func hUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 			updMu.Unlock()
 		}
 	}()
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 500<<20))
-	if err != nil {
-		fail(w, 400, "The file could not be received. Try again.")
-		return
-	}
 	up, err := pickUpdate(body)
 	if err != nil {
 		fail(w, 400, err.Error())
