@@ -146,7 +146,7 @@ func directReceiptLocked(id string, x, ex map[string]any, now int64) {
 }
 
 // receipt keys a site may send when receiving a direct delivery
-var siteRecvExtra = map[string]bool{"excess": true, "moreToCome": true, "vehicle": true, "vendorChallan": true, "vendorInvoice": true}
+var siteRecvExtra = map[string]bool{"excess": true, "moreToCome": true, "vehicle": true, "vendorChallan": true, "vendorInvoice": true, "entered": true}
 
 // poClosedLocked: when HQ closes a PO short, pending deliveries of it are cancelled.
 func poClosedLocked(poID string, po, ex map[string]any, byName string, now int64) int {

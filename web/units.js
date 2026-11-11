@@ -36,7 +36,6 @@ function fqBu(l,q){return hasBu(l)?`${fq(num(q)/num(l.bf))} ${esc(l.bu)}`:''}
 function fqDual(l,q){return `${fq(q)} ${esc(l.unit)}${hasBu(l)?` <small class="muted">· ${fqBu(l,q)}</small>`:''}`}
 
 // RFQ lines: billed per MT by default where a rule exists
-{const prev=buildRfqLines;buildRfqLines=function(keys){return prev(keys).map(l=>setBilling(l,!!convRule(l)))}}
 A.rfqBill=d=>{const l=ui.modal&&ui.modal.d&&ui.modal.d.lines&&ui.modal.d.lines[+d.i];if(!l) return;setBilling(l,d.on==='1');render()};
 function rfqBillCell(l,i){if(l.bf>0) return `<small class="block bill-hint t-blue">billed per ${esc(l.unit)} · = ${fq(l.dQty)} ${esc(l.dUnit)} <span class="muted">(${esc(l.billWhy||'')})</span> <button type="button" class="link" data-act="rfqBill" data-i="${i}" data-on="0">bill per ${esc(l.dUnit)}</button></small>`;
   const r=convRule(l);return r?`<small class="block bill-hint muted"><button type="button" class="link" data-act="rfqBill" data-i="${i}" data-on="1">bill per ${esc(r.bu)}</button> (${esc(r.why)})</small>`:''}
@@ -67,3 +66,23 @@ rateMatches=function(k){const [d,s,u]=String(k).split('|');const idx=rateIndex()
     const f=kk===k?1:unitConv(u2,u,d+' '+d2);if(!(f>0)) continue;
     for(const x of arr) out.push(kk===k?x:Object.assign({},x,{rate:Math.round(x.rate*f*100)/100,origRate:x.rate,similar:true,simDesc:d2,simSpec:s2,simUnit:u2,wantUnit:u}))}
   return out.sort((a,b)=>b.at-a.at)};
+
+// ---- receiving in the vendor's unit: the PO stays in the demand unit; a vendor billing in MT is converted ----
+function altUnits(l){const d=(l.desc||'')+' '+(l.cat||l.category||'');return ['MT','Kg','Quintal','Bag'].filter(x=>normUnit(x)!==normUnit(l.unit)&&!(isMT(x)&&isMT(l.unit))&&unitConv(x,l.unit,d)>0)}
+const qtyConv=(q,from,to,desc)=>{const f=unitConv(from,to,desc);return f>0?Math.round(num(q)/f*1000)/1000:num(q)};
+const lDesc=l=>(l.desc||'')+' '+(l.cat||l.category||'');
+// a value typed in unit U, as a quantity in the PO unit
+function vuIn(l,U,v){return !U||U===l.unit||String(v??'').trim()===''?v:String(qtyConv(v,U,l.unit,lDesc(l)))}
+function vuSel(l,k,sets,val){const a=altUnits(l);if(!a.length) return '';
+  return `<label class="vu small muted">Vendor's unit <select class="inp sm auto" data-act-change="vuChange" data-k="${esc(String(k))}" data-sets="${sets}" data-unit="${esc(l.unit)}" data-desc="${esc(lDesc(l))}">${[l.unit,...a].map(u=>`<option value="${esc(u)}" ${String(val||l.unit)===u?'selected':''}>${esc(u)}</option>`).join('')}</select></label>`}
+function vuHint(l,U,v,what){if(!U||U===l.unit||String(v??'').trim()==='') return '';return `<small class="block vu-hint">${what?esc(what)+' ':''}${esc(String(v))} ${esc(U)} = <b>${fq(qtyConv(v,U,l.unit,lDesc(l)))} ${esc(l.unit)}</b></small>`}
+// changing the unit converts the figures already typed on that line (so 1,000 Bag becomes 50 MT, not 1,000 MT)
+CH.vuChange=el=>{const m=ui.modal;if(!m) return;const k=el.dataset.k,unit=el.dataset.unit,desc=el.dataset.desc;m.d.uu=m.d.uu||{};const prev=m.d.uu[k]||unit,next=el.value;
+  for(const f of el.dataset.sets.split(',')){const o=m.d[f];if(!o||o[k]==null||String(o[k]).trim()==='') continue;const inPo=prev===unit?num(o[k]):qtyConv(o[k],prev,unit,desc);o[k]=String(next===unit?Math.round(inPo*1000)/1000:qtyConv(inPo,unit,next,desc))}
+  m.d.uu[k]=next;render()};
+// site receipt / vendor dispatched: convert to the PO unit before saving, keep what was typed
+function withVendorUnit(lines,d,sets){const ent={};lines.forEach((l,i)=>{const U=(d.uu||{})[i];if(!U||U===l.unit) return;const e={unit:U};for(const f of sets){if(!d[f]) continue;e[f]=String(d[f][i]??'');d[f][i]=vuIn(l,U,d[f][i])}ent[i]=e});return ent}
+for(const [act,sets] of [['saveReceipt',['recv','sup']],['saveShipped',['sup']]]){const prev=A[act];A[act]=async(...a)=>{const m=ui.modal;const d=m&&m.d;const x=d&&S.dispatches.find(y=>y.id===m.id);
+  if(!x||!d.uu||!Object.values(d.uu).some((u,i)=>u)) return prev(...a);
+  const keep={};for(const f of sets) keep[f]=Object.assign({},d[f]||{});const uu=d.uu;d._entered=withVendorUnit(x.lines,d,sets);d.uu={};
+  try{return await prev(...a)}finally{if(ui.modal===m){for(const f of sets) d[f]=keep[f];d.uu=uu;delete d._entered}}}}

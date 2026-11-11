@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "7.6.2"
+const appVersion = "7.7.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -935,7 +935,7 @@ func siteCheck(u *User, op, col string, ex, patch, merged map[string]any) (map[s
 					out[k] = cleanFreight(v)
 					out[k] = v
 				case "receivedBy":
-				case "excess", "moreToCome", "vehicle", "vendorChallan", "vendorInvoice":
+				case "excess", "moreToCome", "vehicle", "vendorChallan", "vendorInvoice", "entered":
 					if siteRecvExtra[k] {
 						out[k] = v
 					}
