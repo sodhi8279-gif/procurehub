@@ -763,11 +763,11 @@ async function joinAddSize(id,size,unit,oldDesc){const j=D.itemMap[id];if(!j) re
 Object.assign(ACT_PERM,{rfqQty:['compare_approve','rfq_create'],saveRfqQty:['compare_approve','rfq_create']});
 A.rfqQty=d=>{const r=rfqOf();const l=r&&r.lines.find(x=>x.key===d.k);if(!l) return;
   openModal({type:'rfqQty',rfq:r.id,k:l.key,d:{q:l.srcs.map(s=>String(s.qty)),note:'',balance:(l.qtyChg&&l.qtyChg.balance)||'queue'}})};
-function rfqQtyModal(m,busy){const r=S.rfqs.find(x=>x.id===m.rfq);const l=r&&r.lines.find(x=>x.key===m.k);if(!l) return '';const d=m.d;const tot=sum(d.q,num);const orig=l.qtyChg?l.qtyChg.from:l.qty;
+function rfqQtyModal(m,busy){const r=S.rfqs.find(x=>x.id===m.rfq);const l=r&&r.lines.find(x=>x.key===m.k);if(!l) return '';const d=m.d;const tot=sum(d.q,num);const du=l.bf>0?l.dUnit:l.unit;const orig=l.qtyChg?(l.bf>0&&l.qtyChg.fromD!=null?l.qtyChg.fromD:l.qtyChg.from):(l.bf>0?l.dQty:l.qty);
   const less=l.srcs.some((s,i)=>num(d.q[i])<num(s.origQty!=null?s.origQty:s.qty)-1e-9);
-  return wrap('Change quantity · '+esc(l.desc),`<p class="small muted">${esc(l.spec||'')} · demanded ${fq(orig)} ${esc(l.unit)}. Enter the quantity to order for each site. Rates stay as quoted per ${esc(l.unit)}; the comparative and the PO use the new quantity.</p>
+  return wrap('Change quantity · '+esc(l.desc),`<p class="small muted">${esc(l.spec||'')} · demanded ${fq(orig)} ${esc(du)}${l.bf>0?' ('+fq(orig/l.bf)+' '+esc(l.unit)+')':''}. Enter the quantity to order for each site in ${esc(du)}. Rates stay as quoted per ${esc(l.unit)}; the comparative and the PO use the new quantity.</p>
    <div class="tw"><table class="t"><thead><tr><th>Site</th><th>Demand</th><th class="num">Demanded</th><th class="num">Order</th></tr></thead><tbody>${l.srcs.map((s,i)=>`<tr><td><b>${esc(projName(s.projectId))}</b></td><td class="small">${esc(s.mrNo||'')}</td><td class="num mono">${fq(s.origQty!=null?s.origQty:s.qty)}</td><td>${inp('modal.d.q.'+i,d.q[i],'inputmode="decimal" style="width:110px" data-rerender="1"')}</td></tr>`).join('')}</tbody>
-   <tfoot><tr><td colspan="3" class="num"><b>Total to order</b></td><td class="num mono"><b>${fq(tot)} ${esc(l.unit)}</b></td></tr></tfoot></table></div>
+   <tfoot><tr><td colspan="3" class="num"><b>Total to order</b></td><td class="num mono"><b>${fq(tot)} ${esc(du)}${l.bf>0?' · '+fq(tot/l.bf)+' '+esc(l.unit):''}</b></td></tr></tfoot></table></div>
    ${less?`<div class="f full"><label>The quantity not ordered</label>${seg('rqbal',[['queue','Stays in the procurement queue (order later)'],['drop','Not needed — reduce the demand']],d.balance,'rfqQtyBal')}</div>`:''}
    <div class="f full"><label for="f-modal-d-note">Reason (shown on the demand)</label>${inp('modal.d.note',d.note,'placeholder="e.g. Part available at site; order only 60 now"')}</div>`,
    `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveRfqQty" ${busy}>${icon('check')} Save quantity</button>`)}
@@ -777,7 +777,9 @@ A.saveRfqQty=async()=>{const m=ui.modal,d=m.d;const r=S.rfqs.find(x=>x.id===m.rf
   if(!String(d.note||'').trim()){toast('Write the reason for the change.','err');return}
   const lines=JSON.parse(JSON.stringify(r.lines));const l=lines.find(x=>x.key===m.k);const from=l.qtyChg?l.qtyChg.from:l.qty;
   l.srcs.forEach((s,i)=>{if(s.origQty==null) s.origQty=s.qty;s.qty=q[i]});l.qty=Math.round(sum(q)*1000)/1000;
-  l.qtyChg=Math.abs(l.qty-from)<1e-9&&l.srcs.every(s=>Math.abs(num(s.qty)-num(s.origQty))<1e-9)?null:{from,by:ui.uid,byName:(ui.me&&ui.me.name)||'',at:Date.now(),note:String(d.note).trim(),balance:d.balance};
+  // billed per MT: the per-site quantities are bags / kg; the line quantity stays in MT
+  const fromD=l.bf>0?(l.qtyChg&&l.qtyChg.fromD!=null?l.qtyChg.fromD:l.dQty):null;if(l.bf>0){l.dQty=l.qty;l.qty=Math.round(l.dQty/l.bf*1000)/1000}
+  l.qtyChg=Math.abs(l.qty-from)<1e-9&&l.srcs.every(s=>Math.abs(num(s.qty)-num(s.origQty))<1e-9)?null:{from,by:ui.uid,byName:(ui.me&&ui.me.name)||'',at:Date.now(),note:String(d.note).trim(),balance:d.balance,...(fromD!=null?{fromD}:{})};
   if(!l.qtyChg){delete l.qtyChg;l.srcs.forEach(s=>delete s.origQty)}
   if(await run(()=>updDoc('rfqs',r.id,{lines}),'Quantity changed to '+fq(l.qty)+' '+l.unit)!==false) closeModal()};
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='rfqQty'?rfqQtyModal(m,busy):prev(m,busy)}

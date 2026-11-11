@@ -15,7 +15,7 @@ Object.assign(ACT_PERM,{estApprove:['compare_approve','demands_approve'],estRetu
 let RH=null,RHrev=null;
 function rateIndex(){if(RH&&RHrev===D) return RH;const m={};const add=(k,x)=>(m[k]=m[k]||[]).push(x);
   for(const p of S.pos){if(p.status==='cancelled'||p.ratesHidden) continue;const at=p.at||Date.parse(p.date)||0;
-    for(const l of p.lines||[]){const r=num(l.rate);if(!(r>0)) continue;add(l.itemKey||itemKey(l.desc,l.spec,l.unit),{kind:'po',rate:r,gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''})}}
+    for(const l of p.lines||[]){const r=num(l.rate);if(!(r>0)) continue;add(l.itemKey||itemKey(l.desc,l.spec,l.unit),{kind:'po',rate:r,gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''});if(l.bu&&num(l.rateBu)>0) add(itemKey(l.desc,l.spec,l.bu),{kind:'po',rate:num(l.rateBu),gst:num(l.gst),vendorId:p.vendorId,vendorName:p.vendorName||(vend(p.vendorId)||{}).name||'',at,no:p.no,id:p.id,rfqId:p.rfqId||''})}}
   for(const r of S.rfqs){for(const [vid,q] of Object.entries(r.quotes||{})){const at=q.at||r.at||0;
     for(const l of r.lines||[]){const rt=num((q.rates||{})[l.key]);if(!(rt>0)) continue;add(itemKey(l.desc,l.spec,l.unit),{kind:'quote',rate:rt,gst:qGst(q,l.key),vendorId:vid,vendorName:(vend(vid)||{}).name||'',at,no:r.no,id:r.id})}}}
   for(const k in m) m[k].sort((a,b)=>b.at-a.at);RH=m;RHrev=D;return m}
