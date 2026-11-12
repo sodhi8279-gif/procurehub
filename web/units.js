@@ -10,8 +10,8 @@
    When POs are made the line goes back to the demand unit (qty in bags / kg, rate per bag / kg)
    and keeps bu, bf and rateBu (rate per MT) for the PO print and billing. */
 
-const normUnit=u=>String(u||'').trim().toLowerCase().replace(/\.$/,'').replace(/s$/,'');
-const MT_ALIASES=['mt','ton','tonne','metric ton','metric tonne','tonnes','tone'];
+const normUnit=u=>{let x=String(u||'').trim().toLowerCase().replace(/[.\s\/_-]+/g,'');if(x.length>2) x=x.replace(/s$/,'');return ({kilogram:'kg',kilo:'kg',kgm:'kg',metricton:'mt',metricton:'mt',tonne:'mt',ton:'mt',tn:'mt',qtl:'quintal',qntl:'quintal',gram:'g',gm:'g',grm:'g'})[x]||x};
+const MT_ALIASES=['mt','ton','tonne','metricton','metrictonne','tone','tn'];
 const isMT=u=>MT_ALIASES.includes(normUnit(u));
 const bagKg=()=>{const v=num((S.config||{}).bagKg);return v>0?v:50};
 const isCement=l=>/cement/i.test(String(l.desc||'')+' '+String(l.cat||l.category||''))&&!/(pipe|board|sheet|block|paint|primer)/i.test(String(l.desc||''));
@@ -20,7 +20,7 @@ const isCement=l=>/cement/i.test(String(l.desc||'')+' '+String(l.cat||l.category
 function convRule(l){const u=normUnit(l.dUnit||l.unit);if(!u||isMT(u)) return null;
   const it=D.itemMap&&D.itemMap[slug(l.desc||'')];
   if(it&&String(it.billUnit||'').trim()&&num(it.billPer)>0&&normUnit(it.unit)===u) return {bu:String(it.billUnit).trim(),bf:num(it.billPer),why:'catalogue'};
-  if(u==='kg'||u==='kilogram'||u==='kgs') return {bu:'MT',bf:1000,why:'1 MT = 1000 kg'};
+  if(u==='kg') return {bu:'MT',bf:1000,why:'1 MT = 1000 kg'};
   if(u==='quintal'||u==='qtl') return {bu:'MT',bf:10,why:'1 MT = 10 quintal'};
   if(u==='bag'&&isCement(l)){const kg=it&&num(it.bagKg)>0?num(it.bagKg):bagKg();return {bu:'MT',bf:Math.round(1000/kg*1e6)/1e6,why:`bag of ${fq(kg)} kg · 1 MT = ${fq(1000/kg)} bags`}}
   return null}
@@ -55,9 +55,10 @@ function itemBillFields(d){return `<div class="f"><label for="f-modal-d-billUnit
 
 // ---- earlier rates: tolerant matching (spelling, size written differently, unit) ----
 const UNIT_ALIAS={no:'nos',nos:'nos',number:'nos',pc:'nos',piece:'nos',cum:'cum',m3:'cum','cu m':'cum',cmt:'cum',sqm:'sqm',m2:'sqm','sq m':'sqm',rmt:'rmt',mtr:'rmt',meter:'rmt',metre:'rmt',rm:'rmt',ltr:'ltr',litre:'ltr',liter:'ltr'};
-function kgPer(u,desc){const n=normUnit(u);if(n==='kg'||n==='kilogram') return 1;if(isMT(n)) return 1000;if(n==='quintal'||n==='qtl') return 100;if(n==='bag'&&/cement/i.test(desc||'')) return bagKg();return 0}
+function kgPer(u,desc){const n=normUnit(u);if(n==='kg') return 1;if(n==='g') return 0.001;if(isMT(n)) return 1000;if(n==='quintal'||n==='qtl') return 100;if(n==='bag'&&/cement/i.test(desc||'')) return bagKg();return 0}
 // multiply a rate per `from` by this to get the rate per `to` (0 = not convertible)
 function unitConv(from,to,desc){const a=normUnit(from),b=normUnit(to);if(a===b||(UNIT_ALIAS[a]&&UNIT_ALIAS[a]===UNIT_ALIAS[b])||(isMT(a)&&isMT(b))) return 1;const kf=kgPer(from,desc),kt=kgPer(to,desc);return kf>0&&kt>0?kt/kf:0}
+const prettyUnit=u=>({mt:'MT',kg:'Kg',quintal:'Quintal',bag:'Bag',g:'g',no:'Nos',nos:'Nos'})[normUnit(u)]||u;
 const looseDesc=s=>String(s||'').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(w=>w.length>3&&/[^s]s$/.test(w)?w.slice(0,-1):w).join(' ');
 const specToks=s=>new Set(String(s||'').toLowerCase().replace(/(\d)\s+(mm|cm|m|mtr|inch|in|kg|kgs|mt|ft|sqmm|grade)\b/g,'$1$2').replace(/(\d+(?:\.\d+)?)\s*(?:mm|cm|inch|ft|sqmm|kg|kgs)?\s*(dia|diameter|thick|thk)\b/g,'$1').split(/[^a-z0-9.]+/).filter(t=>t&&!['of','and','the','x','with','grade','gr','size','dia'].includes(t)));
 // same item name: equal, or same first word and one name's words all in the other ("tmt" ~ "tmt steel bar"; "pipe" !~ "gi pipe")
@@ -68,7 +69,8 @@ function specCompat(a,b){if(!a.size&&!b.size) return true;let n=0;for(const t of
 rateMatches=function(k){const [d,s,u]=String(k).split('|');const idx=rateIndex();const want=looseDesc(d),st=specToks(s);const out=[];
   for(const [kk,arr] of Object.entries(idx)){const [d2,s2,u2]=kk.split('|');if(kk!==k){if(!descCompat(want,looseDesc(d2))||!specCompat(st,specToks(s2))) continue}
     const f=kk===k?1:unitConv(u2,u,d+' '+d2);if(!(f>0)) continue;
-    for(const x of arr) out.push(kk===k?x:Object.assign({},x,{rate:Math.round(x.rate*f*100)/100,origRate:x.rate,similar:true,simDesc:d2,simSpec:s2,simUnit:u2,wantUnit:u}))}
+    const sameItem=looseDesc(d2)===want&&[...specToks(s2)].sort().join(' ')===[...st].sort().join(' ');const otherUnit=normUnit(u2)!==normUnit(u);
+    for(const x of arr) out.push(kk===k?x:Object.assign({},x,{rate:Math.round(x.rate*f*10000)/10000,origRate:x.rate,similar:!sameItem,converted:otherUnit,simDesc:d2,simSpec:s2,simUnit:prettyUnit(u2),wantUnit:u}))}
   return out.sort((a,b)=>b.at-a.at)};
 
 // ---- receiving in the vendor's unit: the PO stays in the demand unit; a vendor billing in MT is converted ----
