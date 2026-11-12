@@ -256,7 +256,7 @@ A.mailRfqAll=async()=>{const r=rfqOf();if(!mailOk()){toast('Set up email in Sett
 A.enterQuote=d=>{const r=rfqOf();const v=vend(d.v)||{};const q=(r.quotes||{})[d.v];
   const dq=q?JSON.parse(JSON.stringify(Object.assign({files:[]},q))):{rates:{},gst:18,freight:0,deliveryDays:'',payment:v.payment||'',validity:'30 days',remarks:'',files:[],charges:[],roundAuto:false,roundOff:0};dq.charges=(dq.charges||[]).map(c=>Object.assign({},c,{amt:String(c.amt),gst:String(c.gst??'')}));dq.roMode=roMode(dq);
   const gr=dq.gstRates||{};dq.gstRates={};for(const l of r.lines){const g=gr[l.key]!=null&&gr[l.key]!==''?gr[l.key]:(q?dq.gst:(itemGst(l.desc)??dq.gst));dq.gstRates[l.key]=String(g)}
-  if(dq.inclGst&&dq.ratesIncl) dq.rates=Object.assign({},dq.rates,dq.ratesIncl);
+  if(dq.inclGst&&dq.ratesIncl) dq.rates=Object.assign({},dq.rates,dq.ratesIncl);if(dq.ratesEntered) dq.rates=Object.assign({},dq.rates,dq.ratesEntered);dq.rateUnit=dq.rateUnit||{};
   openModal({type:'quote',rfqId:r.id,vid:d.v,d:dq})};
 A.gstAll=()=>{const m=ui.modal;const g=String(m.d.gst??'').trim();if(g===''||!(num(g)>=0&&num(g)<=100)){toast('Enter a GST % between 0 and 100 first.','err');return}const r=S.rfqs.find(x=>x.id===m.rfqId);for(const l of r.lines) m.d.gstRates[l.key]=g;render()};
 A.pasteRates=()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const clean=x=>num(String(x||'').replace(/[₹%,\s]|rs\.?/gi,''));
@@ -265,10 +265,14 @@ A.pasteRates=()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const 
     if(rate>0){m.d.rates[l.key]=String(rate);n++}if(g!=null){m.d.gstRates[l.key]=String(g);ng++}});m.aiMsg=`Filled ${n} of ${r.lines.length} rates${ng?` and ${ng} GST rates`:''}. Check them before saving.`;m.aiOpen=true;render()};
 A.saveQuote=async()=>{const m=ui.modal;const r=S.rfqs.find(x=>x.id===m.rfqId);const q=m.d;const rates={},gstRates={},ratesIncl={};for(const l of r.lines){const v=num(q.rates[l.key]);if(v>0){const gs=String(q.gstRates[l.key]??'').trim();const g=gs===''?num(q.gst):num(gs);if(!(g>=0&&g<=100)||isNaN(g)){toast(`GST % for ${l.desc} must be between 0 and 100.`,'err');return}gstRates[l.key]=g;
     // GST-inclusive quote: keep the vendor's rate and store the rate before GST, which the comparative and PO use
-    if(q.inclGst){ratesIncl[l.key]=v;rates[l.key]=Math.round(v/(1+g/100)*10000)/10000}else rates[l.key]=v}}
+    if(q.inclGst){ratesIncl[l.key]=v;rates[l.key]=Math.round(v/(1+g/100)*10000)/10000}else rates[l.key]=v;
+    // rate quoted per another unit (e.g. per kg for a line in MT): converted to the line's unit
+    const ru=(q.rateUnit||{})[l.key];if(ru&&ru!==l.unit){const f=unitConv(ru,l.unit,(l.desc||'')+' '+(l.cat||''));if(f>0){rates[l.key]=Math.round(rates[l.key]*f*10000)/10000;if(q.inclGst) ratesIncl[l.key]=Math.round(v*f*10000)/10000}}}}
+  const bad=r.lines.filter(l=>rates[l.key]&&rateUnitFix(l.desc,l.cat,l.unit,rates[l.key]));
+  if(bad.length&&!m.unitOk){m.unitOk=true;toast(`${bad.map(l=>l.desc+' ₹'+fq(rates[l.key])+' per '+l.unit).join(', ')} looks like a rate per ${rateUnitFix(bad[0].desc,bad[0].cat,bad[0].unit,rates[bad[0].key]).as}. Choose "Rate per" on the line, or tap Save again to keep it.`,'err');return}
   if(!Object.keys(rates).length){toast('Enter at least one rate.','err');return}
   let co;try{co=chargesOut(q)}catch(e){toast(errMsg(e),'err');return}
-  const quote={rates,gstRates,...(q.inclGst?{inclGst:true,ratesIncl}:{}),gst:num(q.gst),freight:num(q.freight),charges:co.charges,roundAuto:co.roundAuto,roundOff:co.roundOff,deliveryDays:q.deliveryDays?num(q.deliveryDays):'',payment:q.payment||'',validity:q.validity||'',remarks:q.remarks||'',files:q.files||[],at:Date.now()};
+  const quote={rates,gstRates,...(q.inclGst?{inclGst:true,ratesIncl}:{}),...(q.rateUnit&&Object.values(q.rateUnit).some(Boolean)?{rateUnit:q.rateUnit,ratesEntered:Object.fromEntries(r.lines.filter(l=>num(q.rates[l.key])>0).map(l=>[l.key,num(q.rates[l.key])]))}:{}),gst:num(q.gst),freight:num(q.freight),charges:co.charges,roundAuto:co.roundAuto,roundOff:co.roundOff,deliveryDays:q.deliveryDays?num(q.deliveryDays):'',payment:q.payment||'',validity:q.validity||'',remarks:q.remarks||'',files:q.files||[],at:Date.now()};
   const hsn={};for(const k in rates) if(q.hsn&&String(q.hsn[k]||'').trim()) hsn[k]=String(q.hsn[k]).trim();if(Object.keys(hsn).length) quote.hsn=hsn;
   if(m.mailId) quote.fromMail=m.mailId;
   if(await run(async()=>{await updDoc('rfqs',r.id,{quotes:Object.assign({},r.quotes||{},{[m.vid]:quote}),status:r.status==='draft'?'sent':r.status});if(m.mailId) await updDoc('mailquotes',m.mailId,{status:'accepted',decidedAt:Date.now(),decidedBy:ui.uid||null})},m.mailId?'Quotation from email accepted into the comparative':'Quotation saved')) closeModal()};

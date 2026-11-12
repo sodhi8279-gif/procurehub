@@ -118,3 +118,20 @@ A.ucSave=async()=>{const m=ui.modal;const r=(D.site[m.p]||{})[m.k];if(!r) return
   const out=qtyConv(q,r.unit,d.to,lDesc(r));const conv=newId();const note=`Unit conversion: ${fq(q)} ${r.unit} → ${fq(out)} ${d.to}`;
   const base={type:'adjust',projectId:m.p,storeId:d.storeId||'main',desc:r.desc,spec:r.spec,cat:r.cat,date:today(),reason:String(d.reason||'').trim()||'Unit conversion',remarks:note,convId:conv,at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''};
   if(await run(async()=>{await setDoc('sitelog',newId(),Object.assign({},base,{itemKey:r.itemKey,unit:r.unit,qty:-q}));await setDoc('sitelog',newId(),Object.assign({},base,{itemKey:itemKey(r.desc,r.spec,d.to),unit:d.to,qty:out}))},note+'. Site stock updated.')) closeModal()};
+
+// ---- a rate that is impossible for its unit (TMT at ₹52.9 per MT is a per-kg rate) ----
+const STEEL_RE=/\b(tmt|steel|saria|sariya|rebar|bar|bars|rod|rods|angle|channel|beam|joist|girder|plate|chequered|flat|binding wire|structural|ismb|ismc|isa)\b/i;
+// returns {rate, as} when `rate` per `unit` looks like a rate per another unit; else null
+function rateUnitFix(desc,cat,unit,rate){const t=String(desc||'')+' '+String(cat||'');rate=num(rate);if(!(rate>0)) return null;const n=normUnit(unit);
+  if(isCement({desc,cat})){const kg=bagKg();if(isMT(n)&&rate<1500) return {rate:Math.round(rate*1000/kg*100)/100,as:'Bag'};if(n==='bag'&&rate>1500) return {rate:Math.round(rate*kg/1000*100)/100,as:'MT'};return null}
+  if(!STEEL_RE.test(t)&&!/steel/i.test(String(cat||''))) return null;
+  if(isMT(n)&&rate<2000) return {rate:Math.round(rate*1000*100)/100,as:'Kg'};
+  if(n==='kg'&&rate>2000) return {rate:Math.round(rate/1000*10000)/10000,as:'MT'};
+  if((n==='quintal')&&(rate<200||rate>20000)) return rate<200?{rate:rate*100,as:'Kg'}:{rate:rate/10,as:'MT'};
+  return null}
+
+function quoteUnitCell(l,q){const alts=altUnits(l);const ru=(q.rateUnit||{})[l.key]||l.unit;const v=num(q.rates[l.key]);let h='';
+  if(alts.length) h+=`<label class="vu small muted">Rate per <select class="inp sm auto" data-bind="modal.d.rateUnit.${l.key}">${[l.unit,...alts].map(u=>`<option value="${esc(u)}" ${u===ru?'selected':''}>${esc(u)}</option>`).join('')}</select></label>`;
+  if(v>0&&ru!==l.unit){const f=unitConv(ru,l.unit,(l.desc||'')+' '+(l.cat||''));if(f>0) h+=`<small class="block vu-hint">₹${fq(v)} per ${esc(ru)} = <b>₹${fq(Math.round(v*f*100)/100)} per ${esc(l.unit)}</b></small>`}
+  else if(v>0){const fx=rateUnitFix(l.desc,l.cat,l.unit,v);if(fx) h+=`<small class="block t-red">₹${fq(v)} per ${esc(l.unit)} looks like a rate per ${esc(fx.as)} — choose Rate per: ${esc(fx.as)}</small>`}
+  return h}

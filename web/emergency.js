@@ -119,6 +119,7 @@ A.emgSave=async()=>{const m=ui.modal;const d=m.d;
     const spec=String(l.spec||'').trim(),unit=l.unit||'Nos';const it=D.itemMap[slug(desc)];
     lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:''})}
   if(!lines.length){toast('Add the items bought.','err');return}
+  {const bad=lines.filter(l=>rateUnitFix(l.desc,l.category,l.unit,l.rate));if(bad.length&&!m.unitOk){m.unitOk=true;const f=rateUnitFix(bad[0].desc,bad[0].category,bad[0].unit,bad[0].rate);toast(`${bad[0].desc}: ₹${fq(bad[0].rate)} per ${bad[0].unit} looks like a rate per ${f.as} (about ₹${fq(f.rate)} per ${bad[0].unit}). Correct the rate or unit, or tap Save again to keep it.`,'err');return}}
   let co;try{co=chargesOut(d)}catch(e){toast(errMsg(e),'err');return}
   const dd=String(d.deliveryDays).trim()===''?null:num(d.deliveryDays);
   const body=Object.assign({projectId:d.projectId,vendorId:d.vendorId,date:d.date||today(),requestedBy:d.requestedBy,reason:d.reason,quoteRef:d.quoteRef,quoteDate:d.quoteDate,files:d.files||[],
