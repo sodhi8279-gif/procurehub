@@ -53,7 +53,7 @@ func rfqEstimateGuard(u *User, ex, patch, nd map[string]any) error {
 			if !canAny(u, "compare_approve", "demands_approve") {
 				return errors.New("Only the approver can approve the estimate.")
 			}
-			if str(ex, "createdBy") == u.ID {
+			if str(ex, "createdBy") == u.ID && !isAdmin(u) {
 				return errors.New("You made this RFQ, so another person must approve its estimate.")
 			}
 			if cur != "pending" {
