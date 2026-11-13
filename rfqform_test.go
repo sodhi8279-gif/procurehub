@@ -134,3 +134,30 @@ func TestBodyFormMail(t *testing.T) {
 		t.Errorf("rates %v", rates)
 	}
 }
+
+func TestOwnAddressAndLog(t *testing.T) {
+	dir := t.TempDir()
+	dataDir, dbPath, filesDir = dir, filepath.Join(dir, "db.json"), filepath.Join(dir, "files")
+	os.MkdirAll(filesDir, 0755)
+	st = &State{Cols: map[string]map[string]*Doc{}}
+	st.SMTP.From = "purchase@rgsinfra.in"
+	mailLog = nil
+	st.Cols["vendors"] = map[string]*Doc{"v1": {Data: map[string]any{"name": "Test Vendor", "email": "icspljmu@gmail.com"}}}
+	st.Cols["rfqs"] = map[string]*Doc{"r1": {Data: formRFQ()}}
+	hdr := func(from, id string) string {
+		return "From: " + from + "\r\nTo: purchase@rgsinfra.in\r\nSubject: Re: RFQ RFQ/26-27/0055\r\nMessage-ID: <" + id + "@x>\r\nDate: Fri, 13 Nov 2026 10:00:00 +0530\r\nContent-Type: text/plain\r\n\r\n"
+	}
+	// own address, plain reply: not taken, explained
+	processMail([]byte(hdr("purchase@rgsinfra.in", "o1")+"ok noted"), MailInConf{})
+	// own address, filled form (testing): taken for the vendor in the form
+	filled := fill(rfqFormText(formRFQ(), "v1"), "53100", "18")
+	ok, _ := processMail([]byte(hdr("purchase@rgsinfra.in", "o2")+strings.ReplaceAll(filled, "\n", "\r\n")), MailInConf{})
+	// unknown sender, no RFQ no
+	processMail([]byte(strings.Replace(hdr("x@other.com", "o3"), "Re: RFQ RFQ/26-27/0055", "hello", 1)+"hi"), MailInConf{})
+	for _, e := range mailLog {
+		t.Logf("taken=%v %s | %s", e.Taken, e.From, e.Result)
+	}
+	if !ok || len(mailLog) != 3 || mailLog[2].Taken || !mailLog[1].Taken {
+		t.Fatalf("ok=%v log=%v", ok, mailLog)
+	}
+}

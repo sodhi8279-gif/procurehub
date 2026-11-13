@@ -693,6 +693,27 @@ type rfqSnap struct {
 }
 
 // processMail takes up one message; returns true when it was a quotation.
+// mailLog: what the reader did with the last mails it looked at, so a
+// missing reply can be explained in Settings.
+type mailLogEntry struct {
+	At      int64  `json:"at"`
+	From    string `json:"from"`
+	Subject string `json:"subject"`
+	Result  string `json:"result"`
+	Taken   bool   `json:"taken"`
+}
+
+var mailLog []mailLogEntry
+
+func logMail(m *inMail, taken bool, result string) {
+	mu.Lock()
+	mailLog = append([]mailLogEntry{{time.Now().UnixMilli(), m.From, clip(m.Subject, 160), result, taken}}, mailLog...)
+	if len(mailLog) > 40 {
+		mailLog = mailLog[:40]
+	}
+	mu.Unlock()
+}
+
 func processMail(raw []byte, conf MailInConf) (bool, error) {
 	m, err := parseMail(raw)
 	if err != nil {
@@ -725,7 +746,11 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 		rfqs = append(rfqs, rfqSnap{x.ID, str(x.D, "no"), str(x.D, "status"), vs, subList(x.D, "lines")})
 	}
 	mu.Unlock()
-	if msgSeen || m.From == "" || m.From == self {
+	if msgSeen || m.From == "" {
+		return false, nil
+	}
+	if m.From == self && !formHasRates(m.Text) { // our own mails (copies of RFQs and POs)
+		logMail(m, false, "Not taken: sent from the company's own address ("+self+"). Vendors' replies are taken; to test, reply from another email address, or fill the rates in the quick-reply form.")
 		return false, nil
 	}
 	var names []string
@@ -791,6 +816,7 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 		}
 	}
 	if rfqNo == "" && vendorID == "" {
+		logMail(m, false, "Not taken: "+m.From+" is not a vendor's email in Vendors, and the mail has no RFQ number. Add this address to the vendor (Vendors → Edit → email; several can be separated by commas).")
 		return false, nil // not from a vendor and not about our RFQs
 	}
 	useful := false
@@ -803,6 +829,7 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 		// not a quotation (e.g. "we will send the quote tomorrow", dispatch details, a query):
 		// kept in the vendor's inbox as correspondence
 		if vendorID == "" {
+			logMail(m, false, "Not taken: no quotation in it, and "+m.From+" is not a vendor's email in Vendors.")
 			return false, nil
 		}
 		var files []any
@@ -820,6 +847,7 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 		notifyLocked()
 		mu.Unlock()
 		log.Printf("Vendor mail kept: %s (%s) %q", m.From, vendorName, m.Subject)
+		logMail(m, true, "Kept in "+vendorName+"'s inbox as correspondence (no rates found in it).")
 		return true, nil
 	}
 	var rfq *rfqSnap
@@ -900,6 +928,11 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 	notifyLocked()
 	mu.Unlock()
 	log.Printf("Quotation read from email: %s (%s) %s", m.From, str(doc, "rfqNo"), str(doc, "status"))
+	if str(doc, "status") == "review" {
+		logMail(m, true, "Quotation for "+str(doc, "rfqNo")+" from "+str(doc, "vendorName")+" — in Quotations / the vendor's inbox, to check and compare.")
+	} else {
+		logMail(m, true, "Quotation kept, but the RFQ or vendor could not be matched — open Vendors → Mail inbox and use Match to RFQ.")
+	}
 	return true, nil
 }
 
@@ -982,6 +1015,9 @@ func checkMailInner() (int, error) {
 			}
 			if m, err := mail.ReadMessage(bytes.NewReader(raw)); err == nil {
 				if d, err := m.Header.Date(); err == nil && d.Before(since) {
+					if pm, err := parseMail(raw); err == nil {
+						logMail(pm, false, "Not taken: dated "+d.Format("2 Jan 15:04")+", before email reading was switched on ("+since.Format("2 Jan 15:04")+"). Ask the vendor to send it again.")
+					}
 					goto next
 				}
 			}
@@ -1043,7 +1079,7 @@ func mailInPublic() map[string]any {
 	return map[string]any{"enabled": c.Enabled, "host": c.Host, "port": c.Port, "user": c.User, "hasPass": c.Pass != "",
 		"effHost": host, "effPort": port, "effUser": user, "ready": host != "" && user != "" && pass != "",
 		"every": every, "hasAIKey": c.AIKey != "", "aiModel": firstNonEmpty(c.AIModel, defaultAIModel), "aiDaily": lim, "aiUsed": used,
-		"since": c.Since, "lastCheck": c.LastCheck, "lastError": c.LastError, "lastFound": c.LastFound}
+		"since": c.Since, "lastCheck": c.LastCheck, "lastError": c.LastError, "lastFound": c.LastFound, "log": append([]mailLogEntry{}, mailLog...)}
 }
 
 func hMailIn(w http.ResponseWriter, r *http.Request, u *User) {

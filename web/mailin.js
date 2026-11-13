@@ -48,6 +48,7 @@ function mailInCard(){if(!can('settings')) return '';const s=ui.mailin;if(!s){lo
    <div class="fields">${field('API key','draft.mailin.aiKey',d.aiKey,`type="password" autocomplete="off" placeholder="${s.hasAIKey?'Saved — leave blank to keep':'sk-ant-…'}"`)}${field('AI readings per day (limit)','draft.mailin.aiDaily',d.aiDaily,'inputmode="numeric"')}${field('Model','draft.mailin.aiModel',d.aiModel,'placeholder="claude-sonnet-5-5"')}</div>
    ${s.hasAIKey?`<label class="check"><input type="checkbox" id="f-draft-mailin-clearAI" data-bind="draft.mailin.clearAI" ${d.clearAI?'checked':''}> Remove the saved API key (stop AI reading)</label>`:''}
    <div class="small ${s.lastError?'t-red':'muted'}">${s.lastCheck?`Last check ${fdt(s.lastCheck)}: ${s.lastError?esc(s.lastError):`${s.lastFound} new quotation${s.lastFound===1?'':'s'}`}.`:'Not checked yet.'}${s.hasAIKey?` AI readings today: ${s.aiUsed} of ${s.aiDaily}.`:''}</div>
+   ${mailLogList(s)}
    <div class="row end"><button class="btn" data-act="mailCheck" ${ui.busy||!s.enabled?'disabled':''}>Check mail now</button><button class="btn primary" data-act="saveMailIn" ${ui.busy?'disabled':''}>Save</button></div></div></section>`}
 
 /* ---------- modal: match an email to RFQ and vendor ---------- */
@@ -94,3 +95,7 @@ function mqQuoteBanner(m){if(!m.mailId) return '';const x=S.mailquotes.find(y=>y
    Compare every rate with the original before saving${x.method==='ai'?' — AI can misread a figure':''}. ${old?'<b>This replaces the quotation already entered for this vendor.</b>':''}
    ${(x.warnings||[]).length?`<ul class="mq-warn">${x.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}${nl?`<ul class="mq-warn">${nl}</ul>`:''}</span></div>
    <div class="mq-orig"><span class="small muted">Original from the vendor:</span>${photoStrip(x.files)||'<span class="small muted">no attachment (rates were in the mail text)</span>'}${x.body?`<details><summary class="small">Mail text</summary><pre class="mail-body">${esc(x.body.slice(0,4000))}</pre></details>`:''}</div>`}
+
+// what the reader did with the latest mails (since ProcureHub started) — explains a missing reply
+function mailLogList(s){const l=(s&&s.log)||[];if(!l.length) return s&&s.enabled?'<p class="small muted">Mails looked at since ProcureHub was started will be listed here, with what was done with each.</p>':'';
+  return `<div class="f"><label>Latest mails looked at</label><div class="list mail-log">${l.slice(0,15).map(e=>`<div class="li"><span class="n-ic ${e.taken?'green':'amber'}">${icon(e.taken?'check':'alert')}</span><div class="grow"><b class="small">${esc(e.subject||'(no subject)')}</b><small class="muted">${esc(e.from)} · ${fdt(e.at)}</small><small class="${e.taken?'':'t-amber'}">${esc(e.result)}</small></div></div>`).join('')}</div></div>`}
