@@ -106,10 +106,11 @@ const mailNew=x=>!mailSeen.has(x.id)&&(x.at||0)>Date.now()-30*864e5;
 const MAIL_ST={review:['Quotation · to check','blue'],unmatched:['Quotation · needs matching','amber'],accepted:['Quotation · in comparative','green'],aside:['Set aside','plain'],info:['Mail','plain']};
 function vendorInbox(v){const xs=vendorMails(v);if(!xs.length) return `<div class="empty sm"><p>No emails from ${esc(v.name)} yet. ${v.email?`Mail from <b>${esc(v.email)}</b> (or the same company domain) is collected here automatically.`:'Add the vendor\'s email in Vendors so their mail is collected here.'}</p></div>`;
   setTimeout(()=>markMailSeen(xs.map(x=>x.id)),1500);
-  return `<p class="small muted">Every email from ${esc(v.name)} that reached the company mailbox: quotations (read automatically, then checked and accepted into the comparative) and other correspondence.</p><div class="list mailbox">${xs.map(x=>{const st=MAIL_ST[x.status]||['Mail','plain'];const rates=x.quote&&x.quote.rates?Object.keys(x.quote.rates).length:0;const isQ=x.status!=='info';
+  return `<p class="small muted">Every email from ${esc(v.name)} that reached the company mailbox: quotations (read automatically, then checked and accepted into the comparative) and other correspondence.</p>${mailRows(xs,false)}`}
+function mailRows(xs,showVendor){return `<div class="list mailbox">${xs.map(x=>{const st=MAIL_ST[x.status]||['Mail','plain'];const rates=x.quote&&x.quote.rates?Object.keys(x.quote.rates).length:0;const isQ=x.status!=='info';
     return `<div class="li mail-row ${mailNew(x)?'unread':''}"><span class="n-ic ${st[1]==='plain'?'':st[1]}">${icon(isQ?'quote':'mail')}</span><div class="grow">
       <button class="linkish mail-subj" data-act="mailView" data-id="${x.id}"><b>${esc(x.subject||'(no subject)')}</b></button>${mailNew(x)?' <span class="chip blue xs">new</span>':''}
-      <small>${esc(x.fromName?x.fromName+' <'+x.from+'>':x.from)} · ${fdt(x.received)}</small>
+      <small>${showVendor?(x.vendorId?`<button class="linkish" data-act="openVendor" data-id="${esc(x.vendorId)}"><b>${esc(x.vendorName||'')}</b></button> · `:'<span class="chip amber xs">vendor not known</span> '):''}${esc(x.fromName?x.fromName+' <'+x.from+'>':x.from)} · ${fdt(x.received)}</small>
       <small><span class="chip ${st[1]} plain">${st[0]}</span>${x.rfqNo?` <button class="linkish docno" data-act="openRfq" data-id="${esc(x.rfqId||'')}">${esc(x.rfqNo)}</button>`:''}${x.status==='review'?` · ${rates} rate${rates===1?'':'s'} read`:''}${(x.fileNames||[]).length?` · ${icon('doc','xs')} ${x.fileNames.length} attachment${x.fileNames.length===1?'':'s'}`:''}</small>
       <small class="muted mail-snip">${esc(String(x.body||'').replace(/\s+/g,' ').slice(0,160))}</small>${photoStrip(x.files)}</div>
       <div class="row tight">${x.status==='review'&&can('quotes_enter')?`<button class="btn sm primary" data-act="mqReview" data-id="${x.id}">Check &amp; compare</button>`:''}${x.status==='unmatched'&&can('quotes_enter')?`<button class="btn sm primary" data-act="mqAssign" data-id="${x.id}">Match to RFQ</button>`:''}${x.status==='accepted'&&x.rfqId?`<button class="btn sm" data-act="openRfq" data-id="${esc(x.rfqId)}">Open comparative</button>`:''}<button class="btn sm ghost" data-act="mailView" data-id="${x.id}">Read</button></div></div>`}).join('')}</div>`}
@@ -143,3 +144,14 @@ A.mqPopRfq=d=>{const x=S.mailquotes.find(y=>y.id===d.id);mqPopList=mqPopList.fil
 setTimeout(()=>{if(S.mailquotes) for(const x of S.mailquotes) mqPopShown.add(x.id)},2500);
 setInterval(mqPopCheck,4000);
 A.openVendorInbox=d=>{ui.f.vt='inbox';go('vendor',d.id)};
+
+// ---- all vendor mail in one place (Vendors → Mail inbox) ----
+function allMailInbox(){const f=ui.f.vmf||'all';let xs=S.mailquotes.slice().sort((a,b)=>(b.received||0)-(a.received||0));
+  const n={all:xs.length,new:xs.filter(mailNew).length,q:xs.filter(x=>x.status==='review'||x.status==='unmatched').length};
+  if(f==='new') xs=xs.filter(mailNew);else if(f==='q') xs=xs.filter(x=>x.status==='review'||x.status==='unmatched');
+  const off=!ui.mailinOn&&!S.mailquotes.length;
+  setTimeout(()=>markMailSeen(xs.slice(0,60).map(x=>x.id)),2500);
+  return `<section class="card"><div class="card-h"><h3>${icon('mail')} Mail inbox — all vendors</h3><span class="spacer"></span>${seg('vmf',[['all',`All ${n.all}`],['new',`New ${n.new}`],['q',`Quotations to check ${n.q}`]],f)}</div>
+  ${off?`<div class="notice">${icon('alert')}<span>Vendor mail is collected only when <b>Settings → Read quotations from email</b> is switched on with the company mailbox details.${can('settings')?` <button class="link" data-act="go" data-v="settings">Open Settings</button>`:''}</span></div>`:''}
+  ${xs.length?mailRows(xs.slice(0,200),true):`<div class="empty sm"><p>${f==='all'?'No vendor emails yet. Emails from a vendor\'s address (or the same company domain) appear here and on the vendor\'s page.':'Nothing here.'}</p></div>`}</section>`}
+A.vendMail=d=>{ui.f.vmail=d.on==='1';render()};
