@@ -246,11 +246,11 @@ A.copyRfq=async d=>{const r=rfqOf();const v=vend(d.v);const t=rfqText(r,v);try{a
 const sendMail=(to,subject,html,text,extra)=>api('/api/mail',Object.assign({to:[to],subject,html,text},extra||{}));
 A.mailRfq=async d=>{const r=rfqOf();const v=vend(d.v);if(!v||!v.email){toast('Add an email for this vendor first.','err');return}
   if(!mailOk()){toast('Set up email in Settings first, or use WhatsApp / Copy.','err');return}
-  await run(async()=>{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v),{rfqSheet:{rfq:r.id,vendor:v.id}});await logSend(r,d.v,'Email')},'RFQ emailed to '+v.name)};
+  await run(async()=>{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v,true),{rfqSheet:{rfq:r.id,vendor:v.id}});await logSend(r,d.v,'Email')},'RFQ emailed to '+v.name)};
 A.mailRfqAll=async()=>{const r=rfqOf();if(!mailOk()){toast('Set up email in Settings first, or use WhatsApp / Copy.','err');return}
   const vs=(r.vendorIds||[]).map(vend).filter(v=>v&&v.email);if(!vs.length){toast('None of these vendors has an email address.','err');return}
   ui.busy=true;render();let ok=0;const log=[...(r.sentLog||[])];
-  for(const v of vs){try{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v),{rfqSheet:{rfq:r.id,vendor:v.id}});ok++;log.push({vendorId:v.id,via:'Email',at:Date.now()})}catch(e){toast(v.name+': '+errMsg(e),'err');break}}
+  for(const v of vs){try{await sendMail(v.email,`RFQ ${r.no} – ${company()} – quote by ${fd(r.dueDate)}`,rfqHtml(r,v),rfqText(r,v,true),{rfqSheet:{rfq:r.id,vendor:v.id}});ok++;log.push({vendorId:v.id,via:'Email',at:Date.now()})}catch(e){toast(v.name+': '+errMsg(e),'err');break}}
   try{if(ok) await updDoc('rfqs',r.id,{sentLog:log,status:r.status==='draft'?'sent':r.status})}catch(e){}
   ui.busy=false;render();if(ok) toast(`RFQ emailed to ${ok} vendor${ok===1?'':'s'}`);const noMail=(r.vendorIds||[]).length-vs.length;if(noMail) toast(noMail+' vendor(s) have no email. Use WhatsApp for them.')};
 A.enterQuote=d=>{const r=rfqOf();const v=vend(d.v)||{};const q=(r.quotes||{})[d.v];

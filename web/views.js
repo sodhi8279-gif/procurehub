@@ -456,8 +456,8 @@ function vRfq(){
   <section class="card"><div class="card-h"><h2>Vendors</h2><span class="sub">${quoted.length} of ${vids.length} quotes received</span><div class="acts">${!locked?`<button class="btn sm primary" data-act="mailRfqAll" ${ui.busy?'disabled':''}>${icon('mail')} Email all vendors</button><button class="btn sm" data-act="addRfqVendor">${icon('plus')} Add vendor</button>`:''}</div></div><div class="list">${vrows||'<div class="empty sm"><p>No vendors on this RFQ.</p></div>'}</div></section>
   ${cs}`;
 }
-function rfqText(r,v){const c=S.config;
-  return `Request for Quotation ${r.no}
+function rfqText(r,v,form){const c=S.config;
+  return `${form?'{{RFQFORM}}\n':''}Request for Quotation ${r.no}
 From: ${company()}${c.hqAddress?', '+c.hqAddress:''}
 To: ${v?v.name:''}
 Date: ${fd(r.date)} | Quote by: ${fd(r.dueDate)}
@@ -472,10 +472,11 @@ Regards,
 ${c.contactName||'Purchase Department'}, ${company()}${c.phone?'\n'+c.phone:''}`}
 function rfqHtml(r,v){const c=S.config;const td='padding:6px 8px;border:1px solid #c9d3d6;font-size:13px';
   return `<div style="font-family:Arial,Helvetica,sans-serif;color:#0F2132;max-width:760px"><p>Dear ${esc(v?v.contact||v.name:'Sir/Madam')},</p><p>Please send your best quotation for the items below against <b>RFQ ${esc(r.no)}</b> by <b>${fd(r.dueDate)}</b>.</p>
-  <table style="border-collapse:collapse;width:100%"><thead><tr style="background:#e9eef2"><th style="${td}">#</th><th style="${td};text-align:left">Item</th><th style="${td};text-align:left">Specification</th><th style="${td};text-align:right">Qty</th><th style="${td}">Unit</th><th style="${td}">Your rate (excl. GST)</th><th style="${td}">GST %</th></tr></thead>
-  <tbody>${r.lines.map((l,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(l.desc)}</td><td style="${td}">${esc(l.spec||'')}</td><td style="${td};text-align:right">${fq(l.qty)}</td><td style="${td}">${esc(l.unit)}</td><td style="${td}"></td><td style="${td}"></td></tr>`).join('')}</tbody></table>
+  <!--RFQFORM-->
+  <table style="border-collapse:collapse;width:100%"><thead><tr style="background:#e9eef2"><th style="${td}">#</th><th style="${td};text-align:left">Item</th><th style="${td};text-align:left">Specification</th><th style="${td};text-align:right">Qty</th><th style="${td}">Unit</th></tr></thead>
+  <tbody>${r.lines.map((l,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${esc(l.desc)}</td><td style="${td}">${esc(l.spec||'')}</td><td style="${td};text-align:right">${fq(l.qty)}</td><td style="${td}">${esc(l.unit)}</td></tr>`).join('')}</tbody></table>
   <p><b>Delivery:</b> ${r.deliveryMode==='site'?'Direct to our project sites (site-wise addresses will be given with the order).':'Our central store'+(c.storeAddress?', '+esc(c.storeAddress):'')+'.'}</p>
-  <p><b>Easiest:</b> fill in the attached Excel quotation sheet (rate, GST % and HSN for each item, and the terms) and send it back by replying to this email.</p>
+  <p>Please fill the rates in the <b>quick-reply form</b> above and reply — or, if you prefer, fill the attached Excel quotation sheet and send it back.</p>
   <p>Please mention the GST % for each item, freight, delivery period, payment terms and validity of offer.${r.notes?'<br><b>Note:</b> '+esc(r.notes):''}</p><p>Regards,<br>${esc(c.contactName||'Purchase Department')}<br>${esc(company())}${c.phone?'<br>'+esc(c.phone):''}</p></div>`}
 
 /* ================= PURCHASE ORDERS ================= */

@@ -7,7 +7,7 @@
 Object.assign(ACT_PERM,{mqReview:'quotes_enter',mqAside:'quotes_enter',mqAssign:'quotes_enter',saveMqAssign:'quotes_enter',mailCheck:['quotes_enter','rfq_create','settings'],
   saveMailIn:'settings',dlRfqSheet:['rfq_create','quotes_enter']});
 
-const MQ_METHOD={excel:['Read from Excel sheet','green'],ai:['Read by AI — check carefully','violet'],manual:['Enter rates by hand','amber']};
+const MQ_METHOD={form:['Read from email form','green'],excel:['Read from Excel sheet','green'],ai:['Read by AI — check carefully','violet'],manual:['Enter rates by hand','amber']};
 const mqOpen=x=>x.status==='review'||x.status==='unmatched';
 const mqList=()=>S.mailquotes.filter(mqOpen).sort((a,b)=>(b.received||0)-(a.received||0));
 const mqCount=()=>can('quotes_enter')?S.mailquotes.filter(mqOpen).length:0;
@@ -90,7 +90,7 @@ A.dlRfqSheet=d=>{const r=rfqOf();if(r) location.href=`/api/rfqsheet?rfq=${encode
 function mqQuoteBanner(m){if(!m.mailId) return '';const x=S.mailquotes.find(y=>y.id===m.mailId);if(!x) return '';const meth=MQ_METHOD[x.method]||['',''];
   const r=S.rfqs.find(y=>y.id===m.rfqId);const notes=x.notes||{};const nl=r?r.lines.filter(l=>notes[l.key]).map(l=>`<li><b>${esc(l.desc)}</b>: ${esc(notes[l.key])}</li>`).join(''):'';
   const old=r&&(r.quotes||{})[m.vid];
-  return `<div class="notice ${x.method==='excel'?'info':'warn'} mq-banner">${icon('mail')}<span><b>Filled from the vendor's email</b> · ${esc(x.subject||'')} · ${fdt(x.received)} · <span class="chip ${meth[1]} plain">${meth[0]}</span><br>
+  return `<div class="notice ${(x.method==='excel'||x.method==='form')?'info':'warn'} mq-banner">${icon('mail')}<span><b>Filled from the vendor's email</b> · ${esc(x.subject||'')} · ${fdt(x.received)} · <span class="chip ${meth[1]} plain">${meth[0]}</span><br>
    Compare every rate with the original before saving${x.method==='ai'?' — AI can misread a figure':''}. ${old?'<b>This replaces the quotation already entered for this vendor.</b>':''}
    ${(x.warnings||[]).length?`<ul class="mq-warn">${x.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:''}${nl?`<ul class="mq-warn">${nl}</ul>`:''}</span></div>
    <div class="mq-orig"><span class="small muted">Original from the vendor:</span>${photoStrip(x.files)||'<span class="small muted">no attachment (rates were in the mail text)</span>'}${x.body?`<details><summary class="small">Mail text</summary><pre class="mail-body">${esc(x.body.slice(0,4000))}</pre></details>`:''}</div>`}

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "8.1.0"
+const appVersion = "8.2.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1736,6 +1736,9 @@ func hMail(w http.ResponseWriter, r *http.Request, u *User) {
 		atts = append(atts, mailAttachment{Name: name, Type: xlsxType, Data: data})
 	}
 	html := req.HTML
+	if req.RfqSheet.Rfq != "" { // the quotation form in the mail body: the vendor fills rates and replies
+		html, req.Text = addRFQForm(html, req.Text, req.Subject, req.RfqSheet.Rfq, req.RfqSheet.Vendor)
+	}
 	if req.PoID != "" { // a purchase order may go to the vendor only once approved
 		mu.Lock()
 		po := docData("pos", req.PoID)

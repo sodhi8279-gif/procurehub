@@ -450,6 +450,27 @@ func extractQuote(conf MailInConf, rfqNo string, lines []map[string]any, files [
 		}
 		return k
 	}
+	// 0. the quotation form in the mail body, filled in and sent back: read exactly
+	if fq := readBodyForm(body, lines); fq.Found && len(fq.Rates) > 0 {
+		res.Quote, res.Method, res.RFQNo = formToQuote(fq), "form", fq.RFQNo
+		res.Warnings = append(res.Warnings, fq.Warnings...)
+		if fq.RFQNo != "" && normRFQNo(fq.RFQNo) != normRFQNo(rfqNo) {
+			res.Warnings = append(res.Warnings, "The form in the mail is for "+fq.RFQNo+", not "+rfqNo+".")
+		}
+		quoted := 0
+		for k := range keys {
+			if _, ok := fq.Rates[k]; ok {
+				quoted++
+				if _, g := fq.GST[k]; !g {
+					res.Warnings = append(res.Warnings, nm(k)+": rate given without GST %.")
+				}
+			}
+		}
+		if quoted < len(keys) {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("Rates filled for %d of %d items in the email form; the rest were left blank (not quoted).", quoted, len(keys)))
+		}
+		return res
+	}
 	// 1. our Excel quotation sheet: read exactly
 	for _, f := range files {
 		if f.Type != xlsxType {
@@ -743,6 +764,20 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 			}
 		}
 	}
+	bodyForm := readBodyForm(m.Text, nil) // the quotation form from our RFQ mail, filled in the reply
+	if bodyForm.Found {
+		if rfqNo == "" && bodyForm.RFQNo != "" {
+			rfqNo = normRFQNo(bodyForm.RFQNo)
+		}
+		if vendorID == "" && bodyForm.VendorCode != "" {
+			for _, v := range vendors {
+				if v.ID == bodyForm.VendorCode {
+					vendorID, vendorName = v.ID, v.Name
+					warnings = append(warnings, "Sent from "+m.From+", which is not "+v.Name+"'s email in Vendors; matched by the vendor code in the email form.")
+				}
+			}
+		}
+	}
 	if vendorID == "" { // a colleague at a vendor's company (same, non-free email domain)
 		if d := domainOf(m.From); d != "" && !freeMail[d] {
 			for _, v := range vendors {
@@ -764,7 +799,7 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 			useful = true
 		}
 	}
-	if !useful && !ratesInText(m.Text) {
+	if !useful && !ratesInText(m.Text) && !formHasRates(m.Text) {
 		// not a quotation (e.g. "we will send the quote tomorrow", dispatch details, a query):
 		// kept in the vendor's inbox as correspondence
 		if vendorID == "" {
