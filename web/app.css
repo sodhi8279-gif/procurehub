@@ -890,3 +890,13 @@ table.t.hover tr.click{cursor:pointer}table.t.hover tr.click:hover td{background
 .mini-bar{display:inline-block;width:64px;height:6px;border-radius:4px;background:var(--line);overflow:hidden;vertical-align:middle;margin-right:6px}.mini-bar i{display:block;height:100%;background:var(--accent)}
 .link.vend-name{all:unset;cursor:pointer;color:inherit}.link.vend-name:hover{color:var(--accent);text-decoration:underline}
 table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
+/* vendor inbox + email pop-up */
+.mail-row.unread{background:var(--accent-soft,rgba(17,114,196,.06));border-radius:12px}.mail-row .mail-subj{all:unset;cursor:pointer}.mail-row .mail-subj:hover b{color:var(--accent);text-decoration:underline}
+.mail-snip{display:block;margin-top:2px}.mail-head{display:grid;gap:3px;margin-bottom:10px}
+.mail-body{white-space:pre-wrap;font-size:14px;line-height:1.55;background:var(--surface-2,#F6F8FA);border:1px solid var(--line);border-radius:12px;padding:14px;max-height:52vh;overflow:auto}
+#mq-pop{position:fixed;right:18px;bottom:18px;z-index:80;max-width:min(440px,calc(100vw - 24px))}
+.mq-pop-card{background:var(--surface,#fff);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 50px rgba(11,31,51,.22);padding:14px 16px;animation:mqIn .35s ease-out}
+@keyframes mqIn{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+.mq-pop-h{display:flex;gap:8px;align-items:center;margin-bottom:8px;color:var(--accent)}.mq-pop-h b{color:var(--ink);flex:1}
+.mq-x{all:unset;cursor:pointer;padding:4px;border-radius:8px;color:var(--ink-3)}.mq-x:hover{background:var(--line)}
+.mq-pop-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}

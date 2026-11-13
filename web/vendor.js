@@ -56,10 +56,11 @@ function vVendor(){const v=S.vendors.find(x=>x.id===ui.param);if(!v) return empt
     <button class="kpi" data-act="setF" data-k="vt" data-val="quotes"><span class="k">Quotations</span><span class="v">${quoted}<small class="muted"> / ${d.rfqs.length}</small></span><span class="d">quoted / invited · ${won} won</span></button>
     <button class="kpi" data-act="setF" data-k="vt" data-val="deliveries"><span class="k">On time</span><span class="v">${d.timed.length?Math.round(d.onTime/d.timed.length*100)+'%':'—'}</span><span class="d">${d.timed.length?d.onTime+' of '+d.timed.length+' receipts by the due date':'no due dates yet'}</span></button>
     ${d.rets.length?`<button class="kpi" data-act="setF" data-k="vt" data-val="returns" data-tone="red"><span class="k">Returned</span><span class="v t-red">${vals?money0(d.returned):d.rets.length}</span><span class="d">${d.rets.length} return${d.rets.length===1?'':'s'}</span></button>`:''}</div>`;
-  const tabs=`<div class="tabs vend-tabs" role="tablist">${tab('overview','Overview')}${tab('orders','Purchase orders',d.pos.length)}${tab('deliveries','Deliveries',d.rec.length+d.pend.length)}${tab('quotes','Quotations',d.rfqs.length)}${vals?tab('statement','Statement'):''}${tab('items','Items',d.items.length)}${d.rets.length?tab('returns','Returns',d.rets.length):''}${d.jw.length?tab('jobwork','Job work',d.jw.length):''}</div>`;
+  const tabs=`<div class="tabs vend-tabs" role="tablist">${tab('overview','Overview')}${tab('orders','Purchase orders',d.pos.length)}${tab('deliveries','Deliveries',d.rec.length+d.pend.length)}${tab('quotes','Quotations',d.rfqs.length)}${vals?tab('statement','Statement'):''}${tab('inbox','Inbox',vendorNewMail(v)||vendorMails(v).length)}${tab('items','Items',d.items.length)}${d.rets.length?tab('returns','Returns',d.rets.length):''}${d.jw.length?tab('jobwork','Job work',d.jw.length):''}</div>`;
   return hero+kpis+`<section class="card">${tabs}<div class="vend-body">${vendorTab(t,v,d,vals)}</div></section>`}
 
 function vendorTab(t,v,d,vals){const M=x=>vals?money0(x):'—';const none=(txt)=>`<div class="empty sm"><p>${txt}</p></div>`;
+  if(t==='inbox') return vendorInbox(v);
   const poRow=p=>{const st=poStatus(p);const pr=poProgress(p);return `<tr class="click" data-act="openPo" data-id="${p.id}"><td><b class="mono">${esc(p.no)}</b>${p.emergency?' <span class="chip red xs">emergency</span>':''}<small class="muted block">${fd(p.date)}${p.expectedDate?' · due '+fd(p.expectedDate):''}</small></td><td class="small">${esc((p.lines||[]).slice(0,3).map(l=>l.desc).join(', '))}${(p.lines||[]).length>3?' +'+((p.lines||[]).length-3):''}</td><td>${chip(st)}</td><td class="num"><span class="mini-bar"><i style="width:${Math.round(pr.pct*100)}%"></i></span><small class="muted">${Math.floor(pr.pct*1000)/10}%</small></td><td class="num mono">${M(p.status==='cancelled'?0:poTotals(p).total)}</td></tr>`};
   const recRow=x=>`<tr class="click" ${x.kind==='grn'?`data-act="printGrn" data-id="${x.id}"`:`data-act="viewDispatch" data-id="${x.id}"`}><td><b class="mono">${esc(x.no)}</b><small class="muted block">${fdt(x.at)}</small></td><td>${x.kind==='grn'?'<span class="chip plain">HQ store</span>':`<span class="chip blue plain">${esc(x.where)}</span>`}${x.po?`<small class="muted block">${esc(x.po.no)}</small>`:''}</td><td class="small">${esc(x.lines.map(l=>fq(l.qty)+' '+l.unit+' '+l.desc).slice(0,2).join(', '))}${x.lines.length>2?' +'+(x.lines.length-2):''}${x.diff?' <span class="chip amber xs">qty differs</span>':''}</td><td class="small">${x.vehicle?esc(x.vehicle)+'<br>':''}${x.challan?'Challan '+esc(x.challan):''}${x.invoice?(x.challan?' · ':'')+'Inv '+esc(x.invoice):''}</td><td class="num">${x.docs?`<span class="chip green xs">${icon('doc','xs')} ${x.docs}</span>`:'<span class="chip red xs">no bill</span>'}</td><td class="num mono">${M(x.value)}</td></tr>`;
   if(t==='orders') return d.pos.length?`<div class="tw"><table class="t hover"><thead><tr><th>PO</th><th>Items</th><th>Status</th><th class="num">Received</th><th class="num">Value incl. GST</th></tr></thead><tbody>${d.pos.map(poRow).join('')}</tbody><tfoot><tr><td colspan="4" class="num"><b>Total (not cancelled)</b></td><td class="num mono"><b>${M(d.ordered)}</b></td></tr></tfoot></table></div>`:none('No purchase orders with this vendor yet.');
@@ -95,3 +96,50 @@ A.vendStmtXlsx=x=>{const v=S.vendors.find(y=>y.id===x.id);if(!v) return;const d=
   const rc=[['Receipt','Date','Where','PO','Vehicle','Challan','Invoice','Value incl. GST']];for(const r of d.rec) rc.push([r.no,msDate(r.at),r.kind==='grn'?'HQ store':r.where,r.po?r.po.no:'',r.vehicle||'',r.challan||'',r.invoice||'',Math.round(r.value*100)/100]);
   const qt=[['RFQ','Date','Response','Quoted total']];for(const q of d.rfqs) qt.push([q.r.no,q.r.date||msDate(q.r.at),q.won?'Won':q.q?'Quoted':'No quote',q.q?Math.round(q.total*100)/100:'']);
   saveXlsx('vendor-'+slug(v.name)+'-'+today()+'.xlsx',[{name:'Statement',rows},{name:'Purchase orders',rows:po},{name:'Receipts',rows:rc},{name:'Quotations',rows:qt}])};
+
+// ---- vendor inbox: every mail from the vendor (quotations and other correspondence) ----
+function vendorMails(v){const em=new Set(String(v.email||'').toLowerCase().split(/[,; ]+/).filter(e=>e.includes('@')));
+  return S.mailquotes.filter(x=>x.vendorId===v.id||em.has(String(x.from||'').toLowerCase())).sort((a,b)=>(b.received||0)-(a.received||0))}
+let mailSeen;try{mailSeen=new Set(JSON.parse(localStorage.getItem('ph_mail_seen')||'[]'))}catch(e){mailSeen=new Set()}
+function markMailSeen(ids){let ch=false;for(const id of ids) if(!mailSeen.has(id)){mailSeen.add(id);ch=true}if(ch) try{localStorage.setItem('ph_mail_seen',JSON.stringify([...mailSeen].slice(-3000)))}catch(e){}}
+const mailNew=x=>!mailSeen.has(x.id)&&(x.at||0)>Date.now()-30*864e5;
+const MAIL_ST={review:['Quotation · to check','blue'],unmatched:['Quotation · needs matching','amber'],accepted:['Quotation · in comparative','green'],aside:['Set aside','plain'],info:['Mail','plain']};
+function vendorInbox(v){const xs=vendorMails(v);if(!xs.length) return `<div class="empty sm"><p>No emails from ${esc(v.name)} yet. ${v.email?`Mail from <b>${esc(v.email)}</b> (or the same company domain) is collected here automatically.`:'Add the vendor\'s email in Vendors so their mail is collected here.'}</p></div>`;
+  setTimeout(()=>markMailSeen(xs.map(x=>x.id)),1500);
+  return `<p class="small muted">Every email from ${esc(v.name)} that reached the company mailbox: quotations (read automatically, then checked and accepted into the comparative) and other correspondence.</p><div class="list mailbox">${xs.map(x=>{const st=MAIL_ST[x.status]||['Mail','plain'];const rates=x.quote&&x.quote.rates?Object.keys(x.quote.rates).length:0;const isQ=x.status!=='info';
+    return `<div class="li mail-row ${mailNew(x)?'unread':''}"><span class="n-ic ${st[1]==='plain'?'':st[1]}">${icon(isQ?'quote':'mail')}</span><div class="grow">
+      <button class="linkish mail-subj" data-act="mailView" data-id="${x.id}"><b>${esc(x.subject||'(no subject)')}</b></button>${mailNew(x)?' <span class="chip blue xs">new</span>':''}
+      <small>${esc(x.fromName?x.fromName+' <'+x.from+'>':x.from)} · ${fdt(x.received)}</small>
+      <small><span class="chip ${st[1]} plain">${st[0]}</span>${x.rfqNo?` <button class="linkish docno" data-act="openRfq" data-id="${esc(x.rfqId||'')}">${esc(x.rfqNo)}</button>`:''}${x.status==='review'?` · ${rates} rate${rates===1?'':'s'} read`:''}${(x.fileNames||[]).length?` · ${icon('doc','xs')} ${x.fileNames.length} attachment${x.fileNames.length===1?'':'s'}`:''}</small>
+      <small class="muted mail-snip">${esc(String(x.body||'').replace(/\s+/g,' ').slice(0,160))}</small>${photoStrip(x.files)}</div>
+      <div class="row tight">${x.status==='review'&&can('quotes_enter')?`<button class="btn sm primary" data-act="mqReview" data-id="${x.id}">Check &amp; compare</button>`:''}${x.status==='unmatched'&&can('quotes_enter')?`<button class="btn sm primary" data-act="mqAssign" data-id="${x.id}">Match to RFQ</button>`:''}${x.status==='accepted'&&x.rfqId?`<button class="btn sm" data-act="openRfq" data-id="${esc(x.rfqId)}">Open comparative</button>`:''}<button class="btn sm ghost" data-act="mailView" data-id="${x.id}">Read</button></div></div>`}).join('')}</div>`}
+A.mailView=d=>{const x=S.mailquotes.find(y=>y.id===d.id);if(!x) return;markMailSeen([x.id]);openModal({type:'mailView',id:x.id})};
+function mailViewModal(m){const x=S.mailquotes.find(y=>y.id===m.id);if(!x) return '';const st=MAIL_ST[x.status]||['Mail','plain'];
+  return wrap(esc(x.subject||'(no subject)'),`<div class="mail-head"><div><b>${esc(x.fromName||x.vendorName||'')}</b> <span class="muted">&lt;${esc(x.from)}&gt;</span></div><div class="small muted">${fdt(x.received)}${x.vendorName?' · '+esc(x.vendorName):''} · <span class="chip ${st[1]} plain">${st[0]}</span>${x.rfqNo?' · '+esc(x.rfqNo):''}</div></div>
+    ${(x.warnings||[]).length&&x.status!=='info'?`<div class="notice">${icon('alert')}<span>${(x.warnings||[]).map(esc).join('<br>')}</span></div>`:''}
+    ${(x.files||[]).length?`<div class="lbl">Attachments</div>${photoStrip(x.files)}`:(x.fileNames||[]).length?`<p class="small muted">Attachments not kept (type not supported): ${esc(x.fileNames.join(', '))}</p>`:''}
+    <div class="lbl">Message</div><div class="mail-body">${esc(x.body||'(empty)')}</div>`,
+    `${x.status==='review'&&can('quotes_enter')?`<button class="btn primary" data-act="mqReview" data-id="${x.id}">Check &amp; compare</button>`:''}${x.status==='unmatched'&&can('quotes_enter')?`<button class="btn primary" data-act="mqAssign" data-id="${x.id}">Match to RFQ</button>`:''}${x.rfqId?`<button class="btn" data-act="openRfq" data-id="${esc(x.rfqId)}">Open RFQ</button>`:''}${x.vendorId?`<button class="btn" data-act="openVendor" data-id="${x.vendorId}">Vendor page</button>`:''}<span class="spacer"></span><button class="btn" data-act="closeModal">Close</button>`,'wide')}
+{const prev=v6Modal;v6Modal=(m,busy)=>m.type==='mailView'?mailViewModal(m):prev(m,busy)}
+const vendorNewMail=v=>vendorMails(v).filter(mailNew).length;
+
+// ---- pop-up when a vendor's quotation arrives by email ----
+let mqPopShown;try{mqPopShown=new Set(JSON.parse(localStorage.getItem('ph_mq_pop')||'[]'))}catch(e){mqPopShown=new Set()}
+let mqPopList=[];const mqPopStart=Date.now();
+function mqPopCheck(){if(ui.role!=='hq'||!can('quotes_enter')||!S.mailquotes) return;
+  for(const x of S.mailquotes) if(x.status==='review'&&!mqPopShown.has(x.id)&&(x.at||0)>Date.now()-3*864e5){mqPopShown.add(x.id);if(!mqPopList.includes(x.id)) mqPopList.push(x.id)}
+  try{localStorage.setItem('ph_mq_pop',JSON.stringify([...mqPopShown].slice(-2000)))}catch(e){}
+  mqPopList=mqPopList.filter(id=>{const x=S.mailquotes.find(y=>y.id===id);return x&&x.status==='review'});
+  let el=document.getElementById('mq-pop');
+  if(!mqPopList.length){if(el) el.remove();return}
+  if(!el){el=document.createElement('div');el.id='mq-pop';document.body.appendChild(el)}
+  const xs=mqPopList.map(id=>S.mailquotes.find(y=>y.id===id)).slice(-4).reverse();
+  el.innerHTML=`<div class="mq-pop-card" role="alertdialog" aria-label="New quotation by email"><div class="mq-pop-h">${icon('mail')}<b>${xs.length>1?xs.length+' new quotations by email':'New quotation by email'}</b><button class="mq-x" data-act="mqPopClose" aria-label="Close">${icon('x')}</button></div>
+    ${xs.map(x=>{const rates=x.quote&&x.quote.rates?Object.keys(x.quote.rates).length:0;return `<div class="mq-pop-row"><div><b>${esc(x.vendorName||x.from)}</b><small class="block muted">${esc(x.rfqNo||'')} · ${rates} rate${rates===1?'':'s'} read · ${fdt(x.received)}</small></div><div class="row tight"><button class="btn sm primary" data-act="mqPopReview" data-id="${x.id}">Check &amp; compare</button>${x.rfqId?`<button class="btn sm" data-act="mqPopRfq" data-id="${x.id}">Comparative</button>`:''}</div></div>`}).join('')}</div>`}
+A.mqPopClose=()=>{mqPopList=[];mqPopCheck()};
+A.mqPopReview=d=>{mqPopList=mqPopList.filter(i=>i!==d.id);mqPopCheck();A.mqReview(d)};
+A.mqPopRfq=d=>{const x=S.mailquotes.find(y=>y.id===d.id);mqPopList=mqPopList.filter(i=>i!==d.id);mqPopCheck();if(x&&x.rfqId){ui.f.rfqTab='compare';go('rfq',x.rfqId)}};
+// first look: quotations already waiting when the page opens are listed on the dashboard, not popped up
+setTimeout(()=>{if(S.mailquotes) for(const x of S.mailquotes) mqPopShown.add(x.id)},2500);
+setInterval(mqPopCheck,4000);
+A.openVendorInbox=d=>{ui.f.vt='inbox';go('vendor',d.id)};

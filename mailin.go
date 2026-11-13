@@ -603,9 +603,21 @@ func clip(s string, n int) string {
 
 var bigNumRe = regexp.MustCompile(`\d[\d,]{2,}(\.\d+)?`)
 
+// ratesInText: the mail body itself quotes prices — a price word and a stand-alone amount
+// (vehicle numbers like HP01AB1234, phone numbers and dates alone do not count)
+var (
+	priceCueRe = regexp.MustCompile(`(?i)(\brs\.?|₹|\binr\b|\brates?\b|\bprice[sd]?\b|\bper\s+(mt|kg|bag|ton|tonne|quintal|qtl|nos?|cum|sqm|rmt|ltr|unit)\b|/-|\bquot(e|ed|ation)\b|\boffer(ed)?\b|\bbasic\b|\bex[- ]?works\b|\bfor\s+price)`)
+	amountRe   = regexp.MustCompile(`(?:^|[^A-Za-z0-9])(?:rs\.?\s*|₹\s*|inr\s*)?(?:\d{1,3}(?:,\d{2,3})+|\d{2,})(?:\.\d+)?(?:\s*/-)?(?:[^A-Za-z0-9]|$)`)
+	phoneRe    = regexp.MustCompile(`(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}`)
+)
+
 func ratesInText(t string) bool {
 	t = rfqNoRe.ReplaceAllString(t, "")
-	return len(bigNumRe.FindAllString(t, -1)) >= 1
+	t = phoneRe.ReplaceAllString(t, " ")
+	if !priceCueRe.MatchString(t) {
+		return false
+	}
+	return len(amountRe.FindAllString(t, -1)) >= 1 && len(bigNumRe.FindAllString(t, -1)) >= 1
 }
 
 // aiAllowance counts AI readings per day against the limit.
@@ -731,8 +743,20 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 			}
 		}
 	}
+	if vendorID == "" { // a colleague at a vendor's company (same, non-free email domain)
+		if d := domainOf(m.From); d != "" && !freeMail[d] {
+			for _, v := range vendors {
+				for _, e := range v.Emails {
+					if domainOf(e) == d && vendorID == "" {
+						vendorID, vendorName = v.ID, v.Name
+						warnings = append(warnings, "Sent from "+m.From+"; matched to "+v.Name+" by the email domain.")
+					}
+				}
+			}
+		}
+	}
 	if rfqNo == "" && vendorID == "" {
-		return false, nil // not a quotation for us
+		return false, nil // not from a vendor and not about our RFQs
 	}
 	useful := false
 	for _, a := range m.Atts {
@@ -741,7 +765,27 @@ func processMail(raw []byte, conf MailInConf) (bool, error) {
 		}
 	}
 	if !useful && !ratesInText(m.Text) {
-		return false, nil // e.g. "we will send the quote tomorrow"
+		// not a quotation (e.g. "we will send the quote tomorrow", dispatch details, a query):
+		// kept in the vendor's inbox as correspondence
+		if vendorID == "" {
+			return false, nil
+		}
+		var files []any
+		for _, a := range m.Atts {
+			if id, ok := storeMailFile(a); ok {
+				files = append(files, id)
+			}
+		}
+		doc := map[string]any{"from": m.From, "fromName": m.FromName, "subject": clip(m.Subject, 300), "received": m.Date.UnixMilli(), "msgId": m.MsgID,
+			"body": clip(m.Text, 20000), "files": files, "fileNames": names, "at": time.Now().UnixMilli(), "rfqNoSeen": rfqNo,
+			"status": "info", "vendorId": vendorID, "vendorName": vendorName}
+		mu.Lock()
+		putDocLocked("mailquotes", newDocID(), doc)
+		saveLocked()
+		notifyLocked()
+		mu.Unlock()
+		log.Printf("Vendor mail kept: %s (%s) %q", m.From, vendorName, m.Subject)
+		return true, nil
 	}
 	var rfq *rfqSnap
 	for i := range rfqs {
