@@ -36,7 +36,7 @@ async function loadSmtp(){if(!can('settings')&&!can('rfq_create')&&!can('po_issu
 function setPath(path,val){const p=path.split('.');let o=ui;for(let i=0;i<p.length-1;i++){if(o[p[i]]==null) o[p[i]]={};o=o[p[i]]}o[p[p.length-1]]=val}
 function getPath(path){let o=ui;for(const k of path.split('.')){if(o==null) return undefined;o=o[k]}return o}
 function openModal(m){ui.modal=m;ui.pop=null;render();setTimeout(()=>{const el=document.querySelector('#modal .modal-b input:not([type=checkbox]):not([type=radio]):not([type=file]):not([readonly]),#modal .modal-b textarea:not([readonly])');if(el&&window.innerWidth>760) el.focus({preventScroll:true})},40)}
-function closeModal(){if(ui.modal&&ui.modal.type==='photo'&&ui.modal.prev) ui.modal=ui.modal.prev;else ui.modal=null;render()}
+function closeModal(){if(ui.modal&&ui.modal.type==='photo'&&ui.modal.prev) ui.modal=ui.modal.prev;else if(ui.modal&&ui.modal.type==='headEdit'&&ui.modal.back) ui.modal=ui.modal.back;else ui.modal=null;render()}
 function confirmBox(o){openModal(Object.assign({type:'confirm'},o))}
 async function patchLines(indId,fn){const ind=S.indents.find(i=>i.id===indId);if(!ind) return;const lines=JSON.parse(JSON.stringify(ind.lines||[]));fn(lines,ind);await updDoc('indents',indId,{lines})}
 async function learn(desc,spec,unit,cat){const id=slug(desc);const base=S.catalog[id]?Object.assign({},S.catalog[id]):STD[id]?{desc:STD[id].desc,spec:STD[id].spec,unit:STD[id].unit,sizes:STD[id].sizes}:{desc:desc.trim(),spec:spec||'',unit:unit||''};delete base.id;delete base.std;
@@ -460,9 +460,10 @@ A.saveSiteLog=async()=>{const m=ui.modal,d=m.d,pid=m.projectId;const q=num(d.qty
   else{const row=(D.site[pid]||{})[d.key];if(!row){toast('Choose the item.','err');return}if(!(q>0)){toast('Enter the quantity.','err');return}
     const avail=row.bal-(row.pcons||0);if(q>avail+1e-9){toast(`Only ${fq(avail)} ${row.unit} is available${row.pcons?' ('+fq(row.pcons)+' is in consumption reports waiting for authentication)':''}.`,'err');return}
     if(d.type==='damage'&&!d.reason){toast('Choose the reason.','err');return}
+    if(d.type==='use'&&projHeads(pid).length&&!issuedToName(pid,d)){toast('Choose who the material is issued to.','err');return}
     doc={type:d.type,itemKey:row.itemKey,desc:row.desc,spec:row.spec,unit:row.unit,cat:row.cat}}
   if(d.type==='opening') doc.storeId=d.storeId||'main';
-  Object.assign(doc,{projectId:pid,qty:q,date:d.date||today(),location:d.location||'',issuedTo:(d.issuedTo||'').trim(),reason:d.reason||'',remarks:d.remarks||'',at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''});
+  Object.assign(doc,{projectId:pid,qty:q,date:d.date||today(),location:d.location||'',issuedTo:issuedToName(pid,d),headId:d.type==='use'&&d.headId&&d.headId!=='__other'?d.headId:'',reason:d.reason||'',remarks:d.remarks||'',at:Date.now(),createdBy:ui.uid,createdByName:(ui.me&&ui.me.name)||''});
   const msg={use:'Issue recorded',opening:isSK()?'Stock entry sent to the project manager for approval':'Stock added',damage:'Damage / loss recorded',return:'Return recorded. Central store stock updated.'}[d.type];
   if(await run(()=>setDoc('sitelog',newId(),doc),msg)) closeModal()};
 A.delSiteLog=d=>confirmBox({title:'Delete this entry?',body:'Site stock will be recalculated.',yes:'Delete',danger:true,onYes:async()=>{if(await run(()=>delDoc('sitelog',d.id),'Entry deleted')) closeModal()}});
@@ -706,3 +707,5 @@ document.addEventListener('change',e=>{
 document.addEventListener('submit',e=>{const f=e.target;if(f.dataset&&f.dataset.submit&&A[f.dataset.submit]){e.preventDefault();A[f.dataset.submit]()}});
 // start once every script (including the add-on files after this one) has loaded
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);else setTimeout(boot,0);
+
+function issuedToName(pid,d){if(d.headId&&d.headId!=='__other'){const h=projHeads(pid,true).find(x=>x.id===d.headId);if(h) return h.name+(h.work?' — '+h.work:'')}return (d.headId==='__other'||!projHeads(pid).length?(d.issuedTo||''):'').trim()}

@@ -172,12 +172,12 @@ A.saveStore=async()=>{const m=ui.modal,d=m.d,pid=m.pid;const name=String(d.name|
   if(ls.some(x=>x.id!==id&&norm(x.name)===norm(name))||(id!=='main'&&norm(name)===norm(storeLabel(pid,'main')))){toast('There is already a store with this name.','err');return}
   const i=ls.findIndex(x=>x.id===id);const rec={id,name,place:String(d.place||'').trim(),active:id==='main'?true:d.active!==false,at:(i>=0&&ls[i].at)||Date.now()};
   if(i>=0) ls[i]=rec;else ls.push(rec);if(await run(()=>updDoc('projects',pid,{stores:ls}),'Store saved')) closeModal()};
-A.headEdit=d=>{const pid=d.p||siteProject();const h=d.id?projHeads(pid,true).find(x=>x.id===d.id):null;openModal({type:'headEdit',pid,id:d.id||'',d:h?Object.assign({},h):{type:d.t||'contractor',name:'',work:'',contact:'',phone:'',gstin:'',note:'',active:true}})};
+A.headEdit=d=>{const pid=d.p||siteProject();const h=d.id?projHeads(pid,true).find(x=>x.id===d.id):null;const back=ui.modal&&ui.modal.type==='sitelog'?ui.modal:null;openModal({type:'headEdit',pid,id:d.id||'',back,d:h?Object.assign({},h):{type:d.t||'contractor',name:'',work:'',contact:'',phone:'',gstin:'',note:'',active:true}})};
 A.saveHead=async()=>{const m=ui.modal,d=m.d,pid=m.pid;const name=String(d.name||'').trim();if(!name){toast('Enter the name.','err');return}if(!HEAD_T[d.type]){toast('Choose the type.','err');return}
   const ls=(((proj(pid)||{}).heads)||[]).map(x=>Object.assign({},x));const id=m.id||('hd'+Date.now().toString(36));
   if(ls.some(x=>x.id!==id&&x.type===d.type&&norm(x.name)===norm(name))){toast('This name is already in the list.','err');return}
   const i=ls.findIndex(x=>x.id===id);const rec={id,type:d.type,name,work:String(d.work||'').trim(),contact:String(d.contact||'').trim(),phone:String(d.phone||'').trim(),gstin:String(d.gstin||'').trim().toUpperCase(),note:String(d.note||'').trim(),active:d.active!==false,at:(i>=0&&ls[i].at)||Date.now()};
-  if(i>=0) ls[i]=rec;else ls.push(rec);if(await run(()=>updDoc('projects',pid,{heads:ls}),'Saved')) closeModal()};
+  if(i>=0) ls[i]=rec;else ls.push(rec);if(await run(()=>updDoc('projects',pid,{heads:ls}),'Saved')){if(m.back){const b=m.back;if(!m.id) b.d.headId=id;openModal(b)}else closeModal()}};
 function storeEditModal(m,busy){const d=m.d;return wrap((m.id?'Edit store':'New store')+' · '+esc(projName(m.pid)),`<div class="fields">${field('Name of store','modal.d.name',d.name,'placeholder="e.g. Store at STP site, Pipe yard Zone 2"')}${field('Location','modal.d.place',d.place,'placeholder="e.g. Near WTP gate"')}</div>
   ${m.id&&m.id!=='main'?`<label class="check"><input type="checkbox" data-bind="modal.d.active" ${d.active!==false?'checked':''}> Store in use</label>`:''}
   <p class="small muted">Stock from before stores were added is in the main store. Give a storekeeper his stores under Settings → Users.</p>`,`<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveStore" ${busy}>Save</button>`)}
@@ -300,3 +300,13 @@ A.saveGpRet=async()=>{const m=ui.modal,d=m.d,pid=m.pid;const g=d.againstId&&S.si
   if(late.length) o.unshift({tone:'red',i:'clock',t:`${late.length} returnable gate pass${late.length>1?'es are':' is'} overdue`,s:late.slice(0,3).map(g=>gpDestText(g)+' · due '+fd(g.dueDate)).join(' · '),v:ui.role==='site'?'s_gp':'gatepasses'});
   if(soon.length) o.push({tone:'amber',i:'clock',t:`${soon.length} returnable item${soon.length>1?'s':''} due back in 2 days`,s:soon.slice(0,3).map(g=>gpDestText(g)).join(' · '),v:ui.role==='site'?'s_gp':'gatepasses'});
   return o}}
+
+/* 8.3: "Issued to" on a site issue — chosen from the site's contractors and issue heads */
+function issuedToBox(m){const d=m.d;const pid=m.projectId;const heads=typeof projHeads==='function'?projHeads(pid):[];
+  const keep=isPM()||(typeof canKeepLists==='function'&&canKeepLists(pid));
+  const add=keep?` <button type="button" class="linkish" data-act="headEdit" data-p="${esc(pid)}">+ Add contractor / head</button>`:'';
+  if(!heads.length) return field('Issued to (contractor, gang or person)','modal.d.issuedTo',d.issuedTo,'placeholder="e.g. Sharma Contractors, Gang 2"')
+    .replace('</label>','</label>').replace(/<\/div>$/,`<small class="muted">No contractors saved for this site yet.${add||' The project manager can add them under <b>Stores &amp; contractors</b>.'}</small></div>`);
+  const sel=d.headId||(d.issuedTo?'__other':'');
+  return `<div class="f"><label for="f-modal-d-headId">Issued to</label><select class="inp" id="f-modal-d-headId" data-bind="modal.d.headId" data-rerender="1"><option value="">Choose contractor / head…</option>${Object.entries(HEAD_T).map(([t,l])=>{const hs=heads.filter(h=>h.type===t);return hs.length?`<optgroup label="${esc(l)}">${hs.map(h=>`<option value="${esc(h.id)}" ${sel===h.id?'selected':''}>${esc(h.name)}${h.work?' — '+esc(h.work):''}</option>`).join('')}</optgroup>`:''}).join('')}<option value="__other" ${sel==='__other'?'selected':''}>Other — type a name…</option></select>
+    ${sel==='__other'?`<input class="inp" style="margin-top:6px" data-bind="modal.d.issuedTo" value="${esc(d.issuedTo||'')}" placeholder="e.g. Gang 2, Ramesh (fitter)">`:''}${add?`<small>${add}</small>`:''}</div>`}
