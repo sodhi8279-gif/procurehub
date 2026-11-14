@@ -11,8 +11,12 @@ package main
 // converted.
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,7 +30,7 @@ type itemName struct{ Desc, Spec, Unit, Cat string }
 
 var catIDRe = regexp.MustCompile(`^[a-z0-9_-]{1,60}$`)
 
-var renameLineCols = []string{"indents", "rfqs", "pos", "grns", "dispatches", "jobwork", "consumption", "mailquotes", "vreturns"}
+var renameLineCols = []string{"indents", "rfqs", "pos", "grns", "dispatches", "jobwork", "consumption", "mailquotes", "vreturns", "siteissues", "cashbuys"}
 var renameDocCols = []string{"sitelog", "stocklvl"}
 
 func hItemRename(w http.ResponseWriter, r *http.Request, u *User) {
@@ -165,4 +169,122 @@ func keyInUse(k string) bool {
 		}
 	}
 	return false
+}
+
+// Deleting an item everywhere (administrators only).
+//
+// The item's lines are taken out of every demand, RFQ, purchase order,
+// receipt, challan, gate pass, job work, consumption report and return, and
+// its site stock entries are removed. A record left with no lines at all is
+// deleted. A full copy of the data is saved first in the backups folder
+// (before-item-delete-….json), from which Settings → Backup → Restore brings
+// everything back.
+func hItemDelete(w http.ResponseWriter, r *http.Request, u *User) {
+	var req struct {
+		Items []itemName
+		Dry   bool
+	}
+	if !readJSON(w, r, &req, 1<<16) {
+		return
+	}
+	if len(req.Items) == 0 || len(req.Items) > 200 {
+		fail(w, 400, "Choose the item to delete.")
+		return
+	}
+	keys := map[string]bool{}
+	for _, it := range req.Items {
+		keys[keyOf(it.Desc, it.Spec, it.Unit)] = true
+	}
+	match := func(m map[string]any) bool {
+		if m == nil {
+			return false
+		}
+		if k := str(m, "itemKey"); k != "" && keys[k] {
+			return true
+		}
+		return str(m, "desc") != "" && keys[keyOf(str(m, "desc"), str(m, "spec"), str(m, "unit"))]
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	type change struct {
+		col, id string
+		data    map[string]any // nil: delete the record
+	}
+	var changes []change
+	lines, gone := 0, 0
+	var goneRefs []string
+	for _, col := range renameLineCols {
+		for id, d := range st.Cols[col] {
+			if d == nil || d.Deleted || d.Data == nil {
+				continue
+			}
+			ls := anyList(d.Data["lines"])
+			var keep []any
+			hit := 0
+			for _, li := range ls {
+				if m, ok := li.(map[string]any); ok && match(m) {
+					hit++
+					continue
+				}
+				keep = append(keep, li)
+			}
+			if hit == 0 {
+				continue
+			}
+			lines += hit
+			if len(keep) == 0 {
+				changes = append(changes, change{col, id, nil})
+				gone++
+				if n := str(d.Data, "no"); n != "" && len(goneRefs) < 30 {
+					goneRefs = append(goneRefs, n)
+				}
+				continue
+			}
+			nd := shallowCopy(d.Data)
+			nd["lines"] = keep
+			changes = append(changes, change{col, id, nd})
+		}
+	}
+	for _, col := range renameDocCols {
+		for id, d := range st.Cols[col] {
+			if d == nil || d.Deleted || !match(d.Data) {
+				continue
+			}
+			changes = append(changes, change{col, id, nil})
+			lines++
+		}
+	}
+	if req.Dry {
+		writeJSON(w, 200, map[string]any{"ok": true, "docs": len(changes), "lines": lines, "gone": gone, "goneRefs": goneRefs})
+		return
+	}
+	if len(changes) > 0 {
+		if b, err := json.Marshal(exportLocked()); err == nil {
+			os.MkdirAll(filepath.Join(dataDir, "backups"), 0700)
+			if err := os.WriteFile(filepath.Join(dataDir, "backups", "before-item-delete-"+time.Now().Format("2006-01-02-150405")+".json"), b, 0600); err != nil {
+				fail(w, 500, "Could not save the safety copy before deleting: "+err.Error())
+				return
+			}
+		}
+	}
+	for _, c := range changes {
+		st.Rev++
+		if c.data == nil {
+			st.Cols[c.col][c.id] = &Doc{Rev: st.Rev, Deleted: true}
+		} else {
+			st.Cols[c.col][c.id] = &Doc{Rev: st.Rev, Data: c.data}
+		}
+	}
+	names := []string{}
+	for _, it := range req.Items {
+		names = append(names, strings.TrimSpace(it.Desc+" "+it.Spec)+" ("+it.Unit+")")
+	}
+	st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "items", ID: "", Op: "delete", Ref: clip(strings.Join(names, ", "), 120),
+		Keys: clip("deleted everywhere: "+strconv.Itoa(lines)+" lines in "+strconv.Itoa(len(changes))+" records", 200)})
+	if err := saveLocked(); err != nil {
+		fail(w, 500, "The server could not save to disk: "+err.Error())
+		return
+	}
+	notifyLocked()
+	writeJSON(w, 200, map[string]any{"ok": true, "docs": len(changes), "lines": lines, "gone": gone})
 }

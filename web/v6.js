@@ -241,7 +241,7 @@ function vFind(){
   :`<div class="empty sm"><p>${q?'No item in stock, demands or orders matches “'+esc(ui.f.fq)+'”.':'No items in use yet.'}</p></div>`}</section>
   ${cat.length?`<section class="card"><div class="card-h"><h2>In the item catalogue</h2><span class="sub">What sites can pick when raising a demand</span></div><div class="tw"><table class="t"><thead><tr><th>Item</th><th>Category</th><th>Unit</th><th>Sizes</th>${adm?'<th></th>':''}</tr></thead><tbody>${cat.map(i=>`<tr><td><div class="who">${thumb({category:i.category||i.cat,desc:i.desc},'sm')}<span><b>${esc(i.desc)}</b><small class="muted block">${esc(i.spec||'')}</small></span></div></td><td>${esc(catName(i.category||i.cat))}</td><td>${esc(i.unit||'')}</td><td class="small">${esc((i.sizes||[]).join(', '))}</td>${adm?`<td><button class="btn sm" data-act="itemFix" data-cat="${esc(i.id)}">${icon('edit')} Edit</button></td>`:''}</tr>`).join('')}</tbody></table></div></section>`:''}`}
 
-Object.assign(ACT_PERM,{itemFix:'masters_items',saveItemFix:'masters_items'});
+Object.assign(ACT_PERM,{itemFix:'masters_items',saveItemFix:'masters_items',itemDelAll:'__admin'});
 A.itemFix=d=>{let from;
   if(d.cat){const it=D.itemMap[d.cat];if(!it) return;from={desc:it.desc,spec:'',unit:it.unit||'Nos',cat:it.category||'others',catOnly:true,catId:it.id,dspec:it.spec||'',sizes:(it.sizes||[]).join(', ')}}
   else{const o=itemIndex().find(x=>x.key===d.k);if(!o) return;from={desc:o.desc,spec:o.spec||'',unit:o.unit,cat:o.cat||'others'}}
@@ -261,7 +261,22 @@ function itemFixModal(m,busy){const d=m.d,f=m.from;const it=D.itemMap[m.catId];c
    ${merge?`<div class="notice warn">${icon('alert')}<span>An item with this name, specification and unit already exists. The two will be <b>merged</b>: their stock and history are added together.</span></div>`:''}
    ${d.unit!==f.unit?`<div class="notice warn">${icon('alert')}<span>The unit is only relabelled from <b>${esc(f.unit)}</b> to <b>${esc(d.unit)}</b>; quantities are not converted. Use this to correct a wrongly chosen unit.</span></div>`:''}
    ${it&&!f.catOnly?`<label class="check"><input type="checkbox" id="f-modal-d-alsoCat" data-bind="modal.d.alsoCat" ${d.alsoCat?'checked':''}> Also change the item “${esc(it.desc)}” in the item catalogue</label>`:''}`,
-   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveItemFix" ${busy} ${changed?'':'disabled'}>${icon('check')} Save everywhere</button>`)}
+   `${isAdm()?`<button class="btn danger" data-act="itemDelAll" ${busy} style="margin-right:auto">${icon('trash')} Delete everywhere</button>`:''}<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveItemFix" ${busy} ${changed?'':'disabled'}>${icon('check')} Save everywhere</button>`)}
+// administrators: delete an item from every demand, order, receipt and stock entry
+A.itemDelAll=async()=>{const m=ui.modal,f=m.from;
+  const items=f.catOnly?itemIndex().filter(o=>norm(o.desc)===norm(f.desc)).map(o=>({desc:o.desc,spec:o.spec||'',unit:o.unit})):[{desc:f.desc,spec:f.spec||'',unit:f.unit}];
+  let j={docs:0,lines:0,gone:0,goneRefs:[]};
+  if(items.length){const r=await run(()=>api('/api/items/delete',{items,dry:true}));if(r===false) return;j=r}
+  const name=esc(f.desc)+(f.spec?' — '+esc(f.spec):'')+(f.catOnly&&items.length>1?` (all ${items.length} sizes)`:'');
+  confirmBox({title:'Delete item everywhere',danger:true,typed:'DELETE',yes:'Delete everywhere',body:`<p><b>${name}</b> will be removed from all places:</p>
+   <ul>${j.lines?`<li>${j.lines} line${j.lines===1?'':'s'} in ${j.docs} record${j.docs===1?'':'s'} — demands, RFQs, purchase orders, receipts, dispatches, gate passes, consumption and site stock.</li>`:'<li>It is not used in any demand, order or stock entry.</li>'}
+   ${j.gone?`<li><b>${j.gone} record${j.gone===1?'':'s'} had only this item and will be deleted completely</b>${(j.goneRefs||[]).length?': '+j.goneRefs.map(esc).join(', '):''}.</li>`:''}
+   ${(f.catOnly||D.itemMap[m.catId])?'<li>The item is also removed from the item catalogue, so sites can no longer pick it.</li>':''}</ul>
+   <div class="notice warn">${icon('alert')}<span>Stock and order values change accordingly. A full copy of the data is saved first in the backups folder (<i>before-item-delete-…</i>); <b>Settings → Backup → Restore</b> with that file brings everything back.</span></div>`,
+   onYes:async()=>{const ok=await run(async()=>{let r={docs:0};if(items.length) r=await api('/api/items/delete',{items});
+       const cid=m.catId;if(D.itemMap[cid]&&(f.catOnly||!itemIndex().some(o=>norm(o.desc)===norm(f.desc)&&o.key!==itemKey(f.desc,f.spec,f.unit)))){if(STD[cid]) await setDoc('catalog',cid,{desc:'',hidden:true,at:Date.now()});else await delDoc('catalog',cid)}
+       return r.docs});
+     if(ok!==false){closeModal();toast(`Deleted${ok?' from '+ok+' record'+(ok===1?'':'s'):''}.`)}}})};
 A.saveItemFix=async()=>{const m=ui.modal,d=m.d,f=m.from;const catChg=d.category!==f.cat;
   const to={desc:d.desc.trim(),spec:f.catOnly?'':String(d.spec||'').trim(),unit:d.unit,cat:catChg?d.category:''};
   if(!to.desc){toast('Enter the item name.','err');return}
