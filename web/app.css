@@ -900,3 +900,5 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .mq-pop-h{display:flex;gap:8px;align-items:center;margin-bottom:8px;color:var(--accent)}.mq-pop-h b{color:var(--ink);flex:1}
 .mq-x{all:unset;cursor:pointer;padding:4px;border-radius:8px;color:var(--ink-3)}.mq-x:hover{background:var(--line)}
 .mq-pop-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+/* Find items: the Edit button stays in view when the table scrolls sideways */
+.t td.sticky-act,.t th.sticky-act{position:sticky;right:0;background:var(--surface);box-shadow:-8px 0 10px -8px rgba(0,0,0,.18);z-index:1}
