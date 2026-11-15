@@ -902,3 +902,12 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .mq-pop-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
 /* Find items: the Edit button stays in view when the table scrolls sideways */
 .t td.sticky-act,.t th.sticky-act{position:sticky;right:0;background:var(--surface);box-shadow:-8px 0 10px -8px rgba(0,0,0,.18);z-index:1}
+/* cash purchase: scan or by hand */
+.cash-pick{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 12px}
+.cash-opt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;padding:18px;border:1.5px solid var(--line);border-radius:14px;background:var(--surface);cursor:pointer;font:inherit;color:inherit}
+.cash-opt svg{width:30px;height:30px;color:var(--accent)}
+.cash-opt b{font-size:16px}.cash-opt span{font-size:13px;color:var(--ink-3)}
+.cash-opt.primary{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
+.cash-opt:hover{border-color:var(--accent)}
+.scan-tag{font-style:normal;font-size:10px;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:1px 6px;border-radius:8px;margin-left:4px}
+@media(max-width:640px){.cash-pick{grid-template-columns:1fr}}

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "8.4.0"
+const appVersion = "8.5.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1997,6 +1997,7 @@ func main() {
 	mux.HandleFunc("/api/me/sign", authed(hMySign))
 	mux.HandleFunc("/api/items/rename", permOnly(hItemRename, "masters_items"))
 	mux.HandleFunc("/api/items/delete", adminOnly(hItemDelete))
+	mux.HandleFunc("/api/cash/scan", authed(hCashScan))
 	mux.HandleFunc("/api/users", adminOnly(hUsers))
 	mux.HandleFunc("/api/audit", adminOnly(hAudit))
 	mux.HandleFunc("/api/sync", authed(hSync))
