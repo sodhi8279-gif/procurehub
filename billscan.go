@@ -73,8 +73,18 @@ Known items: ` + strings.Join(known, "; "))
 }
 
 func hCashScan(w http.ResponseWriter, r *http.Request, u *User) {
-	var req struct{ Files []string }
+	var req struct {
+		Files []string
+		Probe bool
+	}
 	if !readJSON(w, r, &req, 1<<12) {
+		return
+	}
+	if req.Probe { // is AI reading available? Otherwise the bill is read in the browser.
+		mu.Lock()
+		ok := st.MailIn.AIKey != ""
+		mu.Unlock()
+		writeJSON(w, 200, map[string]any{"ok": true, "ai": ok && aiAllowanceLeft()})
 		return
 	}
 	if len(req.Files) == 0 || len(req.Files) > 4 {
@@ -228,4 +238,16 @@ func aiReadBill(key, model string, files []aiFile, prompt string) (*billRead, er
 		return nil, errors.New("The bill could not be read. Take a clearer photo, or fill it by hand.")
 	}
 	return &br, nil
+}
+
+// aiAllowanceLeft: AI readings left today (does not use one).
+func aiAllowanceLeft() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	c := &st.MailIn
+	lim := c.AIDaily
+	if lim <= 0 {
+		lim = 50
+	}
+	return c.AIDay != time.Now().Format("2006-01-02") || c.AICount < lim
 }

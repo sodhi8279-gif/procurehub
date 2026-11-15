@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "8.5.0"
+const appVersion = "8.6.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1785,7 +1785,7 @@ type asset struct {
 
 var assets = map[string]*asset{}
 
-var staticTypes = map[string]string{".jpg": "image/jpeg", ".webp": "image/webp", ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json"}
+var staticTypes = map[string]string{".jpg": "image/jpeg", ".webp": "image/webp", ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".wasm": "application/wasm", ".gz": "application/octet-stream"}
 
 func loadAssets() {
 	fs.WalkDir(webFS, "web", func(p string, d fs.DirEntry, err error) error {
@@ -1799,7 +1799,7 @@ func loadAssets() {
 		}
 		sum := sha256.Sum256(b)
 		rel := "/" + strings.TrimPrefix(p, "web/")
-		assets[rel] = &asset{b: b, ctype: ct, etag: `"` + hex.EncodeToString(sum[:8]) + `"`, immutable: strings.HasPrefix(rel, "/fonts/")}
+		assets[rel] = &asset{b: b, ctype: ct, etag: `"` + hex.EncodeToString(sum[:8]) + `"`, immutable: strings.HasPrefix(rel, "/fonts/") || strings.HasPrefix(rel, "/ocr/")}
 		return nil
 	})
 }

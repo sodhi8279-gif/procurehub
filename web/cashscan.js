@@ -7,15 +7,15 @@
 
 function cashChooser(m){return `<p class="muted" style="margin-top:0">How do you want to enter the bill?</p>
   <div class="cash-pick">
-   <label class="cash-opt primary" for="cash-scan-in">${ui.cashScanning?'<span class="spin"></span>':icon('camera')}<b>Scan the bill</b><span>Take a photo of the bill or cash memo. Shop, items, quantities and rates fill in by themselves — you only check.</span></label>
+   <label class="cash-opt primary" for="cash-scan-in">${ui.cashScanning?'<span class="spin"></span>':icon('camera')}<b>Scan the bill</b><span>Take a photo of the bill or cash memo. Shop, GSTIN, items, quantities and rates fill in by themselves — you only check.</span></label>
    <button type="button" class="cash-opt" data-act="cashMode" data-m="manual">${icon('edit')}<b>Enter by hand</b><span>Choose the shop from your vendors and type the items. Items bought before fill in their last rate.</span></button>
   </div>${cashScanInput()}
-  <p class="small muted">A photo of the whole bill, flat and in good light, reads best. Handwritten cash memos work too. You can also choose a photo or PDF already on the phone or computer.</p>`}
+  <p class="small muted">Hold the phone straight over the bill, flat and in good light, with the whole bill in the photo. Printed bills read best; handwritten memos may need more corrections. You can also choose a photo already on the phone or computer.</p>`}
 
 function cashScanInput(){return `<input type="file" id="cash-scan-in" accept="image/*,application/pdf,.pdf" hidden data-act-change="cashScanFile">`}
 
 function cashScanBar(m){const d=m.d,sc=d.scan;
-  if(ui.cashScanning) return `<div class="notice info"><span class="spin"></span><span><b>Reading the bill…</b> this takes 10–30 seconds.</span></div>`;
+  if(ui.cashScanning) return `<div class="notice info"><span class="spin"></span><span><b>Reading the bill…</b> <span id="cash-scan-pct">${ui.cashScanPct==null?'':ui.cashScanPct<0?'getting the reader ready…':ui.cashScanPct+'%'}</span> — this takes 10–40 seconds${ui.cashScanPct!=null?' (the first time a little longer, while the reader loads)':''}.</span></div>`;
   if(!sc) return m.id?'':`<div class="row tight" style="margin-bottom:8px"><label class="btn sm" for="cash-scan-in">${icon('camera')} Scan the bill instead</label>${cashScanInput()}</div>`;
   return `<div class="notice ${sc.warnings&&sc.warnings.length?'warn':'info'}">${icon('camera')}<span><b>Filled from the bill — check every line against the photo before sending.</b>${sc.incl?' The bill showed prices including GST; rates were converted to before-GST.':''}${sc.warnings&&sc.warnings.length?'<ul style="margin:4px 0 0">'+sc.warnings.map(w=>'<li>'+esc(w)+'</li>').join('')+'</ul>':''}
    <span class="row tight" style="margin-top:6px"><label class="btn sm" for="cash-scan-in">${icon('camera')} Scan again</label></span></span></div>${cashScanInput()}`}
@@ -57,18 +57,21 @@ function cashSlab(g){if(g==null||g==='') return '18';const x=num(g);let b=GST_SL
 CH.cashScanFile=async el=>{const f=el.files&&el.files[0];el.value='';const m=ui.modal;if(!f||!m) return;const d=m.d;
   ui.cashScanning=true;d.mode='scan';render();
   try{const id=await uploadFile(f,{max:2200});if(!d.photos.includes(id)) d.photos.push(id);
-    const j=await api('/api/cash/scan',{files:[id]});const b=j.bill||{};
+    let b;const pr=await api('/api/cash/scan',{probe:true}).catch(()=>({ai:false}));
+    if(pr.ai){const j=await api('/api/cash/scan',{files:[id]});b=j.bill||{}}
+    else{if(/pdf/i.test(f.type)||/\.pdf$/i.test(f.name||'')) throw {message:'Without the AI key only photos can be read. Take a photo of the bill (or a screenshot of the PDF).'};
+      ui.cashScanPct=0;render();b=await ocrBill(f,p=>{ui.cashScanPct=p;const el=document.getElementById('cash-scan-pct');if(el) el.textContent=p<0?'getting the reader ready…':p+'%'})}
     cashSetShop(d,b.shop,b.gstin);if(b.gstin&&gstinOk(b.gstin)&&!d.vendorId) d.shopGstin=String(b.gstin).toUpperCase();
     if(b.bill_no) d.billNo=b.bill_no;if(/^\d{4}-\d{2}-\d{2}$/.test(b.bill_date||'')){d.billDate=b.bill_date;if(b.bill_date<=today()) d.date=b.bill_date}
     if(['Cash','UPI','Card'].includes(b.pay_mode)) d.payMode=b.pay_mode;
     const ls=(b.lines||[]).filter(l=>l.item).map(l=>{let desc=l.item,spec=l.size_spec||'';
       if(l.known_item){const mm=/^(.*?)\s*\((.*)\)\s*$/.exec(l.known_item);if(mm){desc=mm[1];spec=spec||mm[2]}else desc=l.known_item}
-      return {desc,spec,unit:cashUnit(l.unit),qty:l.qty!=null?String(l.qty):'',rate:l.rate!=null?String(Math.round(l.rate*100)/100):'',gst:cashSlab(l.gst),usedNow:'',scan:true,
+      return {desc,spec,unit:cashUnit(l.unit),qty:l.qty!=null?String(l.qty):'',rate:l.rate!=null?String(Math.round(l.rate*100)/100):'',gst:l.gst==null&&b.ocr?'18':cashSlab(l.gst),usedNow:'',scan:true,
         hint:l.amount!=null&&l.qty!=null&&l.rate!=null&&Math.abs(l.qty*l.rate*(1+num(l.gst)/100)-l.amount)>Math.max(2,l.amount*0.02)&&Math.abs(l.qty*l.rate-l.amount)>Math.max(2,l.amount*0.02)?`Bill shows amount ${money(l.amount)} — check qty and rate`:''}});
     if(ls.length) d.lines=ls;
     d.scan={total:b.bill_total!=null?num(b.bill_total):0,warnings:(b.warnings||[]).slice(0,8),incl:!!b.rates_include_gst};
     if(!ls.length) d.scan.warnings.unshift('No items could be read from this photo. Type them, or scan a clearer photo.');
     toast(ls.length?`${ls.length} item${ls.length===1?'':'s'} read from the bill — please check`:'Could not read items from the bill',ls.length?'ok':'err');
   }catch(e){d.mode=d.mode==='scan'?'manual':d.mode;toast(e.message||'Could not read the bill.','err')}
-  ui.cashScanning=false;render()};
+  ui.cashScanning=false;ui.cashScanPct=null;render()};
 Object.assign(ACT_PERM,{cashMode:['cash_spend','cash_approve','po_approve'],cashScanFile:['cash_spend','cash_approve','po_approve'],cashShop:['cash_spend','cash_approve','po_approve'],cashItem:['cash_spend','cash_approve','po_approve']});
