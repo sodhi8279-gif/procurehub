@@ -54,7 +54,7 @@ function varGuess(it,text){let t=' '+String(text||'').replace(/[,;]/g,' , ')+' '
   const take=v=>{const re=new RegExp('(^|[^a-z0-9])'+v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\s+/g,'\\s*')+'(?![a-z0-9])','i');const m=re.exec(t);if(!m) return false;t=t.slice(0,m.index)+m[1]+' '+t.slice(m.index+m[0].length);return true};
   for(const a of it.attrs||[]){const opts=[...a.opts].sort((x,y)=>y.length-x.length);for(const o of opts){if(take(a.name+' '+o)||take(o)){vals[a.name]=o;break}}}
   let size='';for(const z of [...(it.sizes||[])].sort((x,y)=>y.length-x.length)) if(take(z)){size=z;break}
-  if(!size){const m=/(\d+(?:\.\d+)?(?:\s*\/\s*\d+)?)\s*(mm|inch|in|"|''|sq\s*mm|nb|dn)\b/i.exec(t);if(m){size=m[0].replace(/\s+/g,' ').trim();t=t.replace(m[0],' ')}}
+  if(!size){const m=/((?:\d+\s+)?\d+(?:\.\d+)?(?:\s*\/\s*\d+)?)\s*(mm|inch|in|"|''|”|sq\s*mm|nb|dn)(?![a-z0-9])/i.exec(t);if(m){size=m[0].replace(/\s+/g,' ').trim();t=t.replace(m[0],' ')}}
   const rest=t.replace(/\s*,\s*(,\s*)+/g,', ').replace(/\s+/g,' ').replace(/^[\s,·\-]+|[\s,·\-]+$/g,'').trim();return {vals,size,rest}}
 
 /* ---- converting existing items into varieties of one item ---- */
@@ -72,7 +72,21 @@ function varConvOpen(targetId,rows,newName){const it=targetId?D.itemMap[targetId
   d.rows=rows.map(({o,on})=>({key:o.key,desc:o.desc,spec:o.spec,unit:o.unit,on,vals:{},size:'',rest:'',touched:false}));varConvGuess(d);
   openModal({type:'varConv',d})}
 function varConvItem(d){return {attrs:attrsFromDraft(d.attrs),sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean)}}
-function varConvGuess(d){const it=varConvItem(d);for(const r of d.rows){if(r.touched) continue;const extra=norm(r.desc)===norm(d.name)?'':r.desc.replace(new RegExp(d.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),'');const g=varGuess(it,extra+' , '+r.spec);r.vals=g.vals;r.size=g.size;r.rest=g.rest}}
+// one way of writing a size: "20mm" → "20 mm", 4" / 4'' → "4 inch"
+function normSize(z){let t=String(z||'').trim().replace(/\s+/g,' ');if(!t) return '';
+  t=t.replace(/(\d)\s*(mm|cm|m|nb|dn)\b/gi,(m,a,u)=>a+' '+u.toLowerCase()).replace(/(\d)\s*(?:"|''|”|inch(?:es)?|in)(?![a-z])/gi,'$1 inch').replace(/(\d)\s*sq\.?\s*mm\b/gi,'$1 sq mm');
+  return t.replace(/^(nb|dn)\s*(\d)/i,(m,u,a)=>u.toUpperCase()+' '+a)}
+const sizeKey=z=>norm(normSize(z)).replace(/\s+/g,'');
+function varConvSizes(d){return String(d.sizesText||'').split(',').map(s=>normSize(s)).filter(Boolean)}
+// the sizes of all the items together: one common list for the item
+function varConvMergeSizes(d){const seen=new Set(),out=[];const add=z=>{const n=normSize(z),k=sizeKey(n);if(n&&!seen.has(k)){seen.add(k);out.push(n)}};
+  varConvSizes(d).forEach(add);d.rows.forEach(r=>add(r.size));if(typeof sizeSort==='function') out.sort(sizeSort);d.sizesText=out.join(', ');
+  for(const r of d.rows){if(r.size){const k=sizeKey(r.size);r.size=out.find(z=>sizeKey(z)===k)||normSize(r.size)}}}
+// words of the item name ("Pipes" / "pipe") and of the variety names ("Class") are not left over as "other spec"
+function varConvRest(d,rest){let t=' '+String(rest||'')+' ';const words=new Set();for(const w of norm(d.name).split(' ').filter(x=>x.length>1)){words.add(w);words.add(w.replace(/s$/,''));if(/(ches|shes|xes|sses)$/.test(w)) words.add(w.replace(/es$/,''));words.add(w+'s')}
+  for(const a of d.attrs||[]) for(const w of norm(a.name).split(' ').filter(x=>x.length>1)) words.add(w);
+  t=t.split(/(\s+|,)/).filter(x=>!words.has(norm(x))).join('');return t.replace(/\s*,\s*(,\s*)*/g,', ').replace(/\s+/g,' ').replace(/^[\s,·\-]+|[\s,·\-]+$/g,'').trim()}
+function varConvGuess(d){const it=varConvItem(d);for(const r of d.rows){if(r.touched) continue;const extra=norm(r.desc)===norm(d.name)?'':r.desc.replace(new RegExp(d.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),'');const g=varGuess(it,extra+' , '+r.spec);r.vals=g.vals;r.size=normSize(g.size);r.rest=varConvRest(d,g.rest)}varConvMergeSizes(d)}
 A.varConvGuess=()=>{const d=ui.modal.d;for(const r of d.rows) r.touched=false;varConvGuess(d);render()};
 A.varConvRow=d=>{const r=ui.modal.d.rows[+d.i];if(r){r.on=!r.on;render()}};
 A.varConvAttr=d=>{const m=ui.modal;const a=m.d.attrs;if(d.do==='add') a.push({name:'',optsText:'',req:false,showName:false});else if(d.do==='del') a.splice(+d.i,1);render()};
@@ -86,18 +100,21 @@ CH.varConvTarget=el=>{const d=ui.modal.d;const it=D.itemMap[el.value];if(it){d.n
     <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div>
     <div class="f"><label for="f-modal-d-unit">Unit in the catalogue</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(UNITS,d.unit)}</select></div></div>
    <div class="f"><label>Varieties and their choices</label><div class="var-rows">${d.attrs.map((x,i)=>`<div class="var-row"><input class="inp" data-bind="modal.d.attrs.${i}.name" value="${esc(x.name)}" placeholder="Name, e.g. Type" data-rerender="1"><input class="inp grow" data-bind="modal.d.attrs.${i}.optsText" value="${esc(x.optsText)}" placeholder="Choices, comma separated" data-rerender="1"><label class="check small"><input type="checkbox" data-bind="modal.d.attrs.${i}.showName" ${x.showName?'checked':''} data-rerender="1"> Name in spec</label><button type="button" class="btn sm ghost" data-act="varConvAttr" data-do="del" data-i="${i}" aria-label="Remove">${icon('trash','xs')}</button></div>`).join('')}</div>
-    <div class="row tight" style="margin-top:6px"><button type="button" class="btn sm" data-act="varConvAttr" data-do="add">${icon('plus')} Add variety</button><input class="inp sm grow" data-bind="modal.d.sizesText" value="${esc(d.sizesText||'')}" placeholder="Sizes, comma separated — e.g. 15 mm, 20 mm, 25 mm" data-rerender="1" aria-label="Sizes"><button type="button" class="btn sm ghost" data-act="varConvGuess">${icon('search','xs')} Read values again</button></div></div>
+    <div class="row tight" style="margin-top:6px"><button type="button" class="btn sm" data-act="varConvAttr" data-do="add">${icon('plus')} Add variety</button><div class="f grow" style="margin:0"><label class="small muted" for="f-varSizes">Sizes — one common list for the item (all sizes of the items below are included)</label><input class="inp sm" id="f-varSizes" data-bind="modal.d.sizesText" value="${esc(d.sizesText||'')}" placeholder="Sizes, comma separated — e.g. 15 mm, 20 mm, 25 mm" data-act-change="varSizesEdit" aria-label="Sizes"><button type="button" class="linkish small" data-act="varStdSizes">${icon('plus','xs')} Add all standard sizes (15 mm – 1200 mm)</button></div><button type="button" class="btn sm ghost" data-act="varConvGuess">${icon('search','xs')} Read values again</button></div></div>
    <div class="tw"><table class="t var-t"><thead><tr><th></th><th>Now</th>${it.attrs.map(a=>`<th>${esc(a.name)}</th>`).join('')}<th>Size</th><th>Other spec</th><th>Will become</th></tr></thead><tbody>
    ${d.rows.map((r,i)=>{const sp=varSpec(it,r.vals,r.size,r.rest);return `<tr class="${r.on?'':'off'}"><td><input type="checkbox" data-act="varConvRow" data-i="${i}" ${r.on?'checked':''} aria-label="Convert ${esc(r.desc)}"></td><td><b>${esc(r.desc)}</b><small class="muted block">${esc(r.spec||'—')} · ${esc(r.unit)}</small></td>
      ${it.attrs.map(a=>`<td><input class="inp sm" list="var-o-${esc(slug(a.name))}" data-bind="modal.d.rows.${i}.vals.${esc(a.name)}" value="${esc(r.vals[a.name]||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}" style="min-width:80px"></td>`).join('')}
-     <td><input class="inp sm" list="var-sz" data-bind="modal.d.rows.${i}.size" value="${esc(r.size||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}" style="min-width:70px"></td><td><input class="inp sm" data-bind="modal.d.rows.${i}.rest" value="${esc(r.rest||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}"></td>
+     <td>${(()=>{const zs=varConvSizes(d);const cur=r.size||'';const inList=!cur||zs.some(z=>sizeKey(z)===sizeKey(cur));return `<select class="inp sm" data-act-change="varSize" data-i="${i}" aria-label="Size of ${esc(r.desc)}" style="min-width:90px"><option value="">—</option>${zs.map(z=>`<option value="${esc(z)}" ${sizeKey(z)===sizeKey(cur)?'selected':''}>${esc(z)}</option>`).join('')}<option value="__other" ${!inList||r.sizeOther?'selected':''}>Other size…</option></select>${!inList||r.sizeOther?`<input class="inp sm" style="margin-top:4px" data-bind="modal.d.rows.${i}.size" value="${esc(cur)}" placeholder="e.g. 350 mm" data-act-change="varSizeTyped" data-i="${i}">`:''}`})()}</td><td><input class="inp sm" data-bind="modal.d.rows.${i}.rest" value="${esc(r.rest||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}"></td>
      <td><b>${esc(d.name||'')}</b><small class="block">${esc(sp||'—')}</small></td></tr>`}).join('')}</tbody></table></div>
    ${it.attrs.map(a=>`<datalist id="var-o-${esc(slug(a.name))}">${a.opts.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`).join('')}<datalist id="var-sz">${it.sizes.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`,
    `<span class="small muted">${on.length} item${on.length===1?'':'s'} to convert</span><span class="spacer"></span><button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="varConvSave" ${busy} ${on.length&&String(d.name||'').trim()?'':'disabled'}>${icon('check')} Convert everywhere</button>`,'wide xl')}}
+CH.varSize=el=>{const d=ui.modal.d,r=d.rows[+el.dataset.i];if(!r) return;r.touched=true;if(el.value==='__other'){r.sizeOther=true;r.size=''}else{r.sizeOther=false;r.size=el.value}render()};
+CH.varSizeTyped=el=>{const d=ui.modal.d,r=d.rows[+el.dataset.i];if(!r) return;r.touched=true;r.size=normSize(r.size);r.sizeOther=false;varConvMergeSizes(d);render()};
+CH.varSizesEdit=()=>{varConvMergeSizes(ui.modal.d);render()};
 CH.varTouch=el=>{const r=ui.modal.d.rows[+el.dataset.i];if(r) r.touched=true};
 
 A.varConvSave=async()=>{const d=ui.modal.d;const name=String(d.name||'').trim();if(!name) return toast('Enter the item name.','err');
-  const attrs=attrsFromDraft(d.attrs);const sizes=String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean);
+  varConvMergeSizes(d);const attrs=attrsFromDraft(d.attrs);const sizes=varConvSizes(d);
   const rows=d.rows.filter(r=>r.on);
   // values typed in the rows become choices of the item
   for(const r of rows){for(const a of attrs){const v=String(r.vals[a.name]||'').trim();if(v&&!a.opts.some(o=>norm(o)===norm(v))) a.opts.push(v)}const z=String(r.size||'').trim();if(z&&!sizes.some(s=>norm(s)===norm(z))) sizes.push(z)}
@@ -117,3 +134,7 @@ A.varConvSave=async()=>{const d=ui.modal.d;const name=String(d.name||'').trim();
     return n},'Converted');
   if(ok!==false){closeModal();ui.sel.fi={};toast(`${plan.length} item${plan.length===1?'':'s'} converted into varieties of ${name}${ok?' — '+ok+' records updated':''}.`)}};
 Object.assign(ACT_PERM,{varConv:'masters_items',varConvFrom:'masters_items',varConvSave:'masters_items',varConvGuess:'masters_items',varConvRow:'masters_items',varConvAttr:'masters_items'});
+
+const STD_SIZES_MM=[15,20,25,32,40,50,63,65,75,80,90,100,110,125,150,160,180,200,225,250,280,300,315,350,400,450,500,600,700,750,800,900,1000,1100,1200].map(n=>n+' mm');
+A.varStdSizes=()=>{const d=ui.modal.d;d.sizesText=[String(d.sizesText||''),STD_SIZES_MM.join(', ')].filter(Boolean).join(', ');varConvMergeSizes(d);render()};
+Object.assign(ACT_PERM,{varStdSizes:'masters_items'});
