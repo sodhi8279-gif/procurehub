@@ -389,14 +389,22 @@ const lineEditable=l=>!l.rfqId&&!l.poId&&!l.transferId&&!l.fromStock&&!l.pcRemov
 A.lineItem=d=>{const i=S.indents.find(x=>x.id===d.ind);const l=i&&(i.lines||[]).find(x=>x.id===d.line);if(!l) return;
   if(!lineEditable(l)){toast('This line is already being sourced (RFQ, PO, store or transfer). Change it there.','err');return}
   const it=D.itemMap[slug(l.desc)];
-  openModal({type:'lineItem',ind:i.id,line:l.id,sizes:it&&norm(it.desc)===norm(l.desc)?(it.sizes||[]):[],d:{desc:l.desc,spec:l.spec||'',unit:l.unit,category:l.category||'others',qty:String(ui.draft.aq&&ui.draft.aq[l.id]!=null?ui.draft.aq[l.id]:(l.approvedQty??l.qty)),note:'',approve:true}})};
+  openModal({type:'lineItem',ind:i.id,line:l.id,sizes:it&&norm(it.desc)===norm(l.desc)?(it.sizes||[]):[],d:{desc:l.desc,spec:l.spec||'',unit:l.unit,category:l.category||'others',qty:String(ui.draft.aq&&ui.draft.aq[l.id]!=null?ui.draft.aq[l.id]:(l.approvedQty??l.qty)),note:'',approve:true,av:{},avo:{},size:'',otherSize:''}});
+  liVarInit(ui.modal)};
+// the item has varieties: the same drop-downs as when adding to a demand, filled from the line
+function liVarInit(m){const it=D.itemMap[slug(m.d.desc)];m.item=it&&norm(it.desc)===norm(m.d.desc)&&(it.attrs||[]).length?it:null;m.varFor=m.d.desc;if(!m.item) return;const d=m.d;const g=varGuess(it,d.spec||'');d.av={};d.avo={};for(const a of it.attrs) if(g.vals[a.name]) d.av[a.name]=g.vals[a.name];
+  const zs=varSizesFor(it,d);const zk=g.size?sizeKey(g.size):'';d.size=zk?(zs.find(z=>sizeKey(z)===zk)||'__other'):'';d.otherSize=d.size==='__other'?normSize(g.size):'';d.xspec=g.rest}
+function liVarSpec(m){const it=m.item,d=m.d;return varSpec(it,varVals(it,d),d.size==='__other'?String(d.otherSize||'').trim():d.size,d.xspec)}
 function lineItemModal(m,busy){const i=S.indents.find(x=>x.id===m.ind);const l=i&&(i.lines||[]).find(x=>x.id===m.line);if(!l) return '';const d=m.d;const was=l.apprOrig||l;
+  if(m.varFor!==d.desc&&typeof liVarInit==='function') liVarInit(m);const vit=m.item;if(vit) d.spec=liVarSpec(m);
+  const sz=[];{const seen=new Set();for(const z of m.sizes||[]){const n=typeof normSize==='function'?normSize(z):z,k=typeof sizeKey==='function'?sizeKey(n):n;if(n&&!seen.has(k)){seen.add(k);sz.push(n)}}}
   const units=UNITS.includes(d.unit)?UNITS:UNITS.concat([d.unit]);
   const changed=d.desc.trim()!==l.desc||String(d.spec).trim()!==(l.spec||'')||d.unit!==l.unit||d.category!==(l.category||'others');
   return wrap('Change item · '+esc(i.no),`<div class="notice">${icon('inbox')}<span>Site asked for: <b>${esc(was.desc)}</b>${was.spec?' — '+esc(was.spec):''} · ${fq(was.qty)} ${esc(was.unit)}${l.siteNote?`<br><span class="small muted">Site note: ${esc(l.siteNote)}</span>`:''}</span></div>
    <div class="fields"><div class="f span2 pop-wrap sugg-wrap"><label for="f-modal-d-desc">Item to supply</label>${inp('modal.d.desc',d.desc,'data-sugg="line" data-focus-pop="lsugg" data-rerender="1" autocomplete="off" role="combobox" placeholder="Start typing — e.g. Cement PPC"')}${ui.pop==='lsugg'?suggPanel(d.desc,'line'):''}</div>
-   ${(m.sizes||[]).length?`<div class="f full"><label>Size</label><div class="size-chips">${m.sizes.map(z=>`<button type="button" class="schip ${d.spec===z?'on':''}" data-act="mset" data-k="spec" data-val="${esc(z)}">${esc(z)}</button>`).join('')}</div></div>`:''}
-   ${field('Size / specification','modal.d.spec',d.spec,'data-rerender="1" placeholder="e.g. 53 grade, 50 kg bag"')}
+   ${vit?`<div class="f full">${varPicker(vit,d)}</div>${field('Other specification / make (optional)','modal.d.xspec',d.xspec||'','data-rerender="1" placeholder="e.g. ISI make, Jindal"')}`:''}
+   ${!vit&&sz.length?`<div class="f full"><label>Size</label><div class="size-chips">${sz.map(z=>`<button type="button" class="schip ${d.spec===z?'on':''}" data-act="mset" data-k="spec" data-val="${esc(z)}">${esc(z)}</button>`).join('')}</div></div>`:''}
+   ${vit?'':field('Size / specification','modal.d.spec',d.spec,'data-rerender="1" placeholder="e.g. 53 grade, 50 kg bag"')}
    <div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(units,d.unit)}</select></div>
    <div class="f"><label for="f-modal-d-category">Category</label><select class="inp" id="f-modal-d-category" data-bind="modal.d.category">${catOpts(d.category)}</select></div>
    <div class="f"><label for="f-modal-d-qty">Quantity to approve</label>${stepperInp('modal.d.qty',d.qty)}</div></div>
@@ -406,6 +414,7 @@ function lineItemModal(m,busy){const i=S.indents.find(x=>x.id===m.ind);const l=i
 A.saveLineItem=async()=>{const m=ui.modal,d=m.d;const desc=String(d.desc||'').trim();if(!desc){toast('Enter the item.','err');return}
   const note=String(d.note||'').trim();if(!note){toast('Write the reason for the change, so the site knows why.','err');document.getElementById('f-modal-d-note')?.focus();return}
   const q=num(d.qty);if(d.approve&&!(q>0)){toast('Enter the quantity to approve.','err');return}
+  if(m.item&&m.varFor===d.desc){const v=varCheck(m.item,d);if(v.err){toast(v.err,'err');return}d.spec=liVarSpec(m)}
   const ok=await run(()=>patchLines(m.ind,ls=>{const l=ls.find(x=>x.id===m.line);if(!l) return;
     Object.assign(l,{desc,spec:String(d.spec||'').trim(),unit:d.unit,category:d.category,catSrc:'manual',chgNote:note});
     if(d.approve){l.status='approved';l.approvedQty=q;l.approvedAt=Date.now();l.approvalNote=note}}),d.approve?'Item changed and approved':'Item changed');
