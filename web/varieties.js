@@ -35,16 +35,26 @@ A.varUp=d=>{const a=ui.modal.d.attrs,i=+d.i;if(i>0){[a[i-1],a[i]]=[a[i],a[i-1]];
 A.varPreset=d=>{const a=ui.modal.d.attrs;for(const [n,o] of VAR_PRESETS[d.k]||[]) if(!a.some(x=>norm(x.name)===norm(n))) a.push({name:n,optsText:o,req:n!=='Ends'&&n!=='Make'&&n!=='Armour'&&n!=='Angle',showName:n==='Class'||n==='Pressure'});render()};
 
 // ---- the specification written from the chosen values ----
-function varSpec(it,vals,size,extra){const parts=[];for(const a of it.attrs||[]){const v=String((vals||{})[a.name]||'').trim();if(!v) continue;parts.push(a.showName&&!norm(v).includes(norm(a.name))?a.name+' '+v:v)}
-  if(size) parts.push(String(size).trim());if(extra&&String(extra).trim()) parts.push(String(extra).trim());return parts.join(', ')}
+function varSpec(it,vals,size,extra){const parts=[];let put=false;const z=size?String(size).trim():'';for(const a of it.attrs||[]){if(z&&!put&&/^is\b|is code|standard/i.test(a.name)){parts.push(z);put=true}const v=String((vals||{})[a.name]||'').trim();if(!v) continue;parts.push(a.showName&&!norm(v).includes(norm(a.name))?a.name+' '+v:v)}
+  if(z&&!put) parts.push(z);if(extra&&String(extra).trim()) parts.push(String(extra).trim());return parts.join(', ')}
 function varVals(it,d){const out={};for(const a of it.attrs||[]){const v=(d.av||{})[a.name];out[a.name]=v==='__other'?String((d.avo||{})[a.name]||'').trim():(v||'')}return out}
 function varCheck(it,d){const vals=varVals(it,d);for(const a of it.attrs||[]) if(a.req&&!vals[a.name]&&!(typeof varShowAttr==='function'&&!varShowAttr(it,d,a))) return {err:`Choose the ${a.name.toLowerCase()}.`};return {vals}}
 
 // ---- adding the item to a demand: choose a value of each ----
+// the columns of an item: its varieties, with Size before the IS code (Material · Class · Size · IS)
+function varCols(it){const cols=(it.attrs||[]).map(a=>({a}));const hasSize=(it.sizes||[]).length||(it.rel&&it.rel.map&&Object.values(it.rel.map).some(x=>Array.isArray(x.sizes)&&x.sizes.length));
+  if(hasSize){let at=cols.findIndex(c=>/^is\b|is code|standard/i.test(c.a.name));if(at<0) at=cols.length;cols.splice(at,0,{size:true})}return cols}
+// adding the item to a demand: one drop-down per column, each with "Others"
 function varPicker(it,d){if(!(it.attrs||[]).length) return '';d.av=d.av||{};d.avo=d.avo||{};
-  const note=typeof varNote==='function'?varNote(it,d):'';return it.attrs.map((a,i)=>{if(typeof varShowAttr==='function'&&!varShowAttr(it,d,a)) return '';const v=d.av[a.name]||'';const os=typeof varOptsFor==='function'?varOptsFor(it,d,a):a.opts;return `<div class="f"><label>${esc(a.name)}${a.req?'':' <span class="muted small">(optional)</span>'}</label><div class="size-chips">${os.map(o=>`<button type="button" class="schip ${v===o?'on':''}" data-act="varPick" data-a="${i}" data-val="${esc(o)}">${esc(o)}</button>`).join('')}<button type="button" class="schip ${v==='__other'?'on':''}" data-act="varPick" data-a="${i}" data-val="__other">Other</button></div>
-    ${v==='__other'?`<input class="inp" style="margin-top:6px" data-bind="modal.d.avo.${esc(a.name)}" value="${esc(d.avo[a.name]||'')}" placeholder="Type the ${esc(a.name.toLowerCase())}">`:''}${i===0&&note?`<small class="muted block" style="margin-top:4px">${icon('help','xs')} ${esc(note)}</small>`:''}</div>`}).join('')}
-A.varPick=d=>{const m=ui.modal,it=m.item;const a=it.attrs[+d.a];if(!a) return;m.d.av[a.name]=m.d.av[a.name]===d.val?'':d.val;
+  const note=typeof varNote==='function'?varNote(it,d):'';const sizes=typeof varSizesFor==='function'?varSizesFor(it,d):(it.sizes||[]);
+  const cell=c=>{if(c.size){if(!sizes.length&&d.size!=='__other') return '';const v=d.size||'';return `<div class="vp-col"><label for="vp-size">Size</label><select class="inp" id="vp-size" data-act-change="vpSize"><option value="">— choose —</option>${sizes.map(z=>`<option value="${esc(z)}" ${v===z?'selected':''}>${esc(z)}</option>`).join('')}<option value="__other" ${v==='__other'?'selected':''}>Others…</option></select>${v==='__other'?`<input class="inp" data-bind="modal.d.otherSize" value="${esc(d.otherSize||'')}" placeholder="Type the size">`:''}</div>`}
+    const a=c.a,i=it.attrs.indexOf(a);if(typeof varShowAttr==='function'&&!varShowAttr(it,d,a)) return '';const v=d.av[a.name]||'';const os=typeof varOptsFor==='function'?varOptsFor(it,d,a):a.opts;
+    return `<div class="vp-col"><label for="vp-${i}">${esc(a.name)}${a.req?'':' <span class="muted small">(optional)</span>'}</label><select class="inp" id="vp-${i}" data-act-change="vpPick" data-a="${i}"><option value="">— choose —</option>${os.map(o=>`<option value="${esc(o)}" ${v===o?'selected':''}>${esc(o)}</option>`).join('')}<option value="__other" ${v==='__other'?'selected':''}>Others…</option></select>${v==='__other'?`<input class="inp" data-bind="modal.d.avo.${esc(a.name)}" value="${esc(d.avo[a.name]||'')}" placeholder="Type the ${esc(a.name.toLowerCase())}">`:''}</div>`};
+  const sp=varSpec(it,varVals(it,d),d.size==='__other'?String(d.otherSize||'').trim():d.size,d.spec);
+  return `<div class="vp-grid">${varCols(it).map(cell).join('')}</div>${note?`<p class="small muted" style="margin:4px 0 0">${icon('help','xs')} ${esc(note)}</p>`:''}<p class="vp-sum small">${icon('check','xs')} <b>${esc(it.desc)}</b>${sp?' — '+esc(sp):' <span class="muted">— choose from the drop-downs</span>'}</p>`}
+CH.vpPick=el=>A.varPick({a:el.dataset.a,val:el.value,set:true});
+CH.vpSize=el=>{const m=ui.modal;m.d.size=el.value;render()};
+A.varPick=d=>{const m=ui.modal,it=m.item;const a=it.attrs[+d.a];if(!a) return;m.d.av[a.name]=d.set?d.val:(m.d.av[a.name]===d.val?'':d.val);
   if(it.rel&&it.rel.by===a.name&&typeof varOptsFor==='function'){for(const b of it.attrs){if(b===a) continue;const v=m.d.av[b.name];if(v&&(!varShowAttr(it,m.d,b)||v!=='__other'&&!varOptsFor(it,m.d,b).includes(v))) m.d.av[b.name]=''}const zs=varSizesFor(it,m.d);if(m.d.size&&m.d.size!=='__other'&&!zs.includes(m.d.size)) m.d.size=''}render()};
 // an item asked before: its specification gives the values back
 function varPrefill(it,d){const g=varGuess(it,d.spec||'');d.av={};d.avo={};for(const a of it.attrs){if(g.vals[a.name]) d.av[a.name]=g.vals[a.name]}
@@ -162,3 +172,20 @@ function varConvDiscover(d){const find=re=>d.attrs.find(a=>re.test(a.name||''));
     if(pA) for(const m of t.matchAll(/(?<![a-z0-9])(PN\s?\d{1,2}|\d+(?:\.\d+)?\s*kg\/cm²?)(?![a-z0-9])/gi)) add(pA,/^pn/i.test(m[1])?'PN '+m[1].replace(/\D/g,''):m[1].replace(/\s*kg\/cm²?$/i,' kg/cm²'));
     if(cA) for(const m of t.matchAll(/(?<![a-z0-9])(K\s?\d{1,2}|NP\s?\d|SN\s?\d{1,2}|PE\s?\d{2,3}|SDR\s?\d{1,2}|sch(?:edule)?\s?\d{2,3}|class\s+[a-c]\b)(?![a-z0-9])/gi)) add(cA,m[1].replace(/\s+/g,'').replace(/^(sch|schedule)/i,'Sch ').replace(/kg\/cm²?$/i,' kg/cm²').replace(/^class/i,'Class ').toUpperCase().replace('KG/CM²','kg/cm²').replace(/^CLASS /,'Class ').replace(/^SCH /,'Sch '));
     if(tA){const ws=r.desc.split(/\s+/);for(const w of ws){const n=norm(w);if(!n||nameW.has(n)) continue;if(VAR_MATERIALS.includes(n)||(/^[A-Z]{2,5}$/.test(w)&&!/^(IS|NP|PN|SN|PE|SDR|ERW|MM)$/.test(w))){add(tA,VAR_MATERIALS.includes(n)&&n.length<=4?w.toUpperCase().replace(/^UPVC$/,'uPVC').replace(/^CPVC$/,'CPVC'):w);break}}}}}
+
+/* ---- one standard category: merge a category into another (then the extra one can be deleted) ---- */
+A.catMergeOpen=d=>{const m=ui.modal;const c=m&&m.d&&m.d.cats?m.d.cats[+d.i]:null;const id=c?c.id:d.id;if(!id) return toast('Save the new category first.','err');
+  openModal({type:'catMerge',back:m&&m.type==='cats'?m:null,d:{src:id,dst:''}})};
+{const prev=v6Modal;v6Modal=(m,busy)=>{if(m.type!=='catMerge') return prev(m,busy);const d=m.d;const u=catUsage(d.src);const used=itemIndex().filter(o=>o.cat===d.src).length;
+  return wrap('Merge category “'+esc(catName(d.src))+'”',`<p>Everything in <b>${esc(catName(d.src))}</b> moves to the category you choose: ${u.items} catalogue item${u.items===1?'':'s'}, ${used} item${used===1?'':'s'} in demands / orders / stock, and ${u.vendors} vendor${u.vendors===1?'':'s'} (their RFQ category). ${CAT[d.src]&&CAT[d.src].custom?'The category is then deleted.':'Standard categories cannot be deleted; it simply stays empty and is no longer shown.'}</p>
+   <div class="f"><label for="f-modal-d-dst">Move into</label><select class="inp" id="f-modal-d-dst" data-bind="modal.d.dst" data-rerender="1"><option value="">Choose the category…</option>${CATS.filter(c=>c.id!==d.src&&c.id!=='others').concat(CAT.others?[CAT.others]:[]).map(c=>`<option value="${c.id}" ${d.dst===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`,
+   `<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="catMergeSave" ${busy} ${d.dst?'':'disabled'}>${icon('layers')} Merge</button>`)}}
+A.catMergeSave=async()=>{const m=ui.modal,d=m.d;const src=d.src,dst=d.dst;if(!dst) return;
+  const ok=await run(async()=>{let n=0;
+    for(const o of itemIndex().filter(o=>o.cat===src)){const j=await api('/api/items/rename',{from:{desc:o.desc,spec:o.spec,unit:o.unit},to:{desc:o.desc,spec:o.spec,unit:o.unit,cat:dst}});n+=j.docs||0}
+    for(const it of D.items.filter(i=>i.category===src)){const base=Object.assign({},S.catalog[it.id]||{desc:it.desc,spec:it.spec||'',unit:it.unit,sizes:it.sizes||[],photo:it.photo||'',gst:it.gst??'',hsn:it.hsn||'',attrs:it.attrs||[],rel:it.rel||null},{category:dst,at:Date.now()});delete base.id;delete base.std;await setDoc('catalog',it.id,base)}
+    for(const v of S.vendors.filter(v=>(v.categories||[]).includes(src))){const cs=[...new Set(v.categories.map(c=>c===src?dst:c))];await updDoc('vendors',v.id,{categories:cs})}
+    if(CAT[src]&&CAT[src].custom){const cats=((S.config&&S.config.cats)||[]).filter(c=>c.id!==src);await updDoc('config','main',{cats})}
+    return n},'Merged');
+  if(ok!==false){const b=m.back;if(b&&b.d&&b.d.cats){b.d.cats=b.d.cats.filter(c=>c.id!==src||!(CAT[src]&&CAT[src].custom))}ui.modal=b&&CAT[src]&&!CAT[src].custom?b:null;if(!ui.modal) closeModal();toast(`“${catName(src)}” merged into “${catName(dst)}”.`);render()}};
+Object.assign(ACT_PERM,{catMergeOpen:'masters_items',catMergeSave:'masters_items'});
