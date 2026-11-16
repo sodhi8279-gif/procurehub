@@ -930,3 +930,8 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .vp-col{display:flex;flex-direction:column;gap:4px}.vp-col label{font-size:12.5px;font-weight:600;color:var(--ink-2)}
 .vp-sum{margin:6px 0 10px;padding:8px 10px;border-radius:8px;background:var(--surface-2,rgba(0,0,0,.03))}
 .cchip.empty{opacity:.6}.cchip.empty b{font-weight:400}
+/* item size / specification: easy to read */
+.line-spec-row{margin:2px 0 6px;line-height:1.35}
+.line-spec{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.1px}
+.line-spec-row>small{font-size:12.5px}
+.spec-block{display:block;font-weight:700;font-size:13.5px;color:var(--ink)}
