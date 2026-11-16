@@ -197,7 +197,7 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		if op == "update" && len(patch) > 0 {
 			only := true
 			for k := range patch {
-				if k != "cats" && k != "catPhotos" {
+				if k != "cats" && k != "catPhotos" && k != "catKw" && k != "catGroups" {
 					only = false
 				}
 			}
