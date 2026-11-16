@@ -3,7 +3,7 @@ function wrap(title,body,foot,cls=''){return `<div class="modal-bg" data-act="bg
 function modalHtml(){
   const m=ui.modal;const busy=ui.busy||ui.uploading?'disabled':'';
   switch(m.type){
-  case 'addItem':{const it=m.item,d=m.d;const sizes=it.sizes||[];
+  case 'addItem':{const it=m.item,d=m.d;const sizes=typeof varSizesFor==='function'?varSizesFor(it,d):(it.sizes||[]);
     return wrap('Add to demand',`<div class="mhead">${thumb(it,'mh')}<div class="grow"><h3>${esc(it.desc)}</h3><div class="row tight">${catSw(it.category)}${it.spec?`<span class="muted small">${esc(it.spec)}</span>`:''}</div></div></div>
      ${typeof varPicker==='function'?varPicker(it,d):''}
      ${sizes.length?`<div class="f"><label>Size</label><div class="size-chips">${sizes.map(s=>`<button type="button" class="schip ${d.size===s?'on':''}" data-act="mset" data-k="size" data-val="${esc(s)}">${esc(s)}</button>`).join('')}<button type="button" class="schip ${d.size==='__other'?'on':''}" data-act="mset" data-k="size" data-val="__other">Other size</button></div></div>${d.size==='__other'?field('Size','modal.d.otherSize',d.otherSize,'placeholder="e.g. 350 mm"'):''}`:''}

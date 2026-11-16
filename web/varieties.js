@@ -38,13 +38,14 @@ A.varPreset=d=>{const a=ui.modal.d.attrs;for(const [n,o] of VAR_PRESETS[d.k]||[]
 function varSpec(it,vals,size,extra){const parts=[];for(const a of it.attrs||[]){const v=String((vals||{})[a.name]||'').trim();if(!v) continue;parts.push(a.showName&&!norm(v).includes(norm(a.name))?a.name+' '+v:v)}
   if(size) parts.push(String(size).trim());if(extra&&String(extra).trim()) parts.push(String(extra).trim());return parts.join(', ')}
 function varVals(it,d){const out={};for(const a of it.attrs||[]){const v=(d.av||{})[a.name];out[a.name]=v==='__other'?String((d.avo||{})[a.name]||'').trim():(v||'')}return out}
-function varCheck(it,d){const vals=varVals(it,d);for(const a of it.attrs||[]) if(a.req&&!vals[a.name]) return {err:`Choose the ${a.name.toLowerCase()}.`};return {vals}}
+function varCheck(it,d){const vals=varVals(it,d);for(const a of it.attrs||[]) if(a.req&&!vals[a.name]&&!(typeof varShowAttr==='function'&&!varShowAttr(it,d,a))) return {err:`Choose the ${a.name.toLowerCase()}.`};return {vals}}
 
 // ---- adding the item to a demand: choose a value of each ----
 function varPicker(it,d){if(!(it.attrs||[]).length) return '';d.av=d.av||{};d.avo=d.avo||{};
-  return it.attrs.map((a,i)=>{const v=d.av[a.name]||'';return `<div class="f"><label>${esc(a.name)}${a.req?'':' <span class="muted small">(optional)</span>'}</label><div class="size-chips">${a.opts.map(o=>`<button type="button" class="schip ${v===o?'on':''}" data-act="varPick" data-a="${i}" data-val="${esc(o)}">${esc(o)}</button>`).join('')}<button type="button" class="schip ${v==='__other'?'on':''}" data-act="varPick" data-a="${i}" data-val="__other">Other</button></div>
-    ${v==='__other'?`<input class="inp" style="margin-top:6px" data-bind="modal.d.avo.${esc(a.name)}" value="${esc(d.avo[a.name]||'')}" placeholder="Type the ${esc(a.name.toLowerCase())}">`:''}</div>`}).join('')}
-A.varPick=d=>{const m=ui.modal;const a=m.item.attrs[+d.a];if(!a) return;m.d.av[a.name]=m.d.av[a.name]===d.val?'':d.val;render()};
+  const note=typeof varNote==='function'?varNote(it,d):'';return it.attrs.map((a,i)=>{if(typeof varShowAttr==='function'&&!varShowAttr(it,d,a)) return '';const v=d.av[a.name]||'';const os=typeof varOptsFor==='function'?varOptsFor(it,d,a):a.opts;return `<div class="f"><label>${esc(a.name)}${a.req?'':' <span class="muted small">(optional)</span>'}</label><div class="size-chips">${os.map(o=>`<button type="button" class="schip ${v===o?'on':''}" data-act="varPick" data-a="${i}" data-val="${esc(o)}">${esc(o)}</button>`).join('')}<button type="button" class="schip ${v==='__other'?'on':''}" data-act="varPick" data-a="${i}" data-val="__other">Other</button></div>
+    ${v==='__other'?`<input class="inp" style="margin-top:6px" data-bind="modal.d.avo.${esc(a.name)}" value="${esc(d.avo[a.name]||'')}" placeholder="Type the ${esc(a.name.toLowerCase())}">`:''}${i===0&&note?`<small class="muted block" style="margin-top:4px">${icon('help','xs')} ${esc(note)}</small>`:''}</div>`}).join('')}
+A.varPick=d=>{const m=ui.modal,it=m.item;const a=it.attrs[+d.a];if(!a) return;m.d.av[a.name]=m.d.av[a.name]===d.val?'':d.val;
+  if(it.rel&&it.rel.by===a.name&&typeof varOptsFor==='function'){for(const b of it.attrs){if(b===a) continue;const v=m.d.av[b.name];if(v&&(!varShowAttr(it,m.d,b)||v!=='__other'&&!varOptsFor(it,m.d,b).includes(v))) m.d.av[b.name]=''}const zs=varSizesFor(it,m.d);if(m.d.size&&m.d.size!=='__other'&&!zs.includes(m.d.size)) m.d.size=''}render()};
 // an item asked before: its specification gives the values back
 function varPrefill(it,d){const g=varGuess(it,d.spec||'');d.av={};d.avo={};for(const a of it.attrs){if(g.vals[a.name]) d.av[a.name]=g.vals[a.name]}
   if(g.size&&(it.sizes||[]).includes(g.size)) d.size=g.size;d.spec=g.rest}
@@ -66,8 +67,8 @@ A.varConvFrom=d=>{const it=D.itemMap[d.id];if(!it) return;const words=norm(it.de
   const rows=itemIndex().filter(o=>!(norm(o.desc)===norm(it.desc)&&varSpec(it,varGuess(it,o.spec).vals,varGuess(it,o.spec).size,varGuess(it,o.spec).rest)===o.spec)&&words.some(w=>norm(o.desc).split(' ').includes(w)||norm(o.desc).split(' ').includes(w+'s'))).slice(0,120);
   if(!rows.length) return toast('No other items look like this one. Tick items in Find items and use Convert to varieties.','err');
   varConvOpen(it.id,rows.map(o=>({o,on:norm(o.desc)===norm(it.desc)})),'')};
-function varConvOpen(targetId,rows,newName){const it=targetId?D.itemMap[targetId]:null;
-  const d={target:targetId||'__new',name:it?it.desc:newName,category:it?it.category:(rows[0].o.cat||'others'),unit:it?it.unit:rows[0].o.unit,attrs:attrsToDraft(it&&it.attrs),sizesText:((it&&it.sizes)||[]).join(', '),rows:[]};
+function varConvOpen(targetId,rows,newName,lib){const it=targetId?D.itemMap[targetId]:(lib&&typeof libItem==='function'?Object.assign({id:''},libItem(lib)):null);
+  const d={target:targetId||'__new',rel:it&&it.rel||null,name:it?it.desc:newName,category:it?it.category:(rows[0].o.cat||'others'),unit:it?it.unit:rows[0].o.unit,attrs:attrsToDraft(it&&it.attrs),sizesText:((it&&it.sizes)||[]).join(', '),rows:[]};
   if(!d.attrs.length){const p=Object.keys(VAR_PRESETS).find(k=>norm(d.name).includes(norm(k)));if(p) d.attrs=VAR_PRESETS[p].map(([n,o])=>({name:n,optsText:o,req:false,showName:n==='Class'||n==='Pressure'}))}
   d._new=true;d.rows=rows.map(({o,on})=>({key:o.key,desc:o.desc,spec:o.spec,unit:o.unit,on,vals:{},size:'',rest:'',touched:false,catOnly:!!o.catOnly,sizes:o.sizes||[]}));varConvDiscover(d);varConvGuess(d);
   openModal({type:'varConv',d})}
@@ -124,7 +125,7 @@ A.varConvSave=async()=>{const d=ui.modal.d;const name=String(d.name||'').trim();
   const plan=rows.filter(r=>!r.catOnly).map(r=>({from:{desc:r.desc,spec:r.spec,unit:r.unit},to:{desc:name,spec:varSpec(it,r.vals,String(r.size||'').trim(),r.rest),unit:r.unit,cat:d.category}})).filter(p=>p.from.desc!==p.to.desc||p.from.spec!==p.to.spec);
   const oldDescs=[...new Set(rows.map(r=>r.desc))].filter(x=>slug(x)!==id);
   const ok=await run(async()=>{const cur=D.itemMap[id];const base=Object.assign({},S.catalog[id]||(cur?{desc:cur.desc,spec:cur.spec||'',unit:cur.unit,category:cur.category,photo:cur.photo||'',gst:cur.gst??'',hsn:cur.hsn||''}:{}),
-      {desc:name,unit:d.unit,category:d.category,attrs,sizes,spec:(cur&&cur.attrs&&cur.attrs.length)?(cur.spec||''):'',at:Date.now()});delete base.id;delete base.std;
+      {desc:name,unit:d.unit,category:d.category,attrs,sizes,...(d.rel?{rel:d.rel}:{}),spec:(cur&&cur.attrs&&cur.attrs.length)?(cur.spec||''):'',at:Date.now()});delete base.id;delete base.std;
     if(!base.photo){const src=oldDescs.map(x=>D.itemMap[slug(x)]).find(x=>x&&x.photo);if(src) base.photo=src.photo}
     await setDoc('catalog',id,base);let n=0;
     for(const p of plan){const j=await api('/api/items/rename',p);n+=j.docs||0}
@@ -144,8 +145,9 @@ Object.assign(ACT_PERM,{varStdSizes:'masters_items'});
 A.varConvCat=d=>{const c=d.c;const used=itemIndex().filter(o=>o.cat===c);const usedDesc=new Set(used.map(o=>norm(o.desc)));
   const catRows=D.items.filter(it=>it.category===c&&!it.hidden).map(it=>({key:'cat:'+it.id,desc:it.desc,spec:it.spec||'',unit:it.unit||'Nos',cat:c,catOnly:true,sizes:it.sizes||[]}));
   const rows=[...catRows,...used];if(!rows.length) return toast('No items in this category.','err');
-  const name=CAT_MERGE_NAME[c]||catName(c).replace(/\s*&.*$/,'').replace(/s$/,'');const target=D.items.find(it=>norm(it.desc)===norm(name)&&(it.attrs||[]).length);
-  varConvOpen(target?target.id:'',rows.map(o=>({o,on:!(target&&o.catOnly&&o.key==='cat:'+target.id)})),target?'':name)};
+  const lib=typeof libForCat==='function'?libForCat(c)[0]:null;const name=lib?lib.desc:(CAT_MERGE_NAME[c]||catName(c).replace(/\s*&.*$/,'').replace(/s$/,''));const nn=norm(name);
+  const target=D.items.find(it=>it.category===c&&[nn,nn+'s',nn+'es'].includes(norm(it.desc))&&(it.attrs||[]).length);
+  varConvOpen(target?target.id:'',rows.map(o=>({o,on:!(target&&o.catOnly&&o.key==='cat:'+target.id)})),target?'':name,!target&&lib?lib:null)};
 const CAT_MERGE_NAME={pipes:'Pipe',fittings:'Fitting',valves:'Valve',electrical:'Cable',civil:'Civil material',paints:'Paint'};
 Object.assign(ACT_PERM,{varConvCat:'masters_items'});
 

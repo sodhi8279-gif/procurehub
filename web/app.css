@@ -921,3 +921,7 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .var-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.var-row .inp{width:150px}.var-row .inp.grow{flex:1;min-width:220px}
 .var-t td{vertical-align:top}.var-t tr.off td{opacity:.45}.var-t .inp.sm{width:100%}
 .modal.xl{max-width:min(1200px,96vw)}
+/* standard items library */
+.std-lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin:4px 0 12px}
+.std-card{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--surface)}
+.std-card.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
