@@ -84,7 +84,7 @@ A.cashFromDemand=d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;if(!ca
 function cashSrcBox(d){if(!(d.srcs||[]).length) return '';return `<div class="notice info">${icon('clip')}<span><b>Against demand ${esc(d.fromNo||'')}</b> — these items are marked bought when this cash purchase is finally approved. Untick any you did not buy:
   <span class="bv-src">${d.srcs.map((s,k)=>`<label class="check"><input type="checkbox" data-act="cashSrcTick" data-k="${k}" ${s.on?'checked':''}> ${esc(s.desc)}${s.spec?' · '+esc(s.spec):''} — ${fq(s.qty)} ${esc(s.unit)}</label>`).join('')}</span></span></div>`}
 A.cashSrcTick=d=>{const s=ui.modal.d.srcs[+d.k];if(s) s.on=!s.on;render()};
-Object.assign(ACT_PERM,{buyVia:['demands_approve','emergency_purchase','po_approve'],bvTick:['demands_approve','emergency_purchase','po_approve'],bvAll:['demands_approve','emergency_purchase','po_approve'],bvUndo:['demands_approve','emergency_purchase','po_approve'],cashSrcTick:['cash_spend','cash_approve','po_approve']});
+Object.assign(ACT_PERM,{restoreIndent:['demands_approve'],buyVia:['demands_approve','emergency_purchase','po_approve'],bvTick:['demands_approve','emergency_purchase','po_approve'],bvAll:['demands_approve','emergency_purchase','po_approve'],bvUndo:['demands_approve','emergency_purchase','po_approve'],cashSrcTick:['cash_spend','cash_approve','po_approve']});
 
 /* ---- comparative: split one item's quantity between two vendors ----
    The item becomes two lines on the comparative (e.g. 300 + 200 bags), each

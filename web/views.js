@@ -178,14 +178,16 @@ function vIndent(siteMode){
      <h2>${esc(projLabel(i.projectId))}</h2>
      <div class="meta"><div><span>Raised on</span><b>${fd(i.date)}</b></div><div><span>Required by</span><b>${fd(i.requiredBy)}</b></div><div><span>Requested by</span><b>${esc(i.requestedBy||i.createdByName||'—')}</b></div><div><span>Delivered</span><b>${Math.round(s.pct*100)}%</b></div></div>
      ${i.emergency?emgIndentBox(i,siteMode):i.remarks?`<p class="remark">${icon('chat')} <span><b>Site remarks:</b> ${esc(i.remarks)}</span></p>`:''}
+     ${i.cancelled?`<p class="ro-note">${icon('x','xs')} <span><b>Cancelled</b>${i.cancelledByName?' by '+esc(i.cancelledByName):''}${i.cancelledAt?' on '+fdt(i.cancelledAt):''}${i.cancelReason?' · '+esc(i.cancelReason):''}.${hq&&!i.pcDeleted?' To work on it again, press <b>Restore demand</b> — reopening or approving single items does not undo the cancellation.':''}</span></p>`:''}
      ${amendBanner(i,siteMode)}
      ${siteMode&&!amendIsOpen(i)&&!i.emergency?`<p class="ro-note">${icon('key','xs')} <span><b>View only.</b> This requisition was sent to HQ and can't be changed from site. Follow each item's progress below; ask HQ if something needs to change.</span></p>`:''}
      ${pcp&&!pcEdit?`<p class="ro-note">${icon('clock','xs')} <span><b>Waiting for pre-check.</b> ${siteMode?'HQ checks the demand before it goes for approval. You will see any change here.':'The approver can act on it after a pre-checker pre-approves it.'}</span></p>`:''}</div>
      ${selfPc&&!siteMode?`<p class="ro-note">${icon('key','xs')} <span><b>You pre-approved this demand,</b> so another person must approve it.</span></p>`:''}
-     <div class="doc-acts">${sendBackBtn(i,siteMode)}${hq&&!pcp&&!selfPc&&!amendIsOpen(i)&&(i.lines||[]).some(l=>!l.status||l.status==='pending'||l.status==='hold')?`<button class="btn primary" data-act="approveIndent" data-id="${i.id}">${icon('check')} Approve all lines</button>`:''}
+     <div class="doc-acts">${sendBackBtn(i,siteMode)}${hq&&!i.cancelled&&!pcp&&!selfPc&&!amendIsOpen(i)&&(i.lines||[]).some(l=>!l.status||l.status==='pending'||l.status==='hold')?`<button class="btn primary" data-act="approveIndent" data-id="${i.id}">${icon('check')} Approve all lines</button>`:''}
      ${(hq&&!pcp&&allPending&&!i.cancelled)?`<button class="btn danger" data-act="cancelIndent" data-id="${i.id}">Cancel requisition</button>`:''}
+     ${hq&&i.cancelled&&!i.pcDeleted&&(can('demands_approve')||isAdm())?`<button class="btn primary" data-act="restoreIndent" data-id="${i.id}">${icon('back')} Restore demand</button>`:''}
      <button class="btn" data-act="printMR" data-id="${i.id}">${icon('print')} Print</button><button class="btn ghost" data-act="go" data-v="${siteMode?'s_list':'demands'}">${icon('back')} Back</button></div></section>
-  ${amendCanEdit(i,siteMode)?amendEditor(i):pcEdit&&!amendIsOpen(i)?pcEditor(i):`<section class="card"><div class="card-h"><h2>Items</h2><span class="sub">${(i.lines||[]).length} lines</span></div><div class="lines">${(i.lines||[]).map(l=>lineCard(i,l,hq&&!pcp&&!selfPc&&!amendIsOpen(i))).join('')}</div></section>`}
+  ${amendCanEdit(i,siteMode)?amendEditor(i):pcEdit&&!amendIsOpen(i)?pcEditor(i):`<section class="card"><div class="card-h"><h2>Items</h2><span class="sub">${(i.lines||[]).length} lines</span></div><div class="lines">${(i.lines||[]).map(l=>lineCard(i,l,hq&&!pcp&&!selfPc&&!amendIsOpen(i)&&!i.cancelled)).join('')}</div></section>`}
   ${typeof buyViaCard==='function'?buyViaCard(i,siteMode):''}
   ${amendLogCard(i)}${pcLogCard(i)}${remarksCard(i,hq)}
   ${hq?`<p class="muted small">${icon('help')} Changing a category teaches the catalogue, so the same item is filed correctly next time. Approved lines move to the procurement queue.</p>`:''}`;

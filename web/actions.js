@@ -150,7 +150,11 @@ A.submitIndent=async()=>{
 };
 
 /* ================= DEMAND REVIEW ================= */
-A.cancelIndent=d=>confirmBox({title:'Cancel requisition',body:'The requisition is withdrawn and HQ will not process it.',yes:'Cancel requisition',danger:true,onYes:async()=>{await run(()=>updDoc('indents',d.id,{cancelled:true,cancelledAt:Date.now()}),'Requisition cancelled');go(ui.role==='hq'?'demands':'s_list')}});
+A.restoreIndent=d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;
+  if(i.emgPoCancelled) return toast('This emergency demand was cancelled with its emergency PO. Enter a new emergency purchase instead.','err');
+  confirmBox({title:'Restore '+i.no,body:'<p>The demand becomes active again with its items as they were: approved items go back to the procurement queue, the rest wait for review. The site sees it again in its demands.</p>',note:'Reason (shown to the site)',notePh:'e.g. Cancelled by mistake / work restarted',yes:'Restore demand',
+    onYes:async m=>{const note=String(m.noteVal||'').trim();const ok=await run(async()=>{await updDoc('indents',i.id,{cancelled:false,cancelledAt:null,cancelReason:null,restoredAt:Date.now(),restoredByName:(ui.me&&ui.me.name)||''});await addHqRemark(i.id,'Demand restored'+(note?': '+note:''),'Restored')},'Demand restored');if(ok!==false) closeModal()}})};
+A.cancelIndent=d=>confirmBox({title:'Cancel requisition',body:'The requisition is withdrawn and HQ will not process it. It can be restored later with Restore demand.',yes:'Cancel requisition',danger:true,onYes:async()=>{await run(()=>updDoc('indents',d.id,{cancelled:true,cancelledAt:Date.now(),cancelledByName:(ui.me&&ui.me.name)||''}),'Requisition cancelled');go(ui.role==='hq'?'demands':'s_list')}});
 A.lineStatus=async d=>{const note=String((ui.draft.ar&&ui.draft.ar[d.line])||'').trim();
   if(d.s==='rejected'&&!note){toast('Write the reason in the remark box first, so the site knows why.','err');const el=document.getElementById('ar-'+d.line);el&&el.focus();return}
   const ok=await run(()=>patchLines(d.ind,lines=>{const l=lines.find(x=>x.id===d.line);if(!l) return;l.status=d.s;if(d.s==='pending') delete l.approvalNote;else if(note) l.approvalNote=note;if(d.s==='approved'){const v=ui.draft.aq&&ui.draft.aq[l.id];l.approvedQty=num(v!=null?v:(l.approvedQty??l.qty));l.approvedAt=Date.now()}if(d.s==='pending'){delete l.approvedAt}}),d.s==='approved'?'Line approved':d.s==='rejected'?'Line rejected':d.s==='hold'?'Line on hold':'Line reopened');if(ok!==false&&ui.draft.ar) delete ui.draft.ar[d.line]};
