@@ -16,6 +16,9 @@
    IS 14846 (sluice valves PN 1.0/1.6, 50–1200 mm), IS 13095 (butterfly),
    IS 694 / IS 1554 / IS 7098 (cables 0.5–630 sq mm), IS 269 / 1489 / 455
    (cement), IS 383 (aggregates), IS 1077 / 12894 / 2185 (bricks, blocks). */
+// fittings only — the material is its own list, never mixed in here
+const VAR_FITTINGS=['Elbow 90°','Elbow 45°','Bend 90°','Bend 45°','Bend 22.5°','Bend 11.25°','Long bend','Door bend','Tee (equal)','Tee (reducing)','Y-tee','Cross','Reducer (concentric)','Reducer (eccentric)','Coupling / socket','Union','Nipple','Hex nipple','Barrel nipple','Long screw','Plug','End cap','Bush','Flange (slip-on)','Flange (weld neck)','Flange (screwed)','Blind flange','Puddle flange','Flange adaptor','Collar','MJ collar','Mechanical joint (Gibault)','Dismantling joint','Repair clamp','Tail piece','Service saddle','Tapping saddle','MTA (male adaptor)','FTA (female adaptor)','P-trap','Nahani trap'];
+const VAR_FIT_MATERIALS=['GI','DI','CI','MS','SS','Malleable iron','HDPE','uPVC','PVC','CPVC','PPR','SWR','Brass'];
 
 const MM=a=>a.map(n=>n+' mm');
 const SZ={
@@ -54,7 +57,7 @@ const STD_LIB=[
    'Stoneware':{'IS':['IS 651'],'Ends / joint':['Socket & spigot (push-on)'],sizes:SZ.sw}}},
 
  {id:'pipe-fitting',desc:'Pipe fitting',cat:'fittings',unit:'Nos',relBy:'Material',
-  attrs:[['Fitting','Elbow 90°, Elbow 45°, Bend 90°, Bend 45°, Bend 22.5°, Bend 11.25°, Tee (equal), Tee (reducing), Reducer (concentric), Reducer (eccentric), Coupler / socket, Union, End cap, Plug, Nipple, Blind flange, Flange adaptor, Collar, Tail piece, Dismantling joint, Mechanical joint (Gibault), Service saddle, Tapping saddle, Puddle flange, Y-tee, Cross, Bush, MTA (male adaptor), FTA (female adaptor), Door bend, P-trap, Nahani trap',1],['Material','DI, CI, GI, MS, HDPE, uPVC, CPVC, PPR, SWR, Brass',1],['Ends','Socketed, Double flanged, Flanged & socketed, Threaded (BSP), Butt fusion, Electrofusion, Solvent weld, Ring-fit, Push-on',0],['Pressure / class','PN 6, PN 10, PN 16, K12, Light, Medium, Heavy, SDR 11, SCH 40, SCH 80, Type A, Type B',0],['IS','IS 9523, IS 1538, IS 1879, IS 1239 (Part 2), IS 8008, IS 8360, IS 7834, IS 10124, ASTM D2846, IS 15801, IS 14735',0]],
+  attrs:[['Fitting',VAR_FITTINGS.join(', '),1],['Material','DI, CI, GI, MS, SS, Malleable iron, HDPE, uPVC, PVC, CPVC, PPR, SWR, Brass',1],['Ends','Socketed, Double flanged, Flanged & socketed, Threaded (BSP), Butt fusion, Electrofusion, Solvent weld, Ring-fit, Push-on',0],['Pressure / class','PN 6, PN 10, PN 16, K12, Light, Medium, Heavy, SDR 11, SCH 40, SCH 80, Type A, Type B',0],['IS','IS 9523, IS 1538, IS 1879, IS 1239 (Part 2), IS 8008, IS 8360, IS 7834, IS 10124, ASTM D2846, IS 15801, IS 14735',0]],
   sizes:sortSz([...SZ.di,...SZ.nb,...SZ.hdpe,...SZ.upvc,...SZ.cpvc,...SZ.ppr,...SZ.swr]),
   rel:{'DI':{Ends:['Socketed','Double flanged','Flanged & socketed','Push-on'],'Pressure / class':['PN 10','PN 16','K12'],'IS':['IS 9523'],sizes:SZ.di,note:'IS 9523 DI fittings, normally K12'},
    'CI':{Ends:['Socketed','Double flanged','Flanged & socketed'],'Pressure / class':['PN 10','PN 16'],'IS':['IS 1538'],sizes:SZ.ci},

@@ -11,11 +11,11 @@
 const VAR_PRESETS={
   'Pipe':[['Type','GI, DI, MS, PVC, uPVC, CPVC, HDPE'],['Class','Light, Medium, Heavy'],['Pressure','PN 4, PN 6, PN 10, PN 16, 4 kg/cm², 6 kg/cm², 10 kg/cm²'],['IS code','IS 1239, IS 3589, IS 8329, IS 4985, IS 4984'],['Ends','Plain, Socketed, Flanged, Threaded']],
   'Valve':[['Type','Sluice, Butterfly, Gate, Ball, Non-return, Air'],['Pressure','PN 10, PN 16, PN 25'],['Body','CI, DI, Brass, PVC'],['Ends','Flanged, Threaded, Socket']],
-  'Fitting':[['Type','Elbow, Tee, Reducer, Coupling, Bend, Collar, Union'],['Material','GI, DI, PVC, CPVC, HDPE'],['Angle','90°, 45°, 22.5°, 11.25°']],
+  'Fitting':[['Type',VAR_FITTINGS.join(', ')],['Material',VAR_FIT_MATERIALS.join(', ')]],
   'Cable':[['Core','1 core, 2 core, 3 core, 3.5 core, 4 core'],['Size','1.5 sq mm, 2.5 sq mm, 4 sq mm, 6 sq mm, 10 sq mm'],['Conductor','Copper, Aluminium'],['Armour','Armoured, Unarmoured']],
   'Cement':[['Grade','OPC 43, OPC 53, PPC, PSC'],['Make','ACC, UltraTech, Ambuja, Shree']]};
 
-const attrsToDraft=a=>(a||[]).map(x=>({name:x.name||'',optsText:(x.opts||[]).join(', '),req:x.req!==false,showName:!!x.showName}));
+const attrsToDraft=a=>(varTidyAttrs(a)||[]).map(x=>({name:x.name||'',optsText:(x.opts||[]).join(', '),req:x.req!==false,showName:!!x.showName}));
 const attrsFromDraft=a=>(a||[]).map(x=>({name:String(x.name||'').trim(),opts:String(x.optsText||'').split(',').map(s=>s.trim()).filter(Boolean),req:!!x.req,showName:!!x.showName})).filter(x=>x.name);
 
 // ---- the item editor: its varieties ----
@@ -164,14 +164,14 @@ Object.assign(ACT_PERM,{varConvCat:'masters_items'});
 // find choices the items use that are not listed yet: PPR, DWC, RCC… (type),
 // K7, NP3, PN10, SN8, PE100, 6 kg/cm² (class), IS 458 (IS code)
 const VAR_MATERIALS=['gi','di','ms','ci','ss','ppr','pvc','upvc','cpvc','hdpe','mdpe','ldpe','dwc','rcc','swr','frp','grp','pe','hume','copper','brass','aluminium','steel','stoneware','sw','cast iron','ductile iron'];
-function varConvDiscover(d){const find=re=>d.attrs.find(a=>re.test(a.name||''));const tA=find(/type|material/i),cA=find(/class|rating|grade/i)||find(/pressure/i),pA=find(/pressure/i)||cA,iA=find(/\bis\b|code|standard/i);
+function varConvDiscover(d){const find=re=>d.attrs.find(a=>re.test(a.name||''));const mA=find(/material|body/i),tA0=find(/type|fitting/i)||mA,tA=mA||tA0,cA=find(/class|rating|grade/i)||find(/pressure/i),pA=find(/pressure/i)||cA,iA=find(/\bis\b|code|standard/i);
   const add=(a,v)=>{if(!a||!v) return;const os=String(a.optsText||'').split(',').map(x=>x.trim()).filter(Boolean);if(!os.some(o=>norm(o).replace(/\s/g,'')===norm(v).replace(/\s/g,''))){os.push(v);a.optsText=os.join(', ')}};
   const nameW=new Set(norm(d.name).split(' ').flatMap(w=>[w,w.replace(/s$/,''),w+'s']));
   for(const r of d.rows){const t=r.desc+' '+(r.spec||'');
     if(iA) for(const m of t.matchAll(/\bIS\s*[:\-]?\s*(\d{2,5})(?:\s*\(\s*part\s*(\d+)\s*\))?/gi)) add(iA,'IS '+m[1]+(m[2]?' (Part '+m[2]+')':''));
     if(pA) for(const m of t.matchAll(/(?<![a-z0-9])(PN\s?\d{1,2}|\d+(?:\.\d+)?\s*kg\/cm²?)(?![a-z0-9])/gi)) add(pA,/^pn/i.test(m[1])?'PN '+m[1].replace(/\D/g,''):m[1].replace(/\s*kg\/cm²?$/i,' kg/cm²'));
     if(cA) for(const m of t.matchAll(/(?<![a-z0-9])(K\s?\d{1,2}|NP\s?\d|SN\s?\d{1,2}|PE\s?\d{2,3}|SDR\s?\d{1,2}|sch(?:edule)?\s?\d{2,3}|class\s+[a-c]\b)(?![a-z0-9])/gi)) add(cA,m[1].replace(/\s+/g,'').replace(/^(sch|schedule)/i,'Sch ').replace(/kg\/cm²?$/i,' kg/cm²').replace(/^class/i,'Class ').toUpperCase().replace('KG/CM²','kg/cm²').replace(/^CLASS /,'Class ').replace(/^SCH /,'Sch '));
-    if(tA){const ws=r.desc.split(/\s+/);for(const w of ws){const n=norm(w);if(!n||nameW.has(n)) continue;if(VAR_MATERIALS.includes(n)||(/^[A-Z]{2,5}$/.test(w)&&!/^(IS|NP|PN|SN|PE|SDR|ERW|MM)$/.test(w))){add(tA,VAR_MATERIALS.includes(n)&&n.length<=4?w.toUpperCase().replace(/^UPVC$/,'uPVC').replace(/^CPVC$/,'CPVC'):w);break}}}}}
+    if(tA){const ws=r.desc.split(/\s+/);for(const w of ws){const n=norm(w);if(!n||nameW.has(n)) continue;const isM=VAR_MATERIALS.includes(n);if(!isM&&mA&&tA0&&tA0!==mA&&/^[A-Z]{2,5}$/.test(w)&&!/^(IS|NP|PN|SN|PE|SDR|ERW|MM)$/.test(w)){add(tA0,w);continue}if(isM||(!mA&&/^[A-Z]{2,5}$/.test(w)&&!/^(IS|NP|PN|SN|PE|SDR|ERW|MM)$/.test(w))){add(isM?tA:tA0,VAR_MATERIALS.includes(n)&&n.length<=4?w.toUpperCase().replace(/^UPVC$/,'uPVC').replace(/^CPVC$/,'CPVC'):w);break}}}}}
 
 /* ---- one standard category: merge a category into another (then the extra one can be deleted) ---- */
 A.catMergeOpen=d=>{const m=ui.modal;const c=m&&m.d&&m.d.cats?m.d.cats[+d.i]:null;const id=c?c.id:d.id;if(!id) return toast('Save the new category first.','err');
@@ -189,3 +189,27 @@ A.catMergeSave=async()=>{const m=ui.modal,d=m.d;const src=d.src,dst=d.dst;if(!ds
     return n},'Merged');
   if(ok!==false){const b=m.back;if(b&&b.d&&b.d.cats){b.d.cats=b.d.cats.filter(c=>c.id!==src||!(CAT[src]&&CAT[src].custom))}ui.modal=b&&CAT[src]&&!CAT[src].custom?b:null;if(!ui.modal) closeModal();toast(`“${catName(src)}” merged into “${catName(dst)}”.`);render()}};
 Object.assign(ACT_PERM,{catMergeOpen:'masters_items',catMergeSave:'masters_items'});
+
+
+/* ---- keep Type and Material apart: an item like "Fitting" whose Type list also
+   carries GI / DI / HDPE… (from older conversions) shows the materials in its own
+   Material drop-down. Applied whenever an item is read, so saved items are tidied too. */
+const VAR_MAT_WORDS=new Set(['gi','di','ci','ms','ss','mi','ppr','pvc','upvc','cpvc','hdpe','mdpe','ldpe','dwc','rcc','swr','frp','grp','pe','hume','copper','brass','bronze','aluminium','steel','stoneware','sw','cast iron','ductile iron','malleable iron','stainless steel','mild steel','galvanised iron','galvanized iron','gm','gunmetal','gun metal']);
+const varIsMat=v=>VAR_MAT_WORDS.has(norm(v));
+const VAR_FIT_RE=/elbow|bend|tee\b|reducer|coupl|socket|union|nipple|plug|cap\b|bush|flange|collar|gibault|joint|saddle|adaptor|adapter|\bmta\b|\bfta\b|trap|cross|tail ?piece|clamp|long screw/i;
+function varTidyAttrs(attrs){if(!Array.isArray(attrs)||!attrs.length) return attrs;
+  const tA=attrs.find(a=>/^(type|fitting|fitting type|item type)$/i.test(String(a.name||'').trim()));if(!tA) return attrs;
+  const opts=tA.opts||[];const mats=opts.filter(varIsMat);
+  // a fittings list that is short (Elbow, Tee, Bend…) gets the rest of the standard fittings
+  const fw=o=>norm(o).split(' ')[0];const isFit=opts.filter(o=>VAR_FIT_RE.test(o)).length>=2;
+  const more=isFit&&typeof VAR_FITTINGS!=='undefined'?VAR_FITTINGS.filter(f=>!opts.some(o=>norm(o)===norm(f)||fw(o)===fw(f))):[];
+  const fm=isFit&&typeof VAR_FIT_MATERIALS!=='undefined'?VAR_FIT_MATERIALS:[];
+  if(!mats.length&&!more.length&&!(fm.length&&attrs.some(a=>a!==tA&&/material|body/i.test(a.name||'')&&fm.some(v=>!(a.opts||[]).some(o=>norm(o)===norm(v)))))) return attrs;
+  let mA=attrs.find(a=>a!==tA&&/material|body/i.test(a.name||''));
+  // a pipe's "Type" is its material (GI / DI / PVC): leave it, unless the list also has fittings
+  if(!mA&&!opts.some(o=>VAR_FIT_RE.test(o))) return attrs;
+  const out=attrs.map(a=>Object.assign({},a,{opts:[...(a.opts||[])]}));const t=out[attrs.indexOf(tA)];
+  t.opts=t.opts.filter(o=>!varIsMat(o)).concat(more);const allM=[...mats,...fm.filter(v=>!mats.some(o=>norm(o)===norm(v)))];
+  if(mA){const m=out[attrs.indexOf(mA)];for(const v of allM) if(!m.opts.some(o=>norm(o)===norm(v))) m.opts.push(v)}
+  else if(allM.length) out.splice(out.indexOf(t)+1,0,{name:'Material',opts:allM,req:false,showName:false});
+  return out}

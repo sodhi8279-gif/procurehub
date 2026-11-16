@@ -46,7 +46,7 @@ const catName=id=>(CAT[id]||CAT.others).name;
 const catH=id=>(CAT[id]||CAT.others).h;
 function catSw(id){return `<span class="cat"><span class="cat-ic tint" style="--h:${catH(id)}">${ART.cat(id)}</span><span>${esc(catName(id))}</span></span>`}
 const STD=Object.fromEntries(STD_ITEMS.map(i=>{const id=slug(i.desc);return [id,{id,desc:i.desc,unit:i.unit,sizes:i.sizes,spec:i.spec,category:i.cat,std:true}]}));
-function catalogItems(){const m={};for(const k in STD) m[k]=Object.assign({},STD[k]);for(const c of S.catalogList){m[c.id]=Object.assign({},m[c.id]||{},c,{std:!!STD[c.id]})}return Object.values(m).filter(x=>x.desc)}
+function catalogItems(){const m={};for(const k in STD) m[k]=Object.assign({},STD[k]);for(const c of S.catalogList){m[c.id]=Object.assign({},m[c.id]||{},c,{std:!!STD[c.id]})}return Object.values(m).filter(x=>x.desc).map(x=>x.attrs&&x.attrs.length&&typeof varTidyAttrs==='function'?Object.assign(x,{attrs:varTidyAttrs(x.attrs)}):x)}
 function classify(desc,spec){
   const c=D.itemMap&&D.itemMap[slug(desc)];if(c&&c.category&&!c.hidden) return {cat:c.category,src:'catalog'};
   const t=' '+norm(desc+' '+(spec||''))+' ';let best='others',bs=0;
