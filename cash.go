@@ -83,6 +83,9 @@ func cashGuard(u *User, ex, patch, nd map[string]any) error {
 		for _, k := range []string{"appr", "fin", "uses", "log", "returnNote"} {
 			delete(nd, k)
 		}
+		if err := cashCheckSrcs(nd); err != nil {
+			return err
+		}
 		nd["status"], nd["by"], nd["byName"], nd["enteredAt"] = "pending", u.ID, u.Name, now
 		nd["log"] = []any{map[string]any{"type": "entered", "by": u.Name, "at": now}}
 		return nil
@@ -296,4 +299,59 @@ func cashUsedFinal(d map[string]any) map[int]float64 {
 		}
 	}
 	return u
+}
+
+// cashCheckSrcs: a cash purchase entered from a demand names the demand items
+// it buys; they must be items approved for cash purchase on that site's demand
+// and not already bought in another cash purchase.
+func cashCheckSrcs(nd map[string]any) error {
+	srcs := anyList(nd["srcs"])
+	if len(srcs) == 0 {
+		delete(nd, "srcs")
+		delete(nd, "indentId")
+		delete(nd, "indentNo")
+		return nil
+	}
+	if len(srcs) > 100 {
+		return errors.New("Too many demand items.")
+	}
+	taken := map[string]bool{}
+	for _, d := range st.Cols["cashbuys"] {
+		if d == nil || d.Deleted || str(d.Data, "status") == "rejected" {
+			continue
+		}
+		for _, s := range subList(d.Data, "srcs") {
+			taken[str(s, "indentId")+"|"+str(s, "lineId")] = true
+		}
+	}
+	var out []any
+	for _, x := range srcs {
+		s, _ := x.(map[string]any)
+		iid, lid := str(s, "indentId"), str(s, "lineId")
+		ind := docData("indents", iid)
+		if ind == nil || ind["cancelled"] == true {
+			return errors.New("The demand was not found or is cancelled.")
+		}
+		if str(nd, "location") != "site" || str(ind, "projectId") != str(nd, "projectId") {
+			return errors.New("A cash purchase against a demand must be for that demand's site.")
+		}
+		var dl map[string]any
+		for _, l := range subList(ind, "lines") {
+			if str(l, "id") == lid {
+				dl = l
+			}
+		}
+		if dl == nil || str(dl, "buyVia") != "cash" || str(dl, "poId") != "" {
+			return errors.New("An item of the demand is no longer approved for cash purchase; refresh the page.")
+		}
+		if taken[iid+"|"+lid] {
+			return errors.New(str(dl, "desc") + " was already bought in another cash purchase.")
+		}
+		taken[iid+"|"+lid] = true
+		q, _ := s["qty"].(float64)
+		out = append(out, map[string]any{"indentId": iid, "lineId": lid, "qty": q, "desc": str(dl, "desc")})
+	}
+	nd["srcs"] = out
+	nd["indentId"] = str(srcs[0].(map[string]any), "indentId")
+	return nil
 }

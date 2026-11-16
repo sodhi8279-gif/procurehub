@@ -72,7 +72,7 @@ function emgModal(m,busy){const d=m.d;const t=emgTotals(d);const v=vend(d.vendor
   const items=(D.items||[]).filter(i=>!i.hidden);
   const vOpts=selOpts(S.vendors.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(x=>({v:x.id,l:x.name+(x.city?' · '+x.city:'')})),d.vendorId,'— choose a registered vendor —');
   const pOpts=selOpts(S.projects.filter(x=>x.active!==false&&(isAdm()||!(ui.me.access&&(ui.me.access.projects||[]).length)||ui.me.access.projects.includes(x.id))).map(x=>({v:x.id,l:(x.code?x.code+' · ':'')+x.name})),d.projectId,'— choose the site —');
-  return wrap(`${icon('alert')} Emergency purchase`,`<div class="notice emg-note">${icon('alert')}<span><b>For material bought urgently on rates settled offline</b> with a registered vendor. Saving makes, in one step: the site's demand marked <b>EMERGENCY</b> (already approved), the purchase order${poApprovalOn()?(can('po_approve')&&ui.me.sign?' (approved with your signature)':' (sent to the Director (Procurement) for approval)'):''}, and the delivery the site receives under <b>Receive material</b>. After that it works like any other PO.</span></div>
+  return wrap(`${icon('alert')} Emergency purchase`,`${d.fromIndent?`<div class="notice info">${icon('inbox')}<span><b>Against demand ${esc(d.fromNo||'')}</b> of ${esc(projLabel(d.projectId))} — the PO and the delivery are made for these demand items; no new demand is created. A smaller quantity leaves the rest on the demand for the normal PO.</span></div>`:''}<div class="notice emg-note">${icon('alert')}<span><b>For material bought urgently on rates settled offline</b> with a registered vendor. Saving makes, in one step: the site's demand marked <b>EMERGENCY</b> (already approved), the purchase order${poApprovalOn()?(can('po_approve')&&ui.me.sign?' (approved with your signature)':' (sent to the Director (Procurement) for approval)'):''}, and the delivery the site receives under <b>Receive material</b>. After that it works like any other PO.</span></div>
   <div class="fields">
    <div class="f"><label for="emg-p">Send to site</label><select class="inp" id="emg-p" data-bind="modal.d.projectId">${pOpts}</select></div>
    <div class="f"><label for="emg-v">Vendor</label><select class="inp" id="emg-v" data-bind="modal.d.vendorId" data-act-change="emgVendor">${vOpts}</select>${v?`<small class="muted">${esc([v.gstin&&'GSTIN '+v.gstin,v.phone].filter(Boolean).join(' · '))}</small>`:''}</div>
@@ -117,15 +117,16 @@ A.emgSave=async()=>{const m=ui.modal;const d=m.d;
     if(!(num(l.rate)>0)){toast(`Enter the rate of ${desc}.`,'err');return}
     const gs=String(l.gst??'').trim();const g=gs===''?num(d.gst||18):num(gs);if(!(g>=0&&g<=100)){toast(`GST % for ${desc} must be between 0 and 100.`,'err');return}
     const spec=String(l.spec||'').trim(),unit=l.unit||'Nos';const it=D.itemMap[slug(desc)];
-    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:''})}
+    if(l.lineId&&l.maxQty!=null&&num(l.qty)>num(l.maxQty)+1e-9){toast(`${desc}: the demand needs ${fq(l.maxQty)} ${unit}; enter at most that (add a new line for more).`,'err');return}
+    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:'',...(l.lineId?{lineId:l.lineId}:{})})}
   if(!lines.length){toast('Add the items bought.','err');return}
   {const bad=lines.filter(l=>rateUnitFix(l.desc,l.category,l.unit,l.rate));if(bad.length&&!m.unitOk){m.unitOk=true;const f=rateUnitFix(bad[0].desc,bad[0].category,bad[0].unit,bad[0].rate);toast(`${bad[0].desc}: ₹${fq(bad[0].rate)} per ${bad[0].unit} looks like a rate per ${f.as} (about ₹${fq(f.rate)} per ${bad[0].unit}). Correct the rate or unit, or tap Save again to keep it.`,'err');return}}
   let co;try{co=chargesOut(d)}catch(e){toast(errMsg(e),'err');return}
   const dd=String(d.deliveryDays).trim()===''?null:num(d.deliveryDays);
   const body=Object.assign({projectId:d.projectId,vendorId:d.vendorId,date:d.date||today(),requestedBy:d.requestedBy,reason:d.reason,quoteRef:d.quoteRef,quoteDate:d.quoteDate,files:d.files||[],
-    deliveryDays:dd||0,expectedDate:addDays(d.date||today(),dd||0),payment:d.payment,freight:num(d.freight),terms:S.config.poTerms||DEFAULT_TERMS,lines,shipped:!!d.shipped,vehicle:d.vehicle,driver:d.driver,lrNo:d.lrNo},co);
+    deliveryDays:dd||0,expectedDate:addDays(d.date||today(),dd||0),payment:d.payment,freight:num(d.freight),terms:S.config.poTerms||DEFAULT_TERMS,lines,shipped:!!d.shipped,vehicle:d.vehicle,driver:d.driver,lrNo:d.lrNo,indentId:d.fromIndent||''},co);
   const res=await run(()=>api('/api/emergency',body));if(!res||!res.poId) return;
-  closeModal();toast(`Emergency purchase saved: ${res.mrNo} for ${projCode(d.projectId)}, ${res.poNo}${res.approval==='pending'?' (waiting for approval by the Director (Procurement))':''} and delivery ${res.ddNo} to site.`);
+  closeModal();toast(`Emergency purchase saved: ${d.fromIndent?'against '+res.mrNo:res.mrNo} for ${projCode(d.projectId)}, ${res.poNo}${res.approval==='pending'?' (waiting for approval by the Director (Procurement))':''} and delivery ${res.ddNo} to site.`);
   for(let i=0;i<30&&!S.pos.some(p=>p.id===res.poId);i++) await sleep(150);go('po',res.poId)};
 
 /* ---------------- how an emergency purchase shows ---------------- */

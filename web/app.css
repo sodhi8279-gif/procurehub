@@ -911,3 +911,8 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .cash-opt:hover{border-color:var(--accent)}
 .scan-tag{font-style:normal;font-size:10px;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:1px 6px;border-radius:8px;margin-left:4px}
 @media(max-width:640px){.cash-pick{grid-template-columns:1fr}}
+/* demand: buy in cash / emergency */
+.bv-card.emg{border-left:4px solid var(--red,#C62828)}.bv-card.cash{border-left:4px solid var(--amber,#B26A00)}
+.bv-list{margin:0;padding-left:18px}.bv-list li{margin:3px 0}
+.bv-t tr.sel td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.bv-src{display:flex;flex-direction:column;gap:2px;margin-top:6px}

@@ -240,6 +240,7 @@ function derive(){
   for(const e of S.sitelog) if(e.type==='opening') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
   d.rateOf=k=>d.rate[k]?d.rate[k].rate:(d.orate[k]||0);
   d.closedPo={};for(const p of S.pos) if(p.closed&&p.status!=='cancelled') d.closedPo[p.id]=p;
+  d.cashSrc={};for(const c of S.cashbuys||[]) if(c.status!=='rejected') for(const s of c.srcs||[]) d.cashSrc[s.indentId+'|'+s.lineId]=c;
   for(const x of S.dispatches){if(x.status==='cancelled') continue;
     for(const l of x.lines||[]){const k=l.indentId+'|'+l.lineId;const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
       if(l.indentId)(d.lineDisp[k]=d.lineDisp[k]||[]).push(x);
@@ -292,6 +293,11 @@ function lineInfo(ind,l){
   if(l.status==='hold') return {st:'review',label:'On hold',tone:'amber',del,need,hold:true};
   if(l.status!=='approved') return {st:'review',label:'Awaiting HQ review',tone:'amber',del,need};
   if(need>0&&del>=need-1e-9) return {st:'delivered',label:'Delivered',tone:'green',del,need};
+  // bought in cash against this demand line, or approved to be bought in cash / in emergency
+  {const c=D.cashSrc&&D.cashSrc[k];if(c){if(c.status==='final') return {st:'delivered',label:'Bought in cash · '+c.no,tone:'green',del:need,need,cash:c};
+      return {st:'po',label:'Cash purchase '+c.no+(c.status==='returned'?' · returned for correction':' · awaiting approval'),tone:'blue',del,need,cash:c}}}
+  if(l.buyVia==='cash'&&!l.poNo&&!l.rfqNo&&!l.transferId) return {st:'cash',label:'Approved for cash purchase',tone:'amber',del,need,via:'cash'};
+  if(l.buyVia==='emergency'&&!l.poNo&&!l.rfqNo&&!l.transferId) return {st:'emg',label:'Approved for emergency purchase',tone:'red',del,need,via:'emergency'};
   // PO closed short: what was received is final (for HQ-store POs, once nothing of it is left in the store to send)
   if(l.poId&&D.closedPo&&D.closedPo[l.poId]&&tr<=0){const cp=D.closedPo[l.poId];const sk=D.stock[itemKey(l.desc,l.spec,l.unit)];if(cp.deliveryMode==='site'||!sk||sk.bal<=1e-9) return {st:'delivered',label:del>0?'Closed short · '+fq(del)+' of '+fq(need)+' received':'Closed · PO closed before delivery',tone:'green',del,need,closedShort:true}}
   if(tr>0) return {st:'transit',label:del>0?'Part received · rest on the way':'On the way',tone:'amber',del,need};
@@ -303,7 +309,7 @@ function lineInfo(ind,l){
   if(l.rfqNo) return {st:'rfq',label:'Getting quotations',tone:'violet',del,need};
   return {st:'source',label:'Approved',tone:'violet',del,need};
 }
-const ST_ORDER={review:0,source:1,rfq:1,po:2,transit:3,delivered:4};
+const ST_ORDER={review:0,source:1,rfq:1,emg:1,cash:1,po:2,transit:3,delivered:4};
 function lineSteps(ind,l,info){
   const disp=(D.lineDisp[ind.id+'|'+l.id]||[]).filter(x=>x.status!=='cancelled');
   const sent=disp.filter(x=>['in_transit','delivered','short'].includes(x.status));

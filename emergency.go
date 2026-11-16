@@ -46,6 +46,7 @@ type emgLine struct {
 	GST      float64 `json:"gst"`
 	HSN      string  `json:"hsn"`
 	Note     string  `json:"note"`
+	LineID   string  `json:"lineId"`
 }
 
 type emgReq struct {
@@ -70,6 +71,7 @@ type emgReq struct {
 	Vehicle      string           `json:"vehicle"`
 	Driver       string           `json:"driver"`
 	LrNo         string           `json:"lrNo"`
+	IndentID     string           `json:"indentId"` // bought against an existing demand
 }
 
 var emgDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -179,6 +181,15 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	var fromInd map[string]any
+	if q.IndentID != "" {
+		fromInd = docData("indents", q.IndentID)
+		if fromInd == nil || fromInd["cancelled"] == true {
+			fail(w, 400, "The demand was not found or is cancelled.")
+			return
+		}
+		q.ProjectID = str(fromInd, "projectId")
+	}
 	p := docData("projects", q.ProjectID)
 	if p == nil || p["active"] == false {
 		fail(w, 400, "Choose the site.")
@@ -195,13 +206,105 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 	now := time.Now().UnixMilli()
 	indID, poID, ddID := "em"+randHex(6), "em"+randHex(6), "em"+randHex(6)
-	mrNo, poNo, ddNo := nextNo("MR"), nextNo("PO"), nextNo("DD")
 	vName := str(v, "name")
+	// against an existing demand: its items must still be open
+	var demLines []any
+	if fromInd != nil {
+		indID = q.IndentID
+		demLines = append([]any{}, anyList(fromInd["lines"])...)
+		live := func(col, id string) bool { x := docData(col, id); return x != nil && str(x, "status") != "cancelled" }
+		seen := map[string]bool{}
+		for _, l := range q.Lines {
+			if l.LineID == "" {
+				continue
+			}
+			if seen[l.LineID] {
+				fail(w, 400, l.Desc+" is entered twice.")
+				return
+			}
+			seen[l.LineID] = true
+			var dl map[string]any
+			for _, x := range demLines {
+				if m, _ := x.(map[string]any); str(m, "id") == l.LineID {
+					dl = m
+				}
+			}
+			if dl == nil || str(dl, "status") == "rejected" {
+				fail(w, 400, l.Desc+" is no longer on the demand.")
+				return
+			}
+			if (str(dl, "poId") != "" && live("pos", str(dl, "poId"))) || (str(dl, "rfqId") != "" && live("rfqs", str(dl, "rfqId"))) || (str(dl, "transferId") != "" && live("dispatches", str(dl, "transferId"))) || dl["fromStock"] == true {
+				fail(w, 400, l.Desc+" has already been ordered on the demand; refresh the page.")
+				return
+			}
+			need, _ := dl["approvedQty"].(float64)
+			if _, ok := dl["approvedQty"].(float64); !ok {
+				need, _ = dl["qty"].(float64)
+			}
+			if l.Qty > need+1e-9 {
+				fail(w, 400, fmt.Sprintf("%s: the demand needs %g %s; enter at most that.", l.Desc, need, str(dl, "unit")))
+				return
+			}
+		}
+	}
+	var mrNo string
+	if fromInd != nil {
+		mrNo = str(fromInd, "no")
+	} else {
+		mrNo = nextNo("MR")
+	}
+	poNo, ddNo := nextNo("PO"), nextNo("DD")
 	payment := firstNonEmpty(q.Payment, str(v, "payment"))
 
 	var indLines, poLines, ddLines []any
 	for i, l := range q.Lines {
 		lid, key := "em"+randHex(5), fmt.Sprintf("e%d", i+1)
+		if fromInd != nil && l.LineID != "" { // the demand's own item: ordered on this PO; a smaller quantity leaves the rest
+			lid = l.LineID
+			for j, x := range demLines {
+				dl, _ := x.(map[string]any)
+				if str(dl, "id") != lid {
+					continue
+				}
+				nl := shallowCopy(dl)
+				need, ok := dl["approvedQty"].(float64)
+				if !ok {
+					need, _ = dl["qty"].(float64)
+				}
+				var rest map[string]any
+				if l.Qty < need-1e-9 {
+					rest = shallowCopy(dl)
+					for _, k := range []string{"buyVia", "buyViaBy", "buyViaByName", "buyViaAt", "buyViaNote", "poId", "poNo", "poAt", "vendorName", "expectedDate", "orderedQty"} {
+						delete(rest, k)
+					}
+					rq := math.Round((need-l.Qty)*1000) / 1000
+					rest["id"], rest["qty"], rest["approvedQty"], rest["splitFrom"] = "em"+randHex(5), rq, rq, lid
+					rest["siteNote"] = strings.TrimPrefix(str(dl, "siteNote")+" · Balance after emergency purchase "+poNo, " · ")
+				}
+				if str(nl, "status") != "approved" {
+					nl["status"], nl["approvedAt"], nl["decidedBy"], nl["decidedByName"] = "approved", now, u.ID, u.Name
+				}
+				nl["approvedQty"], nl["poId"], nl["poNo"], nl["poAt"], nl["vendorName"], nl["expectedDate"], nl["orderedQty"] = l.Qty, poID, poNo, now, vName, q.ExpectedDate, l.Qty
+				nl["emergencyPo"] = true
+				demLines[j] = nl
+				if rest != nil {
+					demLines = append(demLines[:j+1], append([]any{rest}, demLines[j+1:]...)...)
+				}
+				break
+			}
+		} else if fromInd != nil { // an extra item added to the demand by the emergency purchase
+			demLines = append(demLines, map[string]any{"id": lid, "desc": l.Desc, "spec": l.Spec, "qty": l.Qty, "unit": l.Unit, "category": l.Category, "catSrc": "manual",
+				"siteNote": "Added with emergency purchase " + poNo, "photo": "", "status": "approved", "approvedQty": l.Qty, "approvedAt": now, "approvalNote": "Emergency purchase by HQ",
+				"decidedBy": u.ID, "decidedByName": u.Name, "poId": poID, "poNo": poNo, "poAt": now, "vendorName": vName, "expectedDate": q.ExpectedDate, "orderedQty": l.Qty, "emergencyPo": true})
+		}
+		if fromInd != nil {
+			src := map[string]any{"indentId": indID, "lineId": lid, "projectId": q.ProjectID, "qty": l.Qty, "mrNo": mrNo}
+			poLines = append(poLines, map[string]any{"key": key, "desc": l.Desc, "spec": l.Spec, "unit": l.Unit, "cat": l.Category, "qty": l.Qty, "rate": l.Rate, "gst": l.GST,
+				"hsn": l.HSN, "itemKey": l.ItemKey, "srcs": []any{src}})
+			ddLines = append(ddLines, map[string]any{"poKey": key, "itemKey": l.ItemKey, "desc": l.Desc, "spec": l.Spec, "unit": l.Unit, "cat": l.Category, "qty": l.Qty,
+				"indentId": indID, "lineId": lid, "mrNo": mrNo, "recvQty": nil})
+			continue
+		}
 		indLines = append(indLines, map[string]any{"id": lid, "desc": l.Desc, "spec": l.Spec, "qty": l.Qty, "unit": l.Unit, "category": l.Category, "catSrc": "manual",
 			"siteNote": l.Note, "photo": "", "status": "approved", "approvedQty": l.Qty, "approvedAt": now, "approvalNote": "Emergency purchase by HQ",
 			"decidedBy": u.ID, "decidedByName": u.Name, "poId": poID, "poNo": poNo, "poAt": now, "vendorName": vName, "expectedDate": q.ExpectedDate, "orderedQty": l.Qty})
@@ -214,10 +317,18 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	emg := map[string]any{"poId": poID, "poNo": poNo, "vendorId": q.VendorID, "vendorName": vName, "quoteRef": q.QuoteRef, "quoteDate": q.QuoteDate,
 		"reason": q.Reason, "by": u.ID, "byName": u.Name, "at": now}
 
-	putDocLocked("indents", indID, map[string]any{"no": mrNo, "projectId": q.ProjectID, "date": q.Date, "requiredBy": q.Date, "priority": "Emergency", "emergency": emg,
-		"requestedBy": q.RequestedBy, "remarks": q.Reason, "createdBy": u.ID, "createdByName": u.Name, "raisedByHQ": true, "at": now, "lines": indLines})
+	if fromInd != nil {
+		nd := shallowCopy(fromInd)
+		nd["lines"] = demLines
+		rem := append([]any{}, anyList(fromInd["hqRemarks"])...)
+		nd["hqRemarks"] = append(rem, map[string]any{"id": randHex(6), "text": "Emergency purchase " + poNo + " from " + vName + ": " + q.Reason, "action": "Emergency purchase", "at": now, "name": u.Name})
+		putDocLocked("indents", indID, nd)
+	} else {
+		putDocLocked("indents", indID, map[string]any{"no": mrNo, "projectId": q.ProjectID, "date": q.Date, "requiredBy": q.Date, "priority": "Emergency", "emergency": emg,
+			"requestedBy": q.RequestedBy, "remarks": q.Reason, "createdBy": u.ID, "createdByName": u.Name, "raisedByHQ": true, "at": now, "lines": indLines})
+	}
 
-	po := map[string]any{"no": poNo, "rfqId": "", "rfqNo": "", "emergency": true, "indentId": indID, "mrNo": mrNo, "quoteRef": q.QuoteRef, "quoteDate": q.QuoteDate,
+	po := map[string]any{"no": poNo, "rfqId": "", "rfqNo": "", "emergency": true, "fromDemand": fromInd != nil, "indentId": indID, "mrNo": mrNo, "quoteRef": q.QuoteRef, "quoteDate": q.QuoteDate,
 		"quoteFiles": files, "emergencyReason": q.Reason, "vendorId": q.VendorID, "vendorName": vName, "date": q.Date, "deliveryMode": "site",
 		"deliveryDays": "", "payment": payment, "freight": r2(q.Freight), "charges": charges, "roundOff": r2(q.RoundOff), "roundAuto": q.RoundAuto,
 		"terms": q.Terms, "lines": poLines, "received": map[string]any{}, "status": "issued", "at": now, "createdBy": u.ID, "createdByName": u.Name}
