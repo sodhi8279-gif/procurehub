@@ -116,12 +116,13 @@ A.delUser=()=>{const id=ui.modal.id;confirmBox({title:'Delete user',body:'This p
 A.pickCat=d=>{if(d.c==='others'){A.customItem({cat:'others'});return}ui.pickCat=d.c;ui.pickQ='';render();const el=document.querySelector('.picker');if(el&&el.getBoundingClientRect().top<0) el.scrollIntoView({behavior:'smooth'})};
 A.pickBack=()=>{ui.pickCat=null;ui.pickQ='';render()};
 A.pickItem=d=>{const it=D.itemMap[d.id];if(!it) return;if(ui.view!=='s_new'){ui.pop=null;ui.q='';go('s_new')}
-  openModal({type:'addItem',item:it,d:{size:'',otherSize:'',qty:'',unit:it.unit||'Nos',spec:it.spec||'',note:'',photo:''}})};
+  openModal({type:'addItem',item:it,d:{size:'',otherSize:'',qty:'',unit:it.unit||'Nos',spec:(it.attrs||[]).length?'':(it.spec||''),note:'',photo:'',av:{},avo:{}}})};
 A.addToDemand=()=>{const m=ui.modal,it=m.item,d=m.d;const sizes=it.sizes||[];
   const size=d.size==='__other'?(d.otherSize||'').trim():d.size;
   if(sizes.length&&!size){toast('Choose a size.','err');return}
   if(!(num(d.qty)>0)){toast('Enter the quantity.','err');document.getElementById('f-modal-d-qty')?.focus();return}
-  const spec=[size,(d.spec||'').trim()].filter(Boolean).join(', ');
+  let spec=[size,(d.spec||'').trim()].filter(Boolean).join(', ');
+  if((it.attrs||[]).length){const v=varCheck(it,d);if(v.err){toast(v.err,'err');return}spec=varSpec(it,v.vals,size,d.spec)}
   draftIndent().lines.push({lid:newId(),desc:it.desc,spec,qty:String(num(d.qty)),unit:d.unit,category:it.category||'others',catSrc:'catalog',siteNote:d.note||'',photo:d.photo||''});
   ui.modal=null;toast(`Added ${fq(num(d.qty))} ${d.unit} ${it.desc}${size?' '+size:''}`);render()};
 A.customItem=d=>openModal({type:'customItem',d:{desc:(d&&d.desc)||'',spec:'',qty:'',unit:'Nos',category:(d&&d.cat)||'others',catSrc:'none',catManual:!!(d&&d.cat),note:'',photo:''}});
@@ -529,9 +530,10 @@ A.saveCats=async()=>{let cats;try{cats=catsToSave(ui.modal.d.cats)}catch(e){toas
 A.quickCat=()=>{const keep=ui.modal;confirmBox({title:'New category',body:'<p>Add a category for items that do not fit the existing ones. You can add keywords and a picture later under Item catalogue → Categories.</p>',note:'Category name',yes:'Add category',
   onYes:async m=>{const name=String(m.noteVal||'').trim();if(!name){toast('Enter the category name.','err');return}let cats;try{cats=catsToSave(catDraft().concat({name,kwText:'',photo:'',hidden:false}))}catch(e){toast(e.message,'err');return}
     if(await run(()=>updDoc('config','main',{cats}),'Category “'+name+'” added')!==false){ui.modal=keep;keep.d.category=cats[cats.length-1].id;render()}}})};
-A.editItem=d=>{const it=d.id?D.itemMap[d.id]:null;openModal({type:'item',id:d.id||null,std:!!(it&&it.std),d:it?{desc:it.desc,spec:it.spec||'',unit:it.unit||'Nos',category:it.category||'others',photo:it.photo||'',sizesText:(it.sizes||[]).join(', '),hidden:!!it.hidden,gst:it.gst??'',billUnit:it.billUnit||'',billPer:it.billPer||'',bagKg:it.bagKg||'',hsn:it.hsn||''}:{desc:'',spec:'',unit:'Nos',category:'pipes',photo:'',sizesText:'',hidden:false,gst:'',hsn:''}})};
+A.editItem=d=>{const it=d.id?D.itemMap[d.id]:null;openModal({type:'item',id:d.id||null,std:!!(it&&it.std),d:it?{desc:it.desc,spec:it.spec||'',unit:it.unit||'Nos',category:it.category||'others',photo:it.photo||'',sizesText:(it.sizes||[]).join(', '),hidden:!!it.hidden,gst:it.gst??'',billUnit:it.billUnit||'',billPer:it.billPer||'',bagKg:it.bagKg||'',hsn:it.hsn||'',attrs:attrsToDraft(it.attrs)}:{desc:'',spec:'',unit:'Nos',category:'pipes',photo:'',sizesText:'',hidden:false,gst:'',hsn:'',attrs:[]}})};
 A.saveItem=async()=>{const m=ui.modal,d=m.d;if(!String(d.desc).trim()){toast('Enter the item description.','err');return}const id=m.id||slug(d.desc);const gs=String(d.gst??'').trim();if(gs!==''&&!(num(gs)>=0&&num(gs)<=100)){toast('GST % must be between 0 and 100.','err');return}
-  const doc={gst:gs===''?'':num(gs),hsn:String(d.hsn||'').trim(),desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,category:d.category,photo:d.photo||'',sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean),hidden:!!d.hidden,billUnit:String(d.billUnit||'').trim(),billPer:num(d.billPer)>0?num(d.billPer):'',bagKg:num(d.bagKg)>0?num(d.bagKg):'',at:Date.now()};
+  const doc={gst:gs===''?'':num(gs),hsn:String(d.hsn||'').trim(),desc:d.desc.trim(),spec:d.spec||'',unit:d.unit,category:d.category,photo:d.photo||'',sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean),hidden:!!d.hidden,billUnit:String(d.billUnit||'').trim(),billPer:num(d.billPer)>0?num(d.billPer):'',bagKg:num(d.bagKg)>0?num(d.bagKg):'',attrs:attrsFromDraft(d.attrs),at:Date.now()};
+  {const bad=(d.attrs||[]).find(a=>!String(a.name||'').trim()&&String(a.optsText||'').trim());if(bad){toast('Give each variety a name, e.g. Type or Class.','err');return}}
   if(doc.billUnit&&!(doc.billPer>0)){toast('Enter how many '+(doc.unit||'units')+' make 1 '+doc.billUnit+'.','err');return}
   // renamed: the item moves to its new name; a built-in item is marked as replaced so it does not come back
   const newId=slug(doc.desc);

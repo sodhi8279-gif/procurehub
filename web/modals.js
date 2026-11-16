@@ -5,6 +5,7 @@ function modalHtml(){
   switch(m.type){
   case 'addItem':{const it=m.item,d=m.d;const sizes=it.sizes||[];
     return wrap('Add to demand',`<div class="mhead">${thumb(it,'mh')}<div class="grow"><h3>${esc(it.desc)}</h3><div class="row tight">${catSw(it.category)}${it.spec?`<span class="muted small">${esc(it.spec)}</span>`:''}</div></div></div>
+     ${typeof varPicker==='function'?varPicker(it,d):''}
      ${sizes.length?`<div class="f"><label>Size</label><div class="size-chips">${sizes.map(s=>`<button type="button" class="schip ${d.size===s?'on':''}" data-act="mset" data-k="size" data-val="${esc(s)}">${esc(s)}</button>`).join('')}<button type="button" class="schip ${d.size==='__other'?'on':''}" data-act="mset" data-k="size" data-val="__other">Other size</button></div></div>${d.size==='__other'?field('Size','modal.d.otherSize',d.otherSize,'placeholder="e.g. 350 mm"'):''}`:''}
      <div class="fields two"><div class="f"><label for="f-modal-d-qty">Quantity</label>${stepperInp('modal.d.qty',d.qty)}</div><div class="f"><label for="f-modal-d-unit">Unit</label><select class="inp" id="f-modal-d-unit" data-bind="modal.d.unit">${selOpts(UNITS,d.unit)}</select></div></div>
      <div class="fields two">${field('Specification / make','modal.d.spec',d.spec,'placeholder="e.g. PN16, ISI make"')}${field('Note for HQ (optional)','modal.d.note',d.note,'placeholder="Location, chainage, purpose"')}</div>
@@ -45,6 +46,7 @@ function modalHtml(){
     <div class="f"><label for="f-modal-d-gst">GST % (default for quotes)</label>${inp('modal.d.gst',d.gst,'inputmode="decimal" list="gst-slabs-i" placeholder="e.g. 18"')}<datalist id="gst-slabs-i">${GST_SLABS.map(g=>`<option value="${g}">`).join('')}</datalist></div>
     <div class="f"><label for="f-modal-d-hsn">HSN code</label>${inp('modal.d.hsn',d.hsn,'inputmode="numeric" placeholder="e.g. 7303"')}</div>
     <div class="f full"><label for="f-modal-d-sizesText">Sizes offered to sites (comma separated)</label>${inp('modal.d.sizesText',d.sizesText,'placeholder="100 mm, 150 mm, 200 mm"')}</div>
+    ${typeof attrsEditor==='function'?attrsEditor(m):''}
     <label class="check"><input type="checkbox" id="f-modal-d-hidden" data-bind="modal.d.hidden" ${d.hidden?'checked':''}> Hide from sites</label></div>
     <div class="photo-row">${thumb({category:d.category,photo:d.photo,desc:d.desc},'mh')}<div class="grow"><b>Picture shown to sites</b><small class="muted block">${d.photo?'Your own photo is used.':'A standard picture is used. You can add a real photo of this item from your store.'}</small></div>${photoPicker('modal.d.photo',d.photo,{multi:false,pdf:false,label:d.photo?'Replace':'Add photo'})}</div>`,
     `${m.id&&!m.std?`<button class="btn danger" data-act="delItem">Delete</button><span class="spacer"></span>`:''}<button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="saveItem" ${busy}>Save item</button>`,'wide')}

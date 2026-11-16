@@ -916,3 +916,8 @@ table.stmt td:last-child{background:var(--surface-2,rgba(0,0,0,.02))}
 .bv-list{margin:0;padding-left:18px}.bv-list li{margin:3px 0}
 .bv-t tr.sel td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
 .bv-src{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+/* item varieties */
+.var-rows{display:flex;flex-direction:column;gap:6px}
+.var-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.var-row .inp{width:150px}.var-row .inp.grow{flex:1;min-width:220px}
+.var-t td{vertical-align:top}.var-t tr.off td{opacity:.45}.var-t .inp.sm{width:100%}
+.modal.xl{max-width:min(1200px,96vw)}
