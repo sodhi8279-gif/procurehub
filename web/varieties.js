@@ -9,7 +9,7 @@
    varieties; each is renamed everywhere to the one item with its values. */
 
 const VAR_PRESETS={
-  'Pipe':[['Type','GI, DI, MS, PVC, uPVC, CPVC, HDPE'],['Class','Light, Medium, Heavy'],['IS code','IS 1239, IS 3589, IS 8329, IS 4985, IS 4984'],['Ends','Plain, Socketed, Flanged, Threaded']],
+  'Pipe':[['Type','GI, DI, MS, PVC, uPVC, CPVC, HDPE'],['Class','Light, Medium, Heavy'],['Pressure','PN 4, PN 6, PN 10, PN 16, 4 kg/cm², 6 kg/cm², 10 kg/cm²'],['IS code','IS 1239, IS 3589, IS 8329, IS 4985, IS 4984'],['Ends','Plain, Socketed, Flanged, Threaded']],
   'Valve':[['Type','Sluice, Butterfly, Gate, Ball, Non-return, Air'],['Pressure','PN 10, PN 16, PN 25'],['Body','CI, DI, Brass, PVC'],['Ends','Flanged, Threaded, Socket']],
   'Fitting':[['Type','Elbow, Tee, Reducer, Coupling, Bend, Collar, Union'],['Material','GI, DI, PVC, CPVC, HDPE'],['Angle','90°, 45°, 22.5°, 11.25°']],
   'Cable':[['Core','1 core, 2 core, 3 core, 3.5 core, 4 core'],['Size','1.5 sq mm, 2.5 sq mm, 4 sq mm, 6 sq mm, 10 sq mm'],['Conductor','Copper, Aluminium'],['Armour','Armoured, Unarmoured']],
@@ -69,7 +69,7 @@ A.varConvFrom=d=>{const it=D.itemMap[d.id];if(!it) return;const words=norm(it.de
 function varConvOpen(targetId,rows,newName){const it=targetId?D.itemMap[targetId]:null;
   const d={target:targetId||'__new',name:it?it.desc:newName,category:it?it.category:(rows[0].o.cat||'others'),unit:it?it.unit:rows[0].o.unit,attrs:attrsToDraft(it&&it.attrs),sizesText:((it&&it.sizes)||[]).join(', '),rows:[]};
   if(!d.attrs.length){const p=Object.keys(VAR_PRESETS).find(k=>norm(d.name).includes(norm(k)));if(p) d.attrs=VAR_PRESETS[p].map(([n,o])=>({name:n,optsText:o,req:false,showName:n==='Class'||n==='Pressure'}))}
-  d.rows=rows.map(({o,on})=>({key:o.key,desc:o.desc,spec:o.spec,unit:o.unit,on,vals:{},size:'',rest:'',touched:false}));varConvGuess(d);
+  d._new=true;d.rows=rows.map(({o,on})=>({key:o.key,desc:o.desc,spec:o.spec,unit:o.unit,on,vals:{},size:'',rest:'',touched:false,catOnly:!!o.catOnly,sizes:o.sizes||[]}));varConvDiscover(d);varConvGuess(d);
   openModal({type:'varConv',d})}
 function varConvItem(d){return {attrs:attrsFromDraft(d.attrs),sizes:String(d.sizesText||'').split(',').map(s=>s.trim()).filter(Boolean)}}
 // one way of writing a size: "20mm" → "20 mm", 4" / 4'' → "4 inch"
@@ -80,14 +80,14 @@ const sizeKey=z=>norm(normSize(z)).replace(/\s+/g,'');
 function varConvSizes(d){return String(d.sizesText||'').split(',').map(s=>normSize(s)).filter(Boolean)}
 // the sizes of all the items together: one common list for the item
 function varConvMergeSizes(d){const seen=new Set(),out=[];const add=z=>{const n=normSize(z),k=sizeKey(n);if(n&&!seen.has(k)){seen.add(k);out.push(n)}};
-  varConvSizes(d).forEach(add);d.rows.forEach(r=>add(r.size));if(typeof sizeSort==='function') out.sort(sizeSort);d.sizesText=out.join(', ');
+  varConvSizes(d).forEach(add);d.rows.forEach(r=>{if(r.catOnly){if(r.on) (r.sizes||[]).forEach(add)}else add(r.size)});if(typeof sizeSort==='function') out.sort(sizeSort);d.sizesText=out.join(', ');
   for(const r of d.rows){if(r.size){const k=sizeKey(r.size);r.size=out.find(z=>sizeKey(z)===k)||normSize(r.size)}}}
 // words of the item name ("Pipes" / "pipe") and of the variety names ("Class") are not left over as "other spec"
 function varConvRest(d,rest){let t=' '+String(rest||'')+' ';const words=new Set();for(const w of norm(d.name).split(' ').filter(x=>x.length>1)){words.add(w);words.add(w.replace(/s$/,''));if(/(ches|shes|xes|sses)$/.test(w)) words.add(w.replace(/es$/,''));words.add(w+'s')}
   for(const a of d.attrs||[]) for(const w of norm(a.name).split(' ').filter(x=>x.length>1)) words.add(w);
   t=t.split(/(\s+|,)/).filter(x=>!words.has(norm(x))).join('');return t.replace(/\s*,\s*(,\s*)*/g,', ').replace(/\s+/g,' ').replace(/^[\s,·\-]+|[\s,·\-]+$/g,'').trim()}
 function varConvGuess(d){const it=varConvItem(d);for(const r of d.rows){if(r.touched) continue;const extra=norm(r.desc)===norm(d.name)?'':r.desc.replace(new RegExp(d.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),'');const g=varGuess(it,extra+' , '+r.spec);r.vals=g.vals;r.size=normSize(g.size);r.rest=varConvRest(d,g.rest)}varConvMergeSizes(d)}
-A.varConvGuess=()=>{const d=ui.modal.d;for(const r of d.rows) r.touched=false;varConvGuess(d);render()};
+A.varConvGuess=()=>{const d=ui.modal.d;for(const r of d.rows) r.touched=false;varConvDiscover(d);varConvGuess(d);render()};
 A.varConvRow=d=>{const r=ui.modal.d.rows[+d.i];if(r){r.on=!r.on;render()}};
 A.varConvAttr=d=>{const m=ui.modal;const a=m.d.attrs;if(d.do==='add') a.push({name:'',optsText:'',req:false,showName:false});else if(d.do==='del') a.splice(+d.i,1);render()};
 CH.varConvTarget=el=>{const d=ui.modal.d;const it=D.itemMap[el.value];if(it){d.name=it.desc;d.category=it.category||d.category;d.unit=it.unit||d.unit;if((it.attrs||[]).length) d.attrs=attrsToDraft(it.attrs);d.sizesText=(it.sizes||[]).join(', ')}varConvGuess(d);render()};
@@ -102,10 +102,10 @@ CH.varConvTarget=el=>{const d=ui.modal.d;const it=D.itemMap[el.value];if(it){d.n
    <div class="f"><label>Varieties and their choices</label><div class="var-rows">${d.attrs.map((x,i)=>`<div class="var-row"><input class="inp" data-bind="modal.d.attrs.${i}.name" value="${esc(x.name)}" placeholder="Name, e.g. Type" data-rerender="1"><input class="inp grow" data-bind="modal.d.attrs.${i}.optsText" value="${esc(x.optsText)}" placeholder="Choices, comma separated" data-rerender="1"><label class="check small"><input type="checkbox" data-bind="modal.d.attrs.${i}.showName" ${x.showName?'checked':''} data-rerender="1"> Name in spec</label><button type="button" class="btn sm ghost" data-act="varConvAttr" data-do="del" data-i="${i}" aria-label="Remove">${icon('trash','xs')}</button></div>`).join('')}</div>
     <div class="row tight" style="margin-top:6px"><button type="button" class="btn sm" data-act="varConvAttr" data-do="add">${icon('plus')} Add variety</button><div class="f grow" style="margin:0"><label class="small muted" for="f-varSizes">Sizes — one common list for the item (all sizes of the items below are included)</label><input class="inp sm" id="f-varSizes" data-bind="modal.d.sizesText" value="${esc(d.sizesText||'')}" placeholder="Sizes, comma separated — e.g. 15 mm, 20 mm, 25 mm" data-act-change="varSizesEdit" aria-label="Sizes"><button type="button" class="linkish small" data-act="varStdSizes">${icon('plus','xs')} Add all standard sizes (15 mm – 1200 mm)</button></div><button type="button" class="btn sm ghost" data-act="varConvGuess">${icon('search','xs')} Read values again</button></div></div>
    <div class="tw"><table class="t var-t"><thead><tr><th></th><th>Now</th>${it.attrs.map(a=>`<th>${esc(a.name)}</th>`).join('')}<th>Size</th><th>Other spec</th><th>Will become</th></tr></thead><tbody>
-   ${d.rows.map((r,i)=>{const sp=varSpec(it,r.vals,r.size,r.rest);return `<tr class="${r.on?'':'off'}"><td><input type="checkbox" data-act="varConvRow" data-i="${i}" ${r.on?'checked':''} aria-label="Convert ${esc(r.desc)}"></td><td><b>${esc(r.desc)}</b><small class="muted block">${esc(r.spec||'—')} · ${esc(r.unit)}</small></td>
+   ${d.rows.map((r,i)=>{const sp=varSpec(it,r.vals,r.size,r.rest);return `<tr class="${r.on?'':'off'}"><td><input type="checkbox" data-act="varConvRow" data-i="${i}" ${r.on?'checked':''} aria-label="Convert ${esc(r.desc)}"></td><td><b>${esc(r.desc)}</b><small class="muted block">${r.catOnly?'<span class="chip plain xs">catalogue</span> ':''}${esc(r.spec||'—')} · ${esc(r.unit)}</small></td>
      ${it.attrs.map(a=>`<td><input class="inp sm" list="var-o-${esc(slug(a.name))}" data-bind="modal.d.rows.${i}.vals.${esc(a.name)}" value="${esc(r.vals[a.name]||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}" style="min-width:80px"></td>`).join('')}
-     <td>${(()=>{const zs=varConvSizes(d);const cur=r.size||'';const inList=!cur||zs.some(z=>sizeKey(z)===sizeKey(cur));return `<select class="inp sm" data-act-change="varSize" data-i="${i}" aria-label="Size of ${esc(r.desc)}" style="min-width:90px"><option value="">—</option>${zs.map(z=>`<option value="${esc(z)}" ${sizeKey(z)===sizeKey(cur)?'selected':''}>${esc(z)}</option>`).join('')}<option value="__other" ${!inList||r.sizeOther?'selected':''}>Other size…</option></select>${!inList||r.sizeOther?`<input class="inp sm" style="margin-top:4px" data-bind="modal.d.rows.${i}.size" value="${esc(cur)}" placeholder="e.g. 350 mm" data-act-change="varSizeTyped" data-i="${i}">`:''}`})()}</td><td><input class="inp sm" data-bind="modal.d.rows.${i}.rest" value="${esc(r.rest||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}"></td>
-     <td><b>${esc(d.name||'')}</b><small class="block">${esc(sp||'—')}</small></td></tr>`}).join('')}</tbody></table></div>
+     <td>${r.catOnly?`<span class="small muted">${(r.sizes||[]).length?'all its sizes ('+r.sizes.length+') → common list':'—'}</span>`:(()=>{const zs=varConvSizes(d);const cur=r.size||'';const inList=!cur||zs.some(z=>sizeKey(z)===sizeKey(cur));return `<select class="inp sm" data-act-change="varSize" data-i="${i}" aria-label="Size of ${esc(r.desc)}" style="min-width:90px"><option value="">—</option>${zs.map(z=>`<option value="${esc(z)}" ${sizeKey(z)===sizeKey(cur)?'selected':''}>${esc(z)}</option>`).join('')}<option value="__other" ${!inList||r.sizeOther?'selected':''}>Other size…</option></select>${!inList||r.sizeOther?`<input class="inp sm" style="margin-top:4px" data-bind="modal.d.rows.${i}.size" value="${esc(cur)}" placeholder="e.g. 350 mm" data-act-change="varSizeTyped" data-i="${i}">`:''}`})()}</td><td><input class="inp sm" data-bind="modal.d.rows.${i}.rest" value="${esc(r.rest||'')}" data-rerender="1" data-act-change="varTouch" data-i="${i}"></td>
+     <td><b>${esc(d.name||'')}</b><small class="block">${r.catOnly?'catalogue entry removed; its sizes join the common list':esc(sp||'—')}</small></td></tr>`}).join('')}</tbody></table></div>
    ${it.attrs.map(a=>`<datalist id="var-o-${esc(slug(a.name))}">${a.opts.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`).join('')}<datalist id="var-sz">${it.sizes.map(o=>`<option value="${esc(o)}">`).join('')}</datalist>`,
    `<span class="small muted">${on.length} item${on.length===1?'':'s'} to convert</span><span class="spacer"></span><button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" data-act="varConvSave" ${busy} ${on.length&&String(d.name||'').trim()?'':'disabled'}>${icon('check')} Convert everywhere</button>`,'wide xl')}}
 CH.varSize=el=>{const d=ui.modal.d,r=d.rows[+el.dataset.i];if(!r) return;r.touched=true;if(el.value==='__other'){r.sizeOther=true;r.size=''}else{r.sizeOther=false;r.size=el.value}render()};
@@ -121,7 +121,7 @@ A.varConvSave=async()=>{const d=ui.modal.d;const name=String(d.name||'').trim();
   if(typeof sizeSort==='function') sizes.sort(sizeSort);
   const it={attrs,sizes};const id=d.target!=='__new'?d.target:slug(name);
   if(d.target==='__new'&&D.itemMap[id]&&!confirm(`“${D.itemMap[id].desc}” is already in the catalogue. Add the varieties to it?`)) return;
-  const plan=rows.map(r=>({from:{desc:r.desc,spec:r.spec,unit:r.unit},to:{desc:name,spec:varSpec(it,r.vals,String(r.size||'').trim(),r.rest),unit:r.unit,cat:d.category}})).filter(p=>p.from.desc!==p.to.desc||p.from.spec!==p.to.spec);
+  const plan=rows.filter(r=>!r.catOnly).map(r=>({from:{desc:r.desc,spec:r.spec,unit:r.unit},to:{desc:name,spec:varSpec(it,r.vals,String(r.size||'').trim(),r.rest),unit:r.unit,cat:d.category}})).filter(p=>p.from.desc!==p.to.desc||p.from.spec!==p.to.spec);
   const oldDescs=[...new Set(rows.map(r=>r.desc))].filter(x=>slug(x)!==id);
   const ok=await run(async()=>{const cur=D.itemMap[id];const base=Object.assign({},S.catalog[id]||(cur?{desc:cur.desc,spec:cur.spec||'',unit:cur.unit,category:cur.category,photo:cur.photo||'',gst:cur.gst??'',hsn:cur.hsn||''}:{}),
       {desc:name,unit:d.unit,category:d.category,attrs,sizes,spec:(cur&&cur.attrs&&cur.attrs.length)?(cur.spec||''):'',at:Date.now()});delete base.id;delete base.std;
@@ -138,3 +138,25 @@ Object.assign(ACT_PERM,{varConv:'masters_items',varConvFrom:'masters_items',varC
 const STD_SIZES_MM=[15,20,25,32,40,50,63,65,75,80,90,100,110,125,150,160,180,200,225,250,280,300,315,350,400,450,500,600,700,750,800,900,1000,1100,1200].map(n=>n+' mm');
 A.varStdSizes=()=>{const d=ui.modal.d;d.sizesText=[String(d.sizesText||''),STD_SIZES_MM.join(', ')].filter(Boolean).join(', ');varConvMergeSizes(d);render()};
 Object.assign(ACT_PERM,{varStdSizes:'masters_items'});
+
+// Item catalogue → a category → Merge into one item: every item of the category
+// (catalogue entries and items used in demands/orders/stock) as varieties of one item
+A.varConvCat=d=>{const c=d.c;const used=itemIndex().filter(o=>o.cat===c);const usedDesc=new Set(used.map(o=>norm(o.desc)));
+  const catRows=D.items.filter(it=>it.category===c&&!it.hidden).map(it=>({key:'cat:'+it.id,desc:it.desc,spec:it.spec||'',unit:it.unit||'Nos',cat:c,catOnly:true,sizes:it.sizes||[]}));
+  const rows=[...catRows,...used];if(!rows.length) return toast('No items in this category.','err');
+  const name=CAT_MERGE_NAME[c]||catName(c).replace(/\s*&.*$/,'').replace(/s$/,'');const target=D.items.find(it=>norm(it.desc)===norm(name)&&(it.attrs||[]).length);
+  varConvOpen(target?target.id:'',rows.map(o=>({o,on:!(target&&o.catOnly&&o.key==='cat:'+target.id)})),target?'':name)};
+const CAT_MERGE_NAME={pipes:'Pipe',fittings:'Fitting',valves:'Valve',electrical:'Cable',civil:'Civil material',paints:'Paint'};
+Object.assign(ACT_PERM,{varConvCat:'masters_items'});
+
+// find choices the items use that are not listed yet: PPR, DWC, RCC… (type),
+// K7, NP3, PN10, SN8, PE100, 6 kg/cm² (class), IS 458 (IS code)
+const VAR_MATERIALS=['gi','di','ms','ci','ss','ppr','pvc','upvc','cpvc','hdpe','mdpe','ldpe','dwc','rcc','swr','frp','grp','pe','hume','copper','brass','aluminium','steel','stoneware','sw','cast iron','ductile iron'];
+function varConvDiscover(d){const find=re=>d.attrs.find(a=>re.test(a.name||''));const tA=find(/type|material/i),cA=find(/class|rating|grade/i)||find(/pressure/i),pA=find(/pressure/i)||cA,iA=find(/\bis\b|code|standard/i);
+  const add=(a,v)=>{if(!a||!v) return;const os=String(a.optsText||'').split(',').map(x=>x.trim()).filter(Boolean);if(!os.some(o=>norm(o).replace(/\s/g,'')===norm(v).replace(/\s/g,''))){os.push(v);a.optsText=os.join(', ')}};
+  const nameW=new Set(norm(d.name).split(' ').flatMap(w=>[w,w.replace(/s$/,''),w+'s']));
+  for(const r of d.rows){const t=r.desc+' '+(r.spec||'');
+    if(iA) for(const m of t.matchAll(/\bIS\s*[:\-]?\s*(\d{2,5})(?:\s*\(\s*part\s*(\d+)\s*\))?/gi)) add(iA,'IS '+m[1]+(m[2]?' (Part '+m[2]+')':''));
+    if(pA) for(const m of t.matchAll(/(?<![a-z0-9])(PN\s?\d{1,2}|\d+(?:\.\d+)?\s*kg\/cm²?)(?![a-z0-9])/gi)) add(pA,/^pn/i.test(m[1])?'PN '+m[1].replace(/\D/g,''):m[1].replace(/\s*kg\/cm²?$/i,' kg/cm²'));
+    if(cA) for(const m of t.matchAll(/(?<![a-z0-9])(K\s?\d{1,2}|NP\s?\d|SN\s?\d{1,2}|PE\s?\d{2,3}|SDR\s?\d{1,2}|sch(?:edule)?\s?\d{2,3}|class\s+[a-c]\b)(?![a-z0-9])/gi)) add(cA,m[1].replace(/\s+/g,'').replace(/^(sch|schedule)/i,'Sch ').replace(/kg\/cm²?$/i,' kg/cm²').replace(/^class/i,'Class ').toUpperCase().replace('KG/CM²','kg/cm²').replace(/^CLASS /,'Class ').replace(/^SCH /,'Sch '));
+    if(tA){const ws=r.desc.split(/\s+/);for(const w of ws){const n=norm(w);if(!n||nameW.has(n)) continue;if(VAR_MATERIALS.includes(n)||(/^[A-Z]{2,5}$/.test(w)&&!/^(IS|NP|PN|SN|PE|SDR|ERW|MM)$/.test(w))){add(tA,VAR_MATERIALS.includes(n)&&n.length<=4?w.toUpperCase().replace(/^UPVC$/,'uPVC').replace(/^CPVC$/,'CPVC'):w);break}}}}}
