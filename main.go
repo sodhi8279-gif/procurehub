@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "9.3.0"
+const appVersion = "9.3.1"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1970,6 +1970,7 @@ func main() {
 		}
 	}
 	loadAssets()
+	go archiveVersions() // keep this version, so one can come back to it later
 
 	if *resetPw != "" {
 		name := strings.ToLower(*resetPw)
@@ -2014,6 +2015,9 @@ func main() {
 	mux.HandleFunc("/api/restore", adminOnly(hRestore))
 	mux.HandleFunc("/api/update", adminOnly(hUpdate))
 	mux.HandleFunc("/api/update/info", adminOnly(hUpdateInfo))
+	mux.HandleFunc("/api/update/versions", adminOnly(hVersions))
+	mux.HandleFunc("/api/update/switch", adminOnly(hVersionSwitch))
+	mux.HandleFunc("/api/update/keep", adminOnly(hVersionKeep))
 	mux.HandleFunc("/api/smtp", permOnly(hSMTP, "settings"))
 	mux.HandleFunc("/api/https", adminOnly(hHTTPS))
 	mux.HandleFunc("/api/smtp/test", permOnly(hSMTPTest, "settings"))

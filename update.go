@@ -217,6 +217,14 @@ func hUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 		writeJSON(w, 200, map[string]any{"ok": true, "version": up.version, "current": appVersion})
 		return
 	}
+	if installBin(w, u, up.bin, up.version, up.extras, "") {
+		done = true
+	}
+}
+
+// installBin backs up, test-starts the program on a copy of the data, puts it in
+// place and restarts. Used for uploaded updates and for going back to a kept version.
+func installBin(w http.ResponseWriter, u *User, bin []byte, version string, extras map[string][]byte, why string) bool {
 	exe, err := os.Executable()
 	if err == nil {
 		if real, e := filepath.EvalSymlinks(exe); e == nil {
@@ -225,36 +233,37 @@ func hUpdate(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 	if err != nil {
 		fail(w, 500, "Cannot find the program file: "+err.Error())
-		return
+		return false
 	}
+	archiveVersions() // the running version is kept, so one can come back to it
 	if err := runBackup(true); err != nil {
 		fail(w, 500, "A backup could not be made first, so nothing was changed: "+err.Error())
-		return
+		return false
 	}
 	newExe := exe + ".new"
-	if err := os.WriteFile(newExe, up.bin, 0755); err != nil {
+	if err := os.WriteFile(newExe, bin, 0755); err != nil {
 		fail(w, 500, "The new program could not be saved next to the old one ("+err.Error()+"). Check that the program folder is not read-only.")
-		return
+		return false
 	}
-	if err := selfTest(newExe, up.version); err != nil {
+	if err := selfTest(newExe, version); err != nil {
 		os.Remove(newExe)
 		fail(w, 500, "Nothing was changed: "+err.Error())
-		return
+		return false
 	}
-	for name, b := range up.extras {
+	for name, b := range extras {
 		_ = os.WriteFile(filepath.Join(filepath.Dir(exe), name), b, 0644)
 	}
 	mu.Lock()
-	st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "settings", ID: "software", Op: "update", Ref: "ProcureHub " + appVersion + " → " + up.version})
+	st.Audit = append(st.Audit, AuditEntry{At: time.Now().UnixMilli(), User: u.Username, Name: u.Name, Col: "settings", ID: "software", Op: "update", Ref: "ProcureHub " + appVersion + " → " + version + why})
 	saveLocked()
 	mu.Unlock()
-	log.Printf("%s is installing ProcureHub %s (was %s).", u.Name, up.version, appVersion)
-	done = true
-	writeJSON(w, 200, map[string]any{"ok": true, "version": up.version, "from": appVersion})
+	log.Printf("%s is installing ProcureHub %s (was %s)%s.", u.Name, version, appVersion, why)
+	writeJSON(w, 200, map[string]any{"ok": true, "version": version, "from": appVersion})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	go switchAndRestart(exe, newExe, up.version)
+	go switchAndRestart(exe, newExe, version)
+	return true
 }
 
 // switchAndRestart puts the new program in place and restarts ProcureHub.
