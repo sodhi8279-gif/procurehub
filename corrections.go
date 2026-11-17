@@ -170,6 +170,9 @@ func corrRequestWrite(u *User, op, cid string, ex, patch map[string]any, now int
 		if !sitePM(u) {
 			return nil, errors.New("Only the project manager can ask HQ for a correction.")
 		}
+		if str(patch, "action") == "stock" {
+			return corrStockNew(u, patch, now)
+		}
 		refCol, refID := str(patch, "refCol"), str(patch, "refId")
 		action := str(patch, "action")
 		if action != "cancel" {
@@ -237,7 +240,7 @@ func corrRequestWrite(u *User, op, cid string, ex, patch map[string]any, now int
 			return nil, errors.New("Write why the correction is rejected.")
 		}
 		out["decision"] = map[string]any{"by": u.ID, "byName": u.Name, "at": float64(now), "note": note}
-		if want == "approved" && (str(ex, "action") == "cancel" || ex["proposed"] != nil) {
+		if want == "approved" && (str(ex, "action") == "cancel" || str(ex, "action") == "stock" || ex["proposed"] != nil) {
 			if err := corrApplyApproved(u, cid, ex, out, now); err != nil {
 				return nil, err
 			}
@@ -487,6 +490,9 @@ func corrCompute(col string, ex, patch map[string]any) (map[string]any, map[stri
 // corrApplyApproved applies a correction made by the project manager, or a
 // cancellation, when HQ approves it. out is the request being approved.
 func corrApplyApproved(u *User, cid string, c, out map[string]any, now int64) error {
+	if str(c, "action") == "stock" {
+		return corrStockApply(u, cid, c, out, now)
+	}
 	col, id := str(c, "refCol"), str(c, "refId")
 	ref := docData(col, id)
 	if ref == nil {
@@ -549,5 +555,88 @@ func corrApplyApproved(u *User, cid string, c, out map[string]any, now int64) er
 	out["status"] = "done"
 	out["done"] = done
 	st.Audit = append(st.Audit, AuditEntry{At: now, User: u.Username, Name: u.Name, Col: col, ID: id, Op: "update", Ref: str(c, "refNo"), Keys: "corrected on " + str(c, "no")})
+	return nil
+}
+
+/* ---------- amendment of site stock: the project manager gives the actual quantity,
+   the administrator approves, and a stock correction entry is made ---------- */
+
+func corrStockNew(u *User, patch map[string]any, now int64) (map[string]any, error) {
+	pid := u.ProjectID
+	sid := storeOf(patch, "storeId")
+	if err := checkStore(u, pid, sid); err != nil {
+		return nil, err
+	}
+	reason := clip(strings.TrimSpace(str(patch, "reason")), 600)
+	if reason == "" {
+		return nil, errors.New("Write why the stock is to be amended.")
+	}
+	no := clip(strings.TrimSpace(str(patch, "no")), 40)
+	if no == "" {
+		return nil, errors.New("Invalid request.")
+	}
+	// items already waiting in another stock amendment of this store
+	waiting := map[string]string{}
+	for _, d := range st.Cols["corrections"] {
+		if d == nil || d.Deleted || d.Data == nil || str(d.Data, "action") != "stock" || str(d.Data, "status") != "pending" || str(d.Data, "projectId") != pid || storeOf(d.Data, "storeId") != sid {
+			continue
+		}
+		for _, l := range subList(d.Data, "lines") {
+			waiting[str(l, "itemKey")] = str(d.Data, "no")
+		}
+	}
+	var lines []any
+	for _, l := range subList(patch, "lines") {
+		k := str(l, "itemKey")
+		if k == "" || str(l, "desc") == "" {
+			return nil, errors.New("Invalid item.")
+		}
+		if n := waiting[k]; n != "" {
+			return nil, fmt.Errorf("%s is already waiting for HQ in stock amendment %s.", str(l, "desc"), n)
+		}
+		book, actual := round3(fnum(l["book"])), round3(fnum(l["actual"]))
+		if actual < 0 || actual > 1e9 || book < -1e9 || book > 1e9 {
+			return nil, errors.New("Enter a valid quantity for " + str(l, "desc") + ".")
+		}
+		if actual == book {
+			continue
+		}
+		lines = append(lines, map[string]any{"itemKey": k, "desc": clip(str(l, "desc"), 200), "spec": clip(str(l, "spec"), 200), "unit": clip(str(l, "unit"), 20), "cat": clip(str(l, "cat"), 40),
+			"book": book, "actual": actual, "diff": round3(actual - book)})
+	}
+	if len(lines) == 0 {
+		return nil, errors.New("The quantities match the stock register; nothing to amend.")
+	}
+	if len(lines) > 300 {
+		return nil, errors.New("Too many items in one amendment.")
+	}
+	refNo := str(subList(patch, "lines")[0], "desc")
+	if len(lines) > 1 {
+		refNo = fmt.Sprintf("%d items", len(lines))
+	}
+	return map[string]any{"no": no, "projectId": pid, "storeId": sid, "refCol": "sitestock", "refId": pid + "|" + sid + "|" + no, "refNo": refNo, "kind": "site stock",
+		"reason": reason, "status": "pending", "by": u.ID, "byName": u.Name, "at": float64(now), "action": "stock", "lines": lines,
+		"countedBy": clip(strings.TrimSpace(str(patch, "countedBy")), 80)}, nil
+}
+
+func corrStockApply(u *User, cid string, c, out map[string]any, now int64) error {
+	pid, sid := str(c, "projectId"), storeOf(c, "storeId")
+	date := time.Now().Format("2006-01-02")
+	var ids []any
+	for i, l := range subList(c, "lines") {
+		id := fmt.Sprintf("sa-%s-%d", cid, i)
+		rem := fmt.Sprintf("Register %v, actual %v %s", fnum(l["book"]), fnum(l["actual"]), str(l, "unit"))
+		if cb := str(c, "countedBy"); cb != "" {
+			rem += " (counted by " + cb + ")"
+		}
+		putDocLocked("sitelog", id, map[string]any{"type": "adjust", "projectId": pid, "storeId": sid, "itemKey": l["itemKey"], "desc": l["desc"], "spec": l["spec"], "unit": l["unit"], "cat": l["cat"],
+			"qty": fnum(l["diff"]), "date": date, "reason": "Stock amendment " + str(c, "no") + ": " + str(c, "reason"), "remarks": rem, "corrId": cid, "corrNo": str(c, "no"),
+			"status": "approved", "appr": map[string]any{"by": u.ID, "byName": u.Name, "at": float64(now), "status": "approved", "hq": true},
+			"at": float64(now), "createdBy": u.ID, "createdByName": u.Name, "requestedBy": str(c, "by"), "requestedByName": str(c, "byName")})
+		ids = append(ids, id)
+	}
+	out["status"] = "done"
+	out["done"] = map[string]any{"at": float64(now), "by": u.ID, "byName": u.Name, "approvedBy": u.Name, "entries": ids}
+	st.Audit = append(st.Audit, AuditEntry{At: now, User: u.Username, Name: u.Name, Col: "sitelog", ID: cid, Op: "update", Ref: str(c, "no"), Keys: "site stock amended"})
 	return nil
 }

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "9.3.2"
+const appVersion = "9.3.3"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1116,6 +1116,10 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 				return
 			}
 		} else {
+			if req.Col == "sitelog" && req.Op == "set" && exData == nil && str(req.Data, "type") == "adjust" && str(req.Data, "convId") == "" {
+				fail(w, 403, "Stock is amended through HQ: use Amend stock (or Physical count) and send it for approval.")
+				return
+			}
 			out, handled, err := siteRoleCheck(u, req.Op, req.Col, req.ID, exData, req.Data, newData)
 			if err == nil && !handled {
 				orate := req.Data["orate"]
