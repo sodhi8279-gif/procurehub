@@ -173,7 +173,7 @@ func rateOf(k string) float64 {
 		}
 	}
 	for _, d := range st.Cols["sitelog"] {
-		if d != nil && !d.Deleted && d.Data != nil && str(d.Data, "type") == "opening" && str(d.Data, "status") != "pending" && str(d.Data, "status") != "rejected" {
+		if d != nil && !d.Deleted && d.Data != nil && str(d.Data, "type") == "opening" && str(d.Data, "status") != "pending" && str(d.Data, "status") != "rejected" && str(d.Data, "status") != "cancelled" {
 			try(d.Data, int64(fnum(d.Data["at"])))
 		}
 	}

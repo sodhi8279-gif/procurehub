@@ -11,6 +11,11 @@ package main
 // quantities of that record. The record keeps a history of corrections and
 // the request keeps the quantities before and after.
 //
+// From 9.3.2 the project manager can also make the correction straight away and
+// send it for approval ("proposed"), or ask to cancel a challan / gate pass /
+// report / stock entry made by mistake (action "cancel"). Nothing changes until an
+// administrator or an approver OKs it; on approval the server applies it at once.
+//
 // Collection "corrections":
 //   {no, projectId, refCol, refId, refNo, kind, reason, status, by, byName, at,
 //    decision{by, byName, at, note}, done{at, by, byName, before, after, note}}
@@ -24,7 +29,7 @@ import (
 	"time"
 )
 
-var corrKinds = map[string]string{"dispatches": "receipt", "siteissues": "gate pass", "consumption": "consumption report"}
+var corrKinds = map[string]string{"dispatches": "receipt", "siteissues": "gate pass", "consumption": "consumption report", "sitelog": "stock entry"}
 
 func corrQtyKey(col string) string {
 	if col == "dispatches" {
@@ -37,19 +42,68 @@ func canDecideCorr(u *User, projectID string) bool {
 	return u != nil && u.Role == "hq" && (isAdmin(u) || (can(u, "site_amend_approve") && inScope(u, projectID)))
 }
 
-// corrRef checks that a correction may be asked for this record by this site.
-func corrRef(u *User, col, id string) (map[string]any, error) {
+// corrRef checks that a correction (action "amend") or a cancellation (action "cancel")
+// may be asked for this record by this site.
+func corrRef(u *User, col, id, action string) (map[string]any, error) {
 	if corrKinds[col] == "" {
-		return nil, errors.New("Corrections can be asked only for receipts, gate passes and consumption reports.")
+		return nil, errors.New("Corrections can be asked only for receipts, transfer challans, gate passes, consumption reports and stock entries.")
 	}
 	ref := docData(col, id)
 	if ref == nil {
 		return nil, errors.New("The record to correct was not found.")
 	}
+	s := str(ref, "status")
+	if action == "cancel" {
+		switch col {
+		case "dispatches":
+			if str(ref, "type") != "transfer" || str(ref, "fromProjectId") != u.ProjectID {
+				return nil, errors.New("Only a transfer challan sent by your site can be cancelled. A wrong receipt is corrected instead.")
+			}
+			if ref["siteIssue"] == true {
+				return nil, errors.New("This challan was made from a gate pass: ask to cancel gate pass " + str(ref, "no") + " instead.")
+			}
+			if s != "in_transit" && s != "to_send" {
+				return nil, errors.New("The material has already been received at the other site, so the challan cannot be cancelled. Ask that site to correct its receipt.")
+			}
+		case "siteissues":
+			if str(ref, "projectId") != u.ProjectID {
+				return nil, errDeny
+			}
+			if s != "approved" {
+				return nil, errors.New("Only an approved gate pass is cancelled through HQ. A pending one can be cancelled or rejected at site.")
+			}
+			if str(ref, "dest") == "site" {
+				if d := docData("dispatches", str(ref, "dispatchId")); d != nil && str(d, "status") != "in_transit" && str(d, "status") != "cancelled" {
+					return nil, errors.New("The material on this gate pass has already been received at the other site. Ask that site to correct its receipt instead.")
+				}
+			}
+			if ref["returnable"] == true && str(ref, "kind") != "return" {
+				for _, r := range liveIssues() {
+					if str(r, "kind") == "return" && str(r, "againstId") == id && (str(r, "status") == "approved" || str(r, "status") == "pending") {
+						return nil, errors.New("Material has come back on return note " + str(r, "no") + " against this gate pass. Cancel that return note first.")
+					}
+				}
+			}
+		case "consumption":
+			if str(ref, "projectId") != u.ProjectID {
+				return nil, errDeny
+			}
+			if s != "authenticated" {
+				return nil, errors.New("This report is not authenticated yet; it can still be rejected at site.")
+			}
+		case "sitelog":
+			if err := corrLogOK(u, ref); err != nil {
+				return nil, err
+			}
+		}
+		return ref, nil
+	}
+	if col == "sitelog" {
+		return ref, corrLogOK(u, ref)
+	}
 	if str(ref, "projectId") != u.ProjectID {
 		return nil, errDeny
 	}
-	s := str(ref, "status")
 	switch col {
 	case "dispatches":
 		if s != "delivered" && s != "short" {
@@ -70,6 +124,20 @@ func corrRef(u *User, col, id string) (map[string]any, error) {
 	return ref, nil
 }
 
+// a stock entry (opening stock, used, damaged, adjustment…) that counts in the site's stock
+func corrLogOK(u *User, ref map[string]any) error {
+	if str(ref, "projectId") != u.ProjectID {
+		return errDeny
+	}
+	if str(ref, "issueId") != "" {
+		return errors.New("This entry was made by a gate pass; correct or cancel the gate pass instead.")
+	}
+	if s := str(ref, "status"); s == "pending" || s == "rejected" || s == "cancelled" {
+		return errors.New("Only a stock entry that counts in the stock (approved) can be corrected through HQ.")
+	}
+	return nil
+}
+
 func openCorrFor(refID string) (string, map[string]any) {
 	for id, d := range st.Cols["corrections"] {
 		if d == nil || d.Deleted || d.Data == nil || str(d.Data, "refId") != refID {
@@ -85,12 +153,12 @@ func openCorrFor(refID string) (string, map[string]any) {
 // correctionWriteLocked handles writes to "corrections" and the correction of a record itself.
 func correctionWriteLocked(u *User, op, col, id string, ex, patch map[string]any, now int64) (map[string]any, error) {
 	if col == "corrections" {
-		return corrRequestWrite(u, op, ex, patch, now)
+		return corrRequestWrite(u, op, id, ex, patch, now)
 	}
 	return corrApply(u, op, col, id, ex, patch, now)
 }
 
-func corrRequestWrite(u *User, op string, ex, patch map[string]any, now int64) (map[string]any, error) {
+func corrRequestWrite(u *User, op, cid string, ex, patch map[string]any, now int64) (map[string]any, error) {
 	if op == "delete" {
 		return nil, errors.New("Correction requests are kept for the record. Cancel it instead.")
 	}
@@ -103,7 +171,11 @@ func corrRequestWrite(u *User, op string, ex, patch map[string]any, now int64) (
 			return nil, errors.New("Only the project manager can ask HQ for a correction.")
 		}
 		refCol, refID := str(patch, "refCol"), str(patch, "refId")
-		ref, err := corrRef(u, refCol, refID)
+		action := str(patch, "action")
+		if action != "cancel" {
+			action = "amend"
+		}
+		ref, err := corrRef(u, refCol, refID, action)
 		if err != nil {
 			return nil, err
 		}
@@ -122,8 +194,20 @@ func corrRequestWrite(u *User, op string, ex, patch map[string]any, now int64) (
 		if refNo == "" {
 			refNo = str(ref, "gpNo")
 		}
-		return map[string]any{"no": no, "projectId": u.ProjectID, "refCol": refCol, "refId": refID, "refNo": refNo, "kind": corrKinds[refCol],
-			"reason": reason, "status": "pending", "by": u.ID, "byName": u.Name, "at": float64(now)}, nil
+		if refNo == "" && refCol == "sitelog" {
+			refNo = clip(str(ref, "desc")+" "+str(ref, "spec"), 60)
+		}
+		out := map[string]any{"no": no, "projectId": u.ProjectID, "refCol": refCol, "refId": refID, "refNo": refNo, "kind": corrKinds[refCol],
+			"reason": reason, "status": "pending", "by": u.ID, "byName": u.Name, "at": float64(now), "action": action}
+		// the correction made by the project manager, applied when HQ approves it
+		if prop, ok := patch["proposed"].(map[string]any); ok && action == "amend" {
+			_, done, err := corrCompute(refCol, ref, prop)
+			if err != nil {
+				return nil, err
+			}
+			out["proposed"], out["preview"] = prop, done
+		}
+		return out, nil
 	}
 	want := str(patch, "status")
 	for k := range patch {
@@ -153,6 +237,12 @@ func corrRequestWrite(u *User, op string, ex, patch map[string]any, now int64) (
 			return nil, errors.New("Write why the correction is rejected.")
 		}
 		out["decision"] = map[string]any{"by": u.ID, "byName": u.Name, "at": float64(now), "note": note}
+		if want == "approved" && (str(ex, "action") == "cancel" || ex["proposed"] != nil) {
+			if err := corrApplyApproved(u, cid, ex, out, now); err != nil {
+				return nil, err
+			}
+			return out, nil
+		}
 	default:
 		return nil, errDeny
 	}
@@ -237,13 +327,35 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 	if !sitePM(u) {
 		return nil, errors.New("Only the project manager can make an approved correction.")
 	}
+	out, done, err := corrCompute(col, ex, patch)
+	if err != nil {
+		return nil, err
+	}
+	dec, _ := c["decision"].(map[string]any)
+	done["at"], done["by"], done["byName"] = float64(now), u.ID, u.Name
+	h := shallowCopy(done)
+	h["id"], h["no"], h["reason"], h["approvedBy"] = cid, str(c, "no"), str(c, "reason"), str(dec, "byName")
+	hist, _ := ex["corrections"].([]any)
+	out["corrections"] = append(append([]any{}, hist...), h)
+	nc := shallowCopy(c)
+	nc["status"] = "done"
+	nc["done"] = done
+	putDocLocked("corrections", cid, nc)
+	return out, nil
+}
+
+// corrCompute works out the corrected record and what changed, without saving anything.
+func corrCompute(col string, ex, patch map[string]any) (map[string]any, map[string]any, error) {
 	allowed := map[string]bool{"_correction": true, "lines": true, "corrNote": true}
+	if col == "sitelog" {
+		allowed["qty"] = true
+	}
 	for _, k := range corrFields[col] {
 		allowed[k] = true
 	}
 	for k := range patch {
 		if !allowed[k] {
-			return nil, errors.New("This detail cannot be corrected.")
+			return nil, nil, errors.New("This detail cannot be corrected.")
 		}
 	}
 	out := shallowCopy(ex)
@@ -253,9 +365,20 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 	direct := col == "dispatches" && str(ex, "type") == "direct"
 	exl := subList(ex, "lines")
 	var before, after, supBefore, supAfter []any
+	if v, has := patch["qty"].(float64); has && col == "sitelog" {
+		if v < 0 || v > 1e9 || (v == 0 && str(ex, "type") != "adjust") {
+			return nil, nil, errors.New("Enter a valid quantity.")
+		}
+		v = round3(v)
+		if v != fnum(ex["qty"]) {
+			changed = true
+		}
+		before, after = []any{fnum(ex["qty"])}, []any{v}
+		out["qty"] = v
+	}
 	if nl, has := patch["lines"].([]any); has {
 		if len(nl) != len(exl) {
-			return nil, errors.New("Invalid request.")
+			return nil, nil, errors.New("Invalid request.")
 		}
 		var lines []any
 		for i, l := range exl {
@@ -263,7 +386,7 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 			nm, _ := nl[i].(map[string]any)
 			v, ok := nm[key].(float64)
 			if !ok || v < 0 || v > 1e9 {
-				return nil, errors.New("Enter a valid quantity on every line.")
+				return nil, nil, errors.New("Enter a valid quantity on every line.")
 			}
 			v = round3(v)
 			old := fnum(l[key])
@@ -299,7 +422,7 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 		}
 		nv, err := corrField(col, k, v, ex)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if fmt.Sprint(nv) == fmt.Sprint(ex[k]) {
 			continue
@@ -326,7 +449,7 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 		}
 	}
 	if !changed {
-		return nil, errors.New("Nothing was changed.")
+		return nil, nil, errors.New("Nothing was changed.")
 	}
 	if col == "dispatches" {
 		short, excess := false, false
@@ -350,22 +473,81 @@ func corrApply(u *User, op, col, id string, ex, patch map[string]any, now int64)
 			}
 		}
 	}
-	dec, _ := c["decision"].(map[string]any)
 	note := clip(strings.TrimSpace(str(patch, "corrNote")), 500)
-	done := map[string]any{"at": float64(now), "by": u.ID, "byName": u.Name, "before": before, "after": after, "note": note}
+	done := map[string]any{"before": before, "after": after, "note": note}
 	if len(fields) > 0 {
 		done["fields"] = fields
 	}
 	if supBefore != nil {
 		done["supBefore"], done["supAfter"] = supBefore, supAfter
 	}
+	return out, done, nil
+}
+
+// corrApplyApproved applies a correction made by the project manager, or a
+// cancellation, when HQ approves it. out is the request being approved.
+func corrApplyApproved(u *User, cid string, c, out map[string]any, now int64) error {
+	col, id := str(c, "refCol"), str(c, "refId")
+	ref := docData(col, id)
+	if ref == nil {
+		return errors.New("The record was not found any more.")
+	}
+	if str(c, "action") == "cancel" {
+		pu := &User{ID: str(c, "by"), Name: str(c, "byName"), Role: "site", ProjectID: str(c, "projectId")}
+		if _, err := corrRef(pu, col, id, "cancel"); err != nil {
+			return errors.New("It can no longer be cancelled: " + err.Error())
+		}
+		nr := shallowCopy(ref)
+		nr["status"] = "cancelled"
+		nr["cancelled"] = map[string]any{"at": float64(now), "by": str(c, "by"), "byName": str(c, "byName"), "reason": str(c, "reason"), "approvedBy": u.Name, "corrNo": str(c, "no"), "was": str(ref, "status")}
+		switch col {
+		case "siteissues":
+			// what the gate pass made elsewhere goes too
+			gid := id
+			if did := str(ref, "dispatchId"); did != "" {
+				if d := docData("dispatches", did); d != nil && str(d, "status") == "in_transit" {
+					nd := shallowCopy(d)
+					nd["status"] = "cancelled"
+					nd["cancelNote"] = "Gate pass " + str(ref, "no") + " cancelled: " + str(c, "reason")
+					putDocLocked("dispatches", did, nd)
+				}
+			}
+			if vid := str(ref, "vreturnId"); vid != "" {
+				if v := docData("vreturns", vid); v != nil {
+					nv := shallowCopy(v)
+					nv["status"], nv["cancelNote"] = "cancelled", "Gate pass "+str(ref, "no")+" cancelled: "+str(c, "reason")
+					putDocLocked("vreturns", vid, nv)
+				}
+			}
+			for lid, d := range st.Cols["sitelog"] {
+				if d != nil && !d.Deleted && d.Data != nil && str(d.Data, "issueId") == gid {
+					nl := shallowCopy(d.Data)
+					nl["status"] = "cancelled"
+					putDocLocked("sitelog", lid, nl)
+				}
+			}
+		case "dispatches":
+			nr["cancelNote"] = "Cancelled (" + str(c, "no") + "): " + str(c, "reason")
+		}
+		putDocLocked(col, id, nr)
+		out["status"] = "done"
+		out["done"] = map[string]any{"at": float64(now), "by": u.ID, "byName": u.Name, "cancelled": true}
+		st.Audit = append(st.Audit, AuditEntry{At: now, User: u.Username, Name: u.Name, Col: col, ID: id, Op: "update", Ref: str(c, "refNo"), Keys: "cancelled on " + str(c, "no")})
+		return nil
+	}
+	prop, _ := c["proposed"].(map[string]any)
+	nr, done, err := corrCompute(col, ref, prop)
+	if err != nil {
+		return errors.New("The correction can no longer be applied (" + err.Error() + "). Reject it and ask the site to send it again.")
+	}
+	done["at"], done["by"], done["byName"], done["approvedBy"] = float64(now), str(c, "by"), str(c, "byName"), u.Name
 	h := shallowCopy(done)
-	h["id"], h["no"], h["reason"], h["approvedBy"] = cid, str(c, "no"), str(c, "reason"), str(dec, "byName")
-	hist, _ := ex["corrections"].([]any)
-	out["corrections"] = append(append([]any{}, hist...), h)
-	nc := shallowCopy(c)
-	nc["status"] = "done"
-	nc["done"] = done
-	putDocLocked("corrections", cid, nc)
-	return out, nil
+	h["id"], h["no"], h["reason"] = cid, str(c, "no"), str(c, "reason")
+	hist, _ := ref["corrections"].([]any)
+	nr["corrections"] = append(append([]any{}, hist...), h)
+	putDocLocked(col, id, nr)
+	out["status"] = "done"
+	out["done"] = done
+	st.Audit = append(st.Audit, AuditEntry{At: now, User: u.Username, Name: u.Name, Col: col, ID: id, Op: "update", Ref: str(c, "refNo"), Keys: "corrected on " + str(c, "no")})
+	return nil
 }

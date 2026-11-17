@@ -185,7 +185,7 @@ func siteStockLocked() map[string]map[string]*stockRow {
 	}
 	for _, x := range liveLocked("sitelog") {
 		e := x.D
-		if s := str(e, "status"); s == "pending" || s == "rejected" {
+		if s := str(e, "status"); s == "pending" || s == "rejected" || s == "cancelled" {
 			continue
 		}
 		r := row(str(e, "projectId"), itemKeyOf(e), e)
@@ -578,7 +578,7 @@ func buildWorkbookLocked() []xSheet {
 		}
 	}
 	for _, x := range liveLocked("sitelog") {
-		if str(x.D, "type") == "return" && str(x.D, "status") != "pending" && str(x.D, "status") != "rejected" {
+		if str(x.D, "type") == "return" && str(x.D, "status") != "pending" && str(x.D, "status") != "rejected" && str(x.D, "status") != "cancelled" {
 			get(itemKeyOf(x.D), x.D).in += fnum(x.D["qty"])
 		}
 	}

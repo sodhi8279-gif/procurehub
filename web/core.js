@@ -237,7 +237,7 @@ function derive(){
   // value of existing stock entered with a rate (used when there is no PO rate)
   d.orate={};const oat={};const orate=(k,r,at)=>{if(num(r)>0&&(!(k in oat)||at>=oat[k])){d.orate[k]=num(r);oat[k]=at}};
   for(const g of S.grns) if(g.type==='opening') for(const l of g.lines||[]) orate(l.itemKey||itemKey(l.desc,l.spec,l.unit),l.orate,g.at||0);
-  for(const e of S.sitelog) if(e.type==='opening') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
+  for(const e of S.sitelog) if(e.type==='opening'&&e.status!=='cancelled') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
   d.rateOf=k=>d.rate[k]?d.rate[k].rate:(d.orate[k]||0);
   d.closedPo={};for(const p of S.pos) if(p.closed&&p.status!=='cancelled') d.closedPo[p.id]=p;
   d.cashSrc={};for(const c of S.cashbuys||[]) if(c.status!=='rejected') for(const s of c.srcs||[]) d.cashSrc[s.indentId+'|'+s.lineId]=c;
@@ -254,14 +254,14 @@ function derive(){
   }
   const retIn={};
   // stock entered by the storekeeper counts once the project manager approves it
-  for(const e of S.sitelog){if(e.status==='pending'||e.status==='rejected') continue;const ik=e.itemKey||itemKey(e.desc,e.spec,e.unit);const q=num(e.qty);
+  for(const e of S.sitelog){if(e.status==='pending'||e.status==='rejected'||e.status==='cancelled') continue;const ik=e.itemKey||itemKey(e.desc,e.spec,e.unit);const q=num(e.qty);
     const f={use:'used',damage:'dmg',return:'ret',adjust:'adj'}[e.type]||'open';bump(e.projectId,e.storeId,ik,e,f,q,e.at||0);
     if(e.type==='return'){retIn[ik]=retIn[ik]||{l:e,q:0};retIn[ik].q+=q}}
   // gate passes: material issued to contractors / heads; pending ones are held back
   for(const g of S.siteissues){if(g.status!=='approved'&&g.status!=='pending') continue;const ret=g.kind==='return';for(const l of g.lines||[]){const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
     if(g.status==='pending'){if(!ret) bump(g.projectId,g.storeId,ik,l,'piss',num(l.qty))}else if(ret) bump(g.projectId,g.storeId,ik,l,'iss',-num(l.qty),(g.appr&&g.appr.at)||0);else if(g.dest==='head'||g.dest==='repair') bump(g.projectId,g.storeId,ik,l,'iss',num(l.qty),(g.appr&&g.appr.at)||0)}}
   // consumption reported by sites: counts once the site head / project manager authenticates it
-  for(const c of S.consumption){if(c.status==='rejected') continue;for(const l of c.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(c.status==='authenticated') bump(c.projectId,c.storeId,k,l,'cons',num(l.qty),(c.auth&&c.auth.at)||0);else bump(c.projectId,c.storeId,k,l,'pcons',num(l.qty))}}
+  for(const c of S.consumption){if(c.status==='rejected'||c.status==='cancelled') continue;for(const l of c.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(c.status==='authenticated') bump(c.projectId,c.storeId,k,l,'cons',num(l.qty),(c.auth&&c.auth.at)||0);else bump(c.projectId,c.storeId,k,l,'pcons',num(l.qty))}}
   // material returned to vendors (rejected, wrong specification, damaged…)
   d.vretRepl={};for(const v of S.vreturns){if(v.status==='cancelled') continue;for(const l of v.lines||[]){const k=l.itemKey||itemKey(l.desc,l.spec,l.unit);if(v.from==='site'&&v.projectId) bump(v.projectId,v.storeId,k,l,'vret',num(l.qty),v.at||0);if(v.replace&&v.poId&&l.poKey) d.vretRepl[v.poId+'|'+l.poKey]=(d.vretRepl[v.poId+'|'+l.poKey]||0)+num(l.qty)}}
   // cash (counter) purchases count once finally approved, with what was consumed from them

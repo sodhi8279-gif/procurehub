@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.3.2':'Site PM amends or cancels challans, gate passes, consumption and stock entries; HQ approves and it applies',
   '9.3.1':'Keeps the last versions; go back to any of them from Settings',
   '9.3.0':'Purchase carts: combine demands by site, chosen demands or same item; queue By site / Same item',
   '9.2.4':'Fittings: Type lists only fittings, materials in their own Material list',
