@@ -118,7 +118,7 @@ A.emgSave=async()=>{const m=ui.modal;const d=m.d;
     const gs=String(l.gst??'').trim();const g=gs===''?num(d.gst||18):num(gs);if(!(g>=0&&g<=100)){toast(`GST % for ${desc} must be between 0 and 100.`,'err');return}
     const spec=String(l.spec||'').trim(),unit=l.unit||'Nos';const it=D.itemMap[slug(desc)];
     if(l.lineId&&l.maxQty!=null&&num(l.qty)>num(l.maxQty)+1e-9){toast(`${desc}: the demand needs ${fq(l.maxQty)} ${unit}; enter at most that (add a new line for more).`,'err');return}
-    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:'',...(l.lineId?{lineId:l.lineId}:{})})}
+    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:'',...(l.lineId?{lineId:l.lineId,...(l.indentId?{indentId:l.indentId}:{})}:{})})}
   if(!lines.length){toast('Add the items bought.','err');return}
   {const bad=lines.filter(l=>rateUnitFix(l.desc,l.category,l.unit,l.rate));if(bad.length&&!m.unitOk){m.unitOk=true;const f=rateUnitFix(bad[0].desc,bad[0].category,bad[0].unit,bad[0].rate);toast(`${bad[0].desc}: ₹${fq(bad[0].rate)} per ${bad[0].unit} looks like a rate per ${f.as} (about ₹${fq(f.rate)} per ${bad[0].unit}). Correct the rate or unit, or tap Save again to keep it.`,'err');return}}
   let co;try{co=chargesOut(d)}catch(e){toast(errMsg(e),'err');return}

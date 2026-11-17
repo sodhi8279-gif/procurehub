@@ -186,6 +186,8 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 			return need(u, "site_approve")
 		}
 		return errors.New("Gate passes are made at site by the storekeeper.")
+	case "carts": // purchase carts: demand items gathered to be bought together
+		return need(u, "rfq_create", "demands_approve", "emergency_purchase", "po_approve")
 	case "projects":
 		return need(u, "masters_projects")
 	case "vendors":

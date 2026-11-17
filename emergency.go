@@ -47,6 +47,7 @@ type emgLine struct {
 	HSN      string  `json:"hsn"`
 	Note     string  `json:"note"`
 	LineID   string  `json:"lineId"`
+	IndentID string  `json:"indentId"` // the demand of this line, when one purchase covers several demands of the site (a cart)
 }
 
 type emgReq struct {
@@ -172,6 +173,14 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 			l.ItemKey = keyOf(l.Desc, l.Spec, l.Unit)
 		}
 	}
+	if q.IndentID == "" {
+		for _, l := range q.Lines {
+			if l.IndentID != "" && l.LineID != "" {
+				q.IndentID = l.IndentID
+				break
+			}
+		}
+	}
 	files := []any{}
 	for _, f := range q.Files {
 		if f = strings.TrimSpace(f); f != "" && len(files) < 10 {
@@ -189,6 +198,32 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 			return
 		}
 		q.ProjectID = str(fromInd, "projectId")
+	}
+	// other demands of the same site bought on this one PO
+	others := map[string]map[string]any{}
+	lineInd := func(l emgLine) string {
+		if l.IndentID != "" && l.LineID != "" {
+			return l.IndentID
+		}
+		return q.IndentID
+	}
+	if fromInd != nil {
+		for _, l := range q.Lines {
+			iid := lineInd(l)
+			if iid == q.IndentID || others[iid] != nil {
+				continue
+			}
+			x := docData("indents", iid)
+			if x == nil || x["cancelled"] == true {
+				fail(w, 400, "A demand of "+l.Desc+" was not found or is cancelled.")
+				return
+			}
+			if str(x, "projectId") != q.ProjectID {
+				fail(w, 400, "One emergency purchase is for one site: "+l.Desc+" is for another site. Enter a separate purchase for each site.")
+				return
+			}
+			others[iid] = x
+		}
 	}
 	p := docData("projects", q.ProjectID)
 	if p == nil || p["active"] == false {
@@ -208,23 +243,29 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	indID, poID, ddID := "em"+randHex(6), "em"+randHex(6), "em"+randHex(6)
 	vName := str(v, "name")
 	// against an existing demand: its items must still be open
-	var demLines []any
+	demBy := map[string][]any{}
+	mrOf := map[string]string{}
 	if fromInd != nil {
 		indID = q.IndentID
-		demLines = append([]any{}, anyList(fromInd["lines"])...)
+		demBy[indID] = append([]any{}, anyList(fromInd["lines"])...)
+		mrOf[indID] = str(fromInd, "no")
+		for id, x := range others {
+			demBy[id] = append([]any{}, anyList(x["lines"])...)
+			mrOf[id] = str(x, "no")
+		}
 		live := func(col, id string) bool { x := docData(col, id); return x != nil && str(x, "status") != "cancelled" }
 		seen := map[string]bool{}
 		for _, l := range q.Lines {
 			if l.LineID == "" {
 				continue
 			}
-			if seen[l.LineID] {
+			if seen[lineInd(l)+"|"+l.LineID] {
 				fail(w, 400, l.Desc+" is entered twice.")
 				return
 			}
-			seen[l.LineID] = true
+			seen[lineInd(l)+"|"+l.LineID] = true
 			var dl map[string]any
-			for _, x := range demLines {
+			for _, x := range demBy[lineInd(l)] {
 				if m, _ := x.(map[string]any); str(m, "id") == l.LineID {
 					dl = m
 				}
@@ -250,6 +291,11 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	var mrNo string
 	if fromInd != nil {
 		mrNo = str(fromInd, "no")
+		for _, l := range q.Lines {
+			if n := mrOf[lineInd(l)]; n != "" && !strings.Contains(", "+mrNo+", ", ", "+n+", ") {
+				mrNo += ", " + n
+			}
+		}
 	} else {
 		mrNo = nextNo("MR")
 	}
@@ -259,6 +305,11 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	var indLines, poLines, ddLines []any
 	for i, l := range q.Lines {
 		lid, key := "em"+randHex(5), fmt.Sprintf("e%d", i+1)
+		liid := indID
+		if fromInd != nil && l.LineID != "" {
+			liid = lineInd(l)
+		}
+		demLines := demBy[liid]
 		if fromInd != nil && l.LineID != "" { // the demand's own item: ordered on this PO; a smaller quantity leaves the rest
 			lid = l.LineID
 			for j, x := range demLines {
@@ -298,11 +349,12 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 				"decidedBy": u.ID, "decidedByName": u.Name, "poId": poID, "poNo": poNo, "poAt": now, "vendorName": vName, "expectedDate": q.ExpectedDate, "orderedQty": l.Qty, "emergencyPo": true})
 		}
 		if fromInd != nil {
-			src := map[string]any{"indentId": indID, "lineId": lid, "projectId": q.ProjectID, "qty": l.Qty, "mrNo": mrNo}
+			demBy[liid] = demLines
+			src := map[string]any{"indentId": liid, "lineId": lid, "projectId": q.ProjectID, "qty": l.Qty, "mrNo": mrOf[liid]}
 			poLines = append(poLines, map[string]any{"key": key, "desc": l.Desc, "spec": l.Spec, "unit": l.Unit, "cat": l.Category, "qty": l.Qty, "rate": l.Rate, "gst": l.GST,
 				"hsn": l.HSN, "itemKey": l.ItemKey, "srcs": []any{src}})
 			ddLines = append(ddLines, map[string]any{"poKey": key, "itemKey": l.ItemKey, "desc": l.Desc, "spec": l.Spec, "unit": l.Unit, "cat": l.Category, "qty": l.Qty,
-				"indentId": indID, "lineId": lid, "mrNo": mrNo, "recvQty": nil})
+				"indentId": liid, "lineId": lid, "mrNo": mrOf[liid], "recvQty": nil})
 			continue
 		}
 		indLines = append(indLines, map[string]any{"id": lid, "desc": l.Desc, "spec": l.Spec, "qty": l.Qty, "unit": l.Unit, "category": l.Category, "catSrc": "manual",
@@ -318,11 +370,17 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 		"reason": q.Reason, "by": u.ID, "byName": u.Name, "at": now}
 
 	if fromInd != nil {
-		nd := shallowCopy(fromInd)
-		nd["lines"] = demLines
-		rem := append([]any{}, anyList(fromInd["hqRemarks"])...)
-		nd["hqRemarks"] = append(rem, map[string]any{"id": randHex(6), "text": "Emergency purchase " + poNo + " from " + vName + ": " + q.Reason, "action": "Emergency purchase", "at": now, "name": u.Name})
-		putDocLocked("indents", indID, nd)
+		all := map[string]map[string]any{indID: fromInd}
+		for id, x := range others {
+			all[id] = x
+		}
+		for id, x := range all {
+			nd := shallowCopy(x)
+			nd["lines"] = demBy[id]
+			rem := append([]any{}, anyList(x["hqRemarks"])...)
+			nd["hqRemarks"] = append(rem, map[string]any{"id": randHex(6), "text": "Emergency purchase " + poNo + " from " + vName + ": " + q.Reason, "action": "Emergency purchase", "at": now, "name": u.Name})
+			putDocLocked("indents", id, nd)
+		}
 	} else {
 		putDocLocked("indents", indID, map[string]any{"no": mrNo, "projectId": q.ProjectID, "date": q.Date, "requiredBy": q.Date, "priority": "Emergency", "emergency": emg,
 			"requestedBy": q.RequestedBy, "remarks": q.Reason, "createdBy": u.ID, "createdByName": u.Name, "raisedByHQ": true, "at": now, "lines": indLines})
