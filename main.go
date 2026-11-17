@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "9.3.3"
+const appVersion = "9.4.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -2016,6 +2016,7 @@ func main() {
 	mux.HandleFunc("/api/backup/file", permOnly(hBackupFile, "settings"))
 	mux.HandleFunc("/api/export.xlsx", permOnly(hExportXLSX, "reports"))
 	mux.HandleFunc("/api/xlsx", authed(hXLSX))
+	mux.HandleFunc("/api/xlsx/read", permOnly(hXLSXRead, "masters_items"))
 	mux.HandleFunc("/api/restore", adminOnly(hRestore))
 	mux.HandleFunc("/api/update", adminOnly(hUpdate))
 	mux.HandleFunc("/api/update/info", adminOnly(hUpdateInfo))

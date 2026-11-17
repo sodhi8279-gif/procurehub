@@ -12,6 +12,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -287,4 +288,23 @@ func hItemDelete(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 	notifyLocked()
 	writeJSON(w, 200, map[string]any{"ok": true, "docs": len(changes), "lines": lines, "gone": gone})
+}
+
+// hXLSXRead returns the cells of an uploaded Excel file (the item template).
+func hXLSXRead(w http.ResponseWriter, r *http.Request, u *User) {
+	if r.Method != http.MethodPost {
+		fail(w, 405, "Use POST.")
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, 20<<20))
+	if err != nil || len(b) == 0 {
+		fail(w, 400, "The file could not be received.")
+		return
+	}
+	sheets, err := readXLSX(b)
+	if err != nil {
+		fail(w, 400, "That file could not be read as an Excel (.xlsx) file. Save it as Excel Workbook (.xlsx) and try again.")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"sheets": sheets})
 }
