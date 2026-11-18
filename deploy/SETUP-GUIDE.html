@@ -21,7 +21,7 @@ ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14p
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 9.7.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 9.8.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -105,6 +105,10 @@ sudo systemctl restart caddy</pre></li>
 <li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
 <li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
 <li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 9.8.0 — Site on POs, Material in transit, catalogue items in HQ inward</b><ol style="margin:6px 0 0">
+<li><b>Site on purchase orders:</b> the Purchase orders list has a <b>Site</b> column with the site(s) each PO is for. You can also search by site name.</li>
+<li><b>Material in transit:</b> a new tab in <b>Purchase orders</b>. Everything a vendor has dispatched straight to a site is listed with site, vendor, PO, material, dispatch date, days on the way, vehicle and LR, and expected date (overdue shown in red). It stays there until the site records the receipt. <b>Not dispatched yet</b> shows what is ordered but not yet sent; mark it dispatched from the PO when the vendor sends it.</li>
+<li><b>Record inward at HQ store (without PO):</b> each line now has <b>Choose item</b>. Pick from your item list or the standard items and choose Material, Class, Size and so on from drop-downs, or create a new item with its sizes and varieties. Unit, GST and HSN are filled in.</li></ol></div>
 <div class="card tip"><b>New in 9.7.0 — The approver can correct a cash purchase and approve it</b><ol style="margin:6px 0 0">
 <li>A cash purchase waiting for you now has a <b>Correct</b> button. The approver sees it while it waits for approval, the final approver (PO-granting authority) while it waits for final approval, and the administrator at both stages.</li>
 <li>The full bill opens: change the item, type/size, quantity, rate, GST, freight before tax, other expenses after tax, round off, shop or bill details. Write the reason if you like.</li>

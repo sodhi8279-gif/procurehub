@@ -41,7 +41,7 @@ func cashQuickAllowed(u *User, kind string) bool {
 	if kind == "vendor" {
 		return can(u, "masters_vendors")
 	}
-	return canAny(u, "masters_items", "demands_approve")
+	return canAny(u, "masters_items", "demands_approve", "store")
 }
 
 func hCashQuick(w http.ResponseWriter, r *http.Request, u *User) {

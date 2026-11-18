@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.8.0':'POs show the site; Material in transit tab; HQ inward items picked from the catalogue with drop-downs',
   '9.7.0':'Cash purchase: approver, final approver or admin can correct it and approve',
   '9.6.0':'Cash purchase: freight before tax, other expenses after tax, round off; save as draft',
   '9.5.1':'Cash bill: new item with size and type drop-downs, like Item catalogue',

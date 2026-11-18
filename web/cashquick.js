@@ -3,7 +3,7 @@
    right there: a small form opens inside the bill, and on saving the shop or
    the item line is filled in. The bill stays open with everything typed. */
 
-const CQ_PERM=['cash_spend','cash_approve','po_approve','masters_vendors','masters_items'];
+const CQ_PERM=['cash_spend','cash_approve','po_approve','masters_vendors','masters_items','store'];
 
 // ---- vendor ----
 function cashVendorBtn(d){
@@ -69,10 +69,10 @@ function cqSpec(it,n){const size=n.size==='__other'?String(n.otherSize||'').trim
 
 function cqAttrsEd(n){const a=n.attrs||(n.attrs=[]);
   return `<div class="f full var-ed"><label>Varieties <span class="muted small">— drop-downs for this item (Type, Class, Pressure…), like in Item catalogue</span></label>
-   ${a.length?`<div class="var-rows">${a.map((x,i)=>`<div class="var-row"><input class="inp" data-bind="modal.d.ni.attrs.${i}.name" value="${esc(x.name)}" placeholder="Name, e.g. Type" aria-label="Variety name" data-rerender="1">
-     <input class="inp grow" data-bind="modal.d.ni.attrs.${i}.optsText" value="${esc(x.optsText)}" placeholder="Choices, comma separated — e.g. GI, DI, PVC" aria-label="Choices" data-rerender="1">
-     <label class="check small"><input type="checkbox" data-bind="modal.d.ni.attrs.${i}.req" ${x.req?'checked':''}> Must choose</label>
-     <label class="check small"><input type="checkbox" data-bind="modal.d.ni.attrs.${i}.showName" ${x.showName?'checked':''}> Name in spec</label>
+   ${a.length?`<div class="var-rows">${a.map((x,i)=>`<div class="var-row"><input class="inp" id="cq-an-${i}" data-bind="modal.d.ni.attrs.${i}.name" value="${esc(x.name)}" placeholder="Name, e.g. Type" aria-label="Variety name" data-act-change="cqRe">
+     <input class="inp grow" id="cq-ao-${i}" data-bind="modal.d.ni.attrs.${i}.optsText" value="${esc(x.optsText)}" placeholder="Choices, comma separated — e.g. GI, DI, PVC" aria-label="Choices" data-act-change="cqRe">
+     <label class="check small"><input type="checkbox" id="cq-ar-${i}" data-bind="modal.d.ni.attrs.${i}.req" ${x.req?'checked':''}> Must choose</label>
+     <label class="check small"><input type="checkbox" id="cq-as-${i}" data-bind="modal.d.ni.attrs.${i}.showName" ${x.showName?'checked':''}> Name in spec</label>
      <button type="button" class="btn sm ghost" data-act="cqVarDel" data-i="${i}" aria-label="Remove">${icon('trash','xs')}</button></div>`).join('')}</div>`:''}
    <div class="row tight" style="margin-top:6px"><button type="button" class="btn sm" data-act="cqVarAdd">${icon('plus')} Add variety</button><span class="small muted">or start from:</span>${Object.keys(VAR_PRESETS).map(k=>`<button type="button" class="btn sm ghost" data-act="cqVarPreset" data-k="${k}">${k}</button>`).join('')}</div></div>`}
 
@@ -100,7 +100,7 @@ function cashItemPanel(d,i){const n=d.ni;if(!n||n.i!==i) return '';const it=cqIt
      <div class="f"><label for="${fid('modal.d.ni.category')}">Category</label><div class="row tight nowrap"><select class="inp" id="${fid('modal.d.ni.category')}" data-bind="modal.d.ni.category">${catOpts(n.category)}</select>${ui.role==='hq'&&(can('masters_items')||can('settings'))?`<button type="button" class="btn sm" data-act="cqQuickCat" title="Add a new category">${icon('plus')} New</button>`:''}</div></div>
      ${field('HSN code','modal.d.ni.hsn',n.hsn,'inputmode="numeric" placeholder="e.g. 7303"')}
      <div class="f span2"><label for="${fid('modal.d.ni.spec')}">Default specification</label>${inp('modal.d.ni.spec',n.spec,'placeholder="e.g. IS 8329, cement mortar lined"')}</div>
-     <div class="f full"><label for="${fid('modal.d.ni.sizesText')}">Sizes offered (comma separated)</label>${inp('modal.d.ni.sizesText',n.sizesText,'placeholder="100 mm, 150 mm, 200 mm" data-rerender="1"')}<button type="button" class="linkish small" data-act="cqStdSizes">${icon('plus','xs')} Add standard mm sizes</button></div>
+     <div class="f full"><label for="${fid('modal.d.ni.sizesText')}">Sizes offered (comma separated)</label>${inp('modal.d.ni.sizesText',n.sizesText,'placeholder="100 mm, 150 mm, 200 mm" data-act-change="cqRe"')}<button type="button" class="linkish small" data-act="cqStdSizes">${icon('plus','xs')} Add standard mm sizes</button></div>
      ${cqAttrsEd(n)}</div>
      ${prev?`<div class="lbl">For this bill — choose</div>${cqPicker(it,n)}`:''}${common}
      <p class="vp-sum small">${icon('check','xs')} <b>${esc(it.desc||'New item')}</b>${cqSpec(it,n)?' — '+esc(cqSpec(it,n)):''}</p>`}
@@ -135,6 +135,7 @@ A.cqChoose=x=>{const d=ui.modal&&ui.modal.d,n=d&&d.ni;if(!n) return;const l=d.li
   render()};
 CH.cqPick=el=>{const d=ui.modal&&ui.modal.d,n=d&&d.ni;if(!n) return;const it=cqItem(n);const a=it&&it.attrs[+el.dataset.a];if(!a) return;n.av[a.name]=el.value;
   if(it.rel&&it.rel.by===a.name){for(const b of it.attrs){if(b===a) continue;const v=n.av[b.name];if(v&&(!varShowAttr(it,n,b)||v!=='__other'&&!varOptsFor(it,n,b).includes(v))) n.av[b.name]=''}const zs=varSizesFor(it,n);if(n.size&&n.size!=='__other'&&!zs.includes(n.size)) n.size=''}render()};
+CH.cqRe=()=>render();
 CH.cqSize=el=>{const n=ui.modal&&ui.modal.d&&ui.modal.d.ni;if(n){n.size=el.value;render()}};
 A.cqVarAdd=()=>{const n=ui.modal.d.ni;n.attrs.push({name:'',optsText:'',req:true,showName:false});render()};
 A.cqVarDel=x=>{const n=ui.modal.d.ni;const a=n.attrs[+x.i];n.attrs.splice(+x.i,1);if(a) delete n.av[a.name];render()};
@@ -160,7 +161,7 @@ A.cashISave=async()=>{const m=ui.modal,d=m&&m.d;if(!d||!d.ni) return;const n=d.n
       :{kind:'item',id:it.id,desc:it.desc,spec:String(n.spec||'').trim(),unit:n.unit||'Nos',category:n.category||'others',gst:num(n.gst),hsn:String(n.hsn||'').trim(),sizes:it.sizes,attrs:it.attrs};
     const j=await run(()=>api('/api/cash/quick',body));if(!j||ui.modal!==m) return;desc=j.desc||desc;
     toast(j.existing?`“${desc}” is already in the item list — used on this line`:`“${desc}” added to the item list`)}
-  l.desc=desc;l.spec=spec;l.unit=n.unit||it.unit||l.unit||'Nos';l.gst=String(n.gst||l.gst||'18');l.hint='';delete d.ni;render()};
+  l.desc=desc;l.spec=spec;l.unit=n.unit||it.unit||l.unit||'Nos';l.gst=String(n.gst||l.gst||'18');if('hsn' in l&&!String(l.hsn||'').trim()) l.hsn=String(it.hsn||n.hsn||(typeof itemHsn==='function'?itemHsn(desc):'')||'');l.hint='';delete d.ni;render()};
 // ---- freight before tax, other expenses after tax, round off (9.6.0) ----
 function cashChargesBox(d,ct){d.charges=d.charges||[];
   return `<div class="row tight cq-chg-q"><b class="small">Add to the bill:</b><button type="button" class="btn sm" data-act="cashChg" data-w="freight">${icon('plus','xs')} Freight / cartage <span class="muted small">(before tax)</span></button><button type="button" class="btn sm" data-act="cashChg" data-w="after">${icon('plus','xs')} Other expense <span class="muted small">(after tax)</span></button>${d.roMode&&d.roMode!=='none'?'':`<button type="button" class="btn sm ghost" data-act="cashChg" data-w="ro">Round off</button>`}</div>
@@ -193,12 +194,12 @@ function cashCorrPrint(c){const cs=c.corrections||[];if(!cs.length) return '';
 // Typing in the shop or item box and then clicking a button straight away: the box
 // leaving focus redraws the bill (vendor match, last rate), which used to swallow
 // the click. Keep the focus on mouse-down, then let the box finish before the click acts.
-document.addEventListener('mousedown',e=>{if(!ui.modal||ui.modal.type!=='cashNew') return;const ae=document.activeElement;
+document.addEventListener('mousedown',e=>{if(!ui.modal||(ui.modal.type!=='cashNew'&&ui.modal.type!=='inward')) return;const ae=document.activeElement;
   if(!(ae&&ae.matches&&ae.matches('#modal input[data-act-change]'))) return;
   const b=e.target.closest&&e.target.closest('#modal button[data-act]');if(b){e.preventDefault();ui.cqBlur=true;return}
   // moving to another box: finish the shop/item box first, then put the cursor where it was tapped
-  const f=e.target.closest&&e.target.closest('#modal input:not([type=checkbox]):not([type=file]), #modal textarea');
+  const f=e.target.closest&&e.target.closest('#modal input:not([type=checkbox]):not([type=file]), #modal textarea, #modal select');
   if(f&&f!==ae&&f.id){e.preventDefault();const id=f.id;ae.blur();setTimeout(()=>{const el=document.getElementById(id);if(el){el.focus();try{const n=el.value.length;el.setSelectionRange(n,n)}catch(_){}}},0)}},true);
 document.addEventListener('click',e=>{if(!ui.cqBlur) return;ui.cqBlur=false;const ae=document.activeElement;if(ae&&ae.matches&&ae.matches('#modal input[data-act-change]')) ae.blur()},true);
 
-Object.assign(ACT_PERM,{cashVNew:CQ_PERM,cashVCancel:CQ_PERM,cashVSave:CQ_PERM,cashINew:CQ_PERM,cashICancel:CQ_PERM,cashISave:CQ_PERM,cqChoose:CQ_PERM,cqPick:CQ_PERM,cqSize:CQ_PERM,cqVarAdd:CQ_PERM,cqVarDel:CQ_PERM,cqVarPreset:CQ_PERM,cqStdSizes:CQ_PERM,cashChg:CQ_PERM,saveCashDraft:CQ_PERM,cashDelDraft:CQ_PERM,cqQuickCat:['masters_items','settings']});
+Object.assign(ACT_PERM,{cashVNew:CQ_PERM,cashVCancel:CQ_PERM,cashVSave:CQ_PERM,cashINew:CQ_PERM,cashICancel:CQ_PERM,cashISave:CQ_PERM,cqChoose:CQ_PERM,cqPick:CQ_PERM,cqSize:CQ_PERM,cqVarAdd:CQ_PERM,cqVarDel:CQ_PERM,cqVarPreset:CQ_PERM,cqStdSizes:CQ_PERM,cqRe:CQ_PERM,cashChg:CQ_PERM,saveCashDraft:CQ_PERM,cashDelDraft:CQ_PERM,cqQuickCat:['masters_items','settings']});

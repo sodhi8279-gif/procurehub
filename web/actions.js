@@ -377,10 +377,10 @@ function needReceiptDocs(d){const go=k=>{const z=document.querySelector(`#modal 
 A.inwardPick=()=>openModal({type:'inwardPick'});
 A.inwardOther=d=>openModal({type:'inward',d:{type:d.t,date:today(),party:'',partyGstin:'',challan:'',invoice:'',invoiceDate:'',vehicle:'',remarks:'',photos:[],billDocs:[],signedDocs:[],freight:{},lines:[{desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''}]}});
 A.inwardAdd=()=>{ui.modal.d.lines.push({desc:'',spec:'',unit:'Nos',qty:'',rate:'',gst:'',hsn:''});render()};
-A.inwardRm=d=>{ui.modal.d.lines.splice(+d.i,1);render()};
-A.saveInward=async()=>{const d=ui.modal.d;const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
+A.inwardRm=d=>{const md=ui.modal.d;if(md.ni){if(md.ni.i===+d.i) delete md.ni;else if(md.ni.i>+d.i) md.ni.i--}md.lines.splice(+d.i,1);render()};
+A.saveInward=async()=>{const d=ui.modal.d;if(d.ni){toast('Finish choosing the item first (Use on this line, or Cancel).','err');return}const lines=d.lines.filter(l=>String(l.desc).trim()||num(l.qty)>0);
   if(!lines.length){toast('Enter at least one item.','err');return}
-  for(const l of lines){if(!String(l.desc).trim()){toast('Enter the item name on every line.','err');return}if(!(num(l.qty)>0)){toast(`Enter the quantity for ${l.desc}.`,'err');return}
+  for(const l of lines){if(!String(l.desc).trim()){toast('Choose the item on every line.','err');return}if(!(num(l.qty)>0)){toast(`Enter the quantity for ${l.desc}.`,'err');return}
     if(String(l.gst??'').trim()!==''&&!(num(l.gst)>=0&&num(l.gst)<=100)){toast(`GST % for ${l.desc} must be between 0 and 100.`,'err');return}}
   const pg=String(d.partyGstin||'').trim().toUpperCase();if(gstinCheck(pg)){toast('Supplier GSTIN: '+gstinCheck(pg),'err');return}
   if(d.type==='nopo'&&!needReceiptDocs(d)) return;
