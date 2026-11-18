@@ -11,6 +11,7 @@ package main
 // this way are marked addedVia "cash" so HQ can complete them later.
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"strings"
@@ -49,8 +50,16 @@ func hCashQuick(w http.ResponseWriter, r *http.Request, u *User) {
 		Name, GSTIN, Phone, Contact, City, Address string
 		ID, Desc, Spec, Unit, Category, HSN        string
 		GST                                        *float64
+		Sizes                                      []string
+		Attrs                                      []struct {
+			Name     string
+			Opts     []string
+			Req      bool
+			ShowName bool
+		}
+		Rel json.RawMessage
 	}
-	if !readJSON(w, r, &req, 1<<14) {
+	if !readJSON(w, r, &req, 1<<19) {
 		return
 	}
 	if req.Kind != "vendor" && req.Kind != "item" {
@@ -141,6 +150,39 @@ func hCashQuick(w http.ResponseWriter, r *http.Request, u *User) {
 		"hidden": false, "hsn": clip(strings.TrimSpace(req.HSN), 12), "gst": "", "attrs": []any{}, "at": now, "addedVia": "cash", "addedBy": u.Name}
 	if req.GST != nil {
 		doc["gst"] = *req.GST
+	}
+	// sizes and varieties (drop-downs), as in Item catalogue
+	sizes, seen := []any{}, map[string]bool{}
+	for _, z := range req.Sizes {
+		z = clip(strings.TrimSpace(z), 60)
+		if z != "" && !seen[strings.ToLower(z)] && len(sizes) < 400 {
+			seen[strings.ToLower(z)] = true
+			sizes = append(sizes, z)
+		}
+	}
+	doc["sizes"] = sizes
+	attrs := []any{}
+	for _, a := range req.Attrs {
+		name := clip(strings.TrimSpace(a.Name), 40)
+		opts := []any{}
+		for _, o := range a.Opts {
+			if o = clip(strings.TrimSpace(o), 80); o != "" && len(opts) < 300 {
+				opts = append(opts, o)
+			}
+		}
+		if name == "" || len(attrs) >= 12 {
+			continue
+		}
+		attrs = append(attrs, map[string]any{"name": name, "opts": opts, "req": a.Req, "showName": a.ShowName})
+	}
+	doc["attrs"] = attrs
+	if len(req.Rel) > 0 && string(req.Rel) != "null" && len(req.Rel) < 400000 {
+		var rel map[string]any
+		if json.Unmarshal(req.Rel, &rel) == nil {
+			if _, ok := rel["map"].(map[string]any); ok && str(rel, "by") != "" {
+				doc["rel"] = rel
+			}
+		}
 	}
 	putDocLocked("catalog", req.ID, doc)
 	st.Audit = append(st.Audit, AuditEntry{At: now, User: u.Username, Name: u.Name, Col: "catalog", ID: req.ID, Op: "set", Ref: desc, Keys: "added from a cash purchase"})

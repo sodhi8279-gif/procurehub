@@ -353,3 +353,9 @@ label.icon-btn{cursor:pointer}
 .cq-panel .fields{margin:0}
 .cq-shop-act{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 
+.cq-sugg{display:flex;flex-direction:column;gap:4px;max-height:320px;overflow:auto}
+.cq-opt{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.cq-opt:hover,.cq-opt:focus-visible{border-color:var(--accent)}
+.cq-opt small{display:block;color:var(--ink-3);font-size:12px}
+.cq-opt.create{border-style:dashed}
+.cq-panel .mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
