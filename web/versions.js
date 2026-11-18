@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.5.0':'Cash bill: add a new vendor or a new item inside the bill',
   '9.4.0':'Size as drop-down; standard drop-downs for existing items (Wire, etc.); item Excel template upload',
   '9.3.3':'Site stock amendment: PM sends actual quantity, admin approves',
   '9.3.2':'Site PM amends or cancels challans, gate passes, consumption and stock entries; HQ approves and it applies',

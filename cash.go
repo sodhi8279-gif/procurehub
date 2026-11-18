@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var cashEditable = map[string]bool{"date": true, "shop": true, "shopGstin": true, "billNo": true, "billDate": true, "payMode": true, "purpose": true, "lines": true, "photos": true, "useRemarks": true, "at": true}
+var cashEditable = map[string]bool{"date": true, "shop": true, "shopGstin": true, "vendorId": true, "billNo": true, "billDate": true, "payMode": true, "purpose": true, "lines": true, "photos": true, "useRemarks": true, "at": true}
 
 func cashMaySpend(u *User, d map[string]any) bool {
 	if u.Role == "site" {
