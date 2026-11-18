@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -329,6 +330,10 @@ func cashGuard(u *User, ex, patch, nd map[string]any) error {
 		cashLog(ex, nd, map[string]any{"type": "consumption", "what": str(e, "no"), "by": u.Name, "at": now, "remark": remarks})
 		return nil
 	}
+	// correction by the approver / final approver / administrator before approving
+	if patch["review"] == true {
+		return cashReview(u, ex, patch, nd, now)
+	}
 	// correction by the person who entered it, while it is still with the approver or was returned
 	if str(ex, "by") != u.ID {
 		return errors.New("Only the person who entered this cash purchase can change it.")
@@ -485,4 +490,152 @@ func cashDraftUpdate(u *User, ex, patch, nd map[string]any, now int64) error {
 	nd["status"], nd["enteredAt"] = "pending", now
 	cashLog(ex, nd, map[string]any{"type": "entered", "by": u.Name, "at": now})
 	return nil
+}
+
+// cashMayReview: who may correct a cash purchase waiting for them — the approver
+// (waiting for approval), the final approver (waiting for final approval), or an
+// administrator at either stage. Nobody corrects what they will not be judging.
+func cashMayReview(u *User, ex map[string]any) bool {
+	st := str(ex, "status")
+	if st != "pending" && st != "approved" {
+		return false
+	}
+	if isAdmin(u) {
+		return true
+	}
+	if u.Role == "site" || str(ex, "by") == u.ID {
+		return false
+	}
+	if st == "pending" {
+		return can(u, "cash_approve")
+	}
+	appr, _ := ex["appr"].(map[string]any)
+	return can(u, "po_approve") && str(appr, "by") != u.ID
+}
+
+func cashReview(u *User, ex, patch, nd map[string]any, now int64) error {
+	if !cashMayReview(u, ex) {
+		if st := str(ex, "status"); st != "pending" && st != "approved" {
+			return errors.New("This cash purchase is no longer waiting for approval, so it cannot be corrected.")
+		}
+		return errors.New("Only the approver waiting on this entry, the final approver or an administrator can correct it.")
+	}
+	for k := range patch {
+		if !cashEditable[k] && k != "review" && k != "reviewNote" {
+			return errors.New("This part of the cash purchase cannot be changed.")
+		}
+	}
+	note := clip(strings.TrimSpace(str(patch, "reviewNote")), 500)
+	for _, k := range []string{"no", "location", "projectId", "by", "byName", "enteredAt", "appr", "fin", "uses", "log", "status", "returnNote", "srcs", "indentId", "indentNo", "corrections"} {
+		if v, has := ex[k]; has {
+			nd[k] = v
+		} else {
+			delete(nd, k)
+		}
+	}
+	delete(nd, "review")
+	delete(nd, "reviewNote")
+	if _, err := cashCheckLines(nd); err != nil {
+		return err
+	}
+	changes := cashDiff(ex, nd)
+	if len(changes) == 0 {
+		return errors.New("Nothing was changed.")
+	}
+	role := "Approver"
+	if str(ex, "status") == "approved" {
+		role = "Final approver"
+	}
+	if isAdmin(u) {
+		role = "Administrator"
+	}
+	e := map[string]any{"by": u.ID, "byName": u.Name, "role": role, "at": now, "note": note, "changes": changes,
+		"oldTotal": fnum(ex["total"]), "newTotal": fnum(nd["total"])}
+	nd["corrections"] = append(append([]any{}, anyList(ex["corrections"])...), e)
+	cashLog(ex, nd, map[string]any{"type": "corrected", "by": u.Name, "at": now, "remark": strings.Join(changes, "; ")})
+	return nil
+}
+
+func cashFmt(f float64) string {
+	s := strconv.FormatFloat(math.Round(f*100)/100, 'f', -1, 64)
+	return s
+}
+
+// cashDiff lists, in plain words, what a correction changed.
+func cashDiff(ex, nd map[string]any) []string {
+	out := []string{}
+	name := func(m map[string]any) string {
+		n := str(m, "desc")
+		if sp := str(m, "spec"); sp != "" {
+			n += " (" + sp + ")"
+		}
+		return n
+	}
+	ol, nl := anyList(ex["lines"]), anyList(nd["lines"])
+	for i := 0; i < len(ol) || i < len(nl); i++ {
+		var a, b map[string]any
+		if i < len(ol) {
+			a, _ = ol[i].(map[string]any)
+		}
+		if i < len(nl) {
+			b, _ = nl[i].(map[string]any)
+		}
+		switch {
+		case a == nil && b != nil:
+			out = append(out, "added "+name(b)+" "+cashFmt(fnum(b["qty"]))+" "+str(b, "unit")+" @ ₹"+cashFmt(fnum(b["rate"])))
+		case a != nil && b == nil:
+			out = append(out, "removed "+name(a))
+		case a != nil && b != nil:
+			parts := []string{}
+			if name(a) != name(b) {
+				parts = append(parts, "item “"+name(a)+"” → “"+name(b)+"”")
+			}
+			if str(a, "unit") != str(b, "unit") {
+				parts = append(parts, "unit "+str(a, "unit")+" → "+str(b, "unit"))
+			}
+			for _, f := range []struct{ k, l, pre string }{{"qty", "qty", ""}, {"rate", "rate", "₹"}, {"gst", "GST %", ""}, {"usedNow", "used at once", ""}} {
+				if math.Abs(fnum(a[f.k])-fnum(b[f.k])) > 1e-9 {
+					parts = append(parts, f.l+" "+f.pre+cashFmt(fnum(a[f.k]))+" → "+f.pre+cashFmt(fnum(b[f.k])))
+				}
+			}
+			if len(parts) > 0 {
+				out = append(out, str(b, "desc")+": "+strings.Join(parts, ", "))
+			}
+		}
+	}
+	chg := func(m map[string]any) string {
+		xs := []string{}
+		for _, ci := range anyList(m["charges"]) {
+			c, _ := ci.(map[string]any)
+			w := "before tax, GST " + cashFmt(fnum(c["gst"])) + "%"
+			if str(c, "when") == "after" {
+				w = "after tax"
+			}
+			xs = append(xs, str(c, "label")+" ₹"+cashFmt(fnum(c["amt"]))+" ("+w+")")
+		}
+		if m["roundAuto"] == true {
+			xs = append(xs, "round off to nearest ₹")
+		} else if r := fnum(m["roundOff"]); r != 0 {
+			xs = append(xs, "round off ₹"+cashFmt(r))
+		}
+		if len(xs) == 0 {
+			return "none"
+		}
+		return strings.Join(xs, ", ")
+	}
+	if a, b := chg(ex), chg(nd); a != b {
+		out = append(out, "charges: "+a+" → "+b)
+	}
+	for _, f := range []struct{ k, l string }{{"shop", "shop"}, {"shopGstin", "GSTIN"}, {"billNo", "bill no."}, {"billDate", "bill date"}, {"date", "date"}, {"payMode", "paid by"}, {"purpose", "purpose"}} {
+		if strings.TrimSpace(str(ex, f.k)) != strings.TrimSpace(str(nd, f.k)) {
+			out = append(out, f.l+" “"+str(ex, f.k)+"” → “"+str(nd, f.k)+"”")
+		}
+	}
+	if len(anyList(ex["photos"])) != len(anyList(nd["photos"])) {
+		out = append(out, "bill photos changed")
+	}
+	if len(out) > 0 && math.Abs(fnum(ex["total"])-fnum(nd["total"])) > 0.004 {
+		out = append(out, "total ₹"+cashFmt(fnum(ex["total"]))+" → ₹"+cashFmt(fnum(nd["total"])))
+	}
+	return out
 }

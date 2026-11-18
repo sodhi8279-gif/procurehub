@@ -184,6 +184,12 @@ A.saveCashDraft=async()=>{const m=ui.modal,d=m&&m.d;if(!d) return;if(d.nv||d.ni)
     const no=await allocNo('CP',S.cashbuys);const id=newId();await setDoc('cashbuys',id,Object.assign({no,draft:true,location:d.location,projectId:d.projectId||'',at:Date.now(),scanned:!!d.scan},!m.id&&srcs.length?{srcs,indentId:d.fromIndent,indentNo:d.fromNo}:{},body));m.id=id;return no});
   if(ok){closeModal();toast(ok+' saved as a draft. Open it from Cash purchases → My drafts to finish and send.')}};
 
+// ---- corrections made by the approver / final approver / administrator (9.7.0) ----
+function cashCorrView(c){const cs=c.corrections||[];if(!cs.length) return '';
+  return `<div class="notice info cq-corr">${icon('edit')}<div>${cs.map(x=>`<div><b>Corrected by ${esc(x.byName)}</b> <span class="muted small">(${esc(x.role||'')}, ${fdt(x.at)})</span>${num(x.oldTotal)!==num(x.newTotal)?` · total ${money(num(x.oldTotal))} → <b>${money(num(x.newTotal))}</b>`:''}${x.note?`<div class="small">Reason: “${esc(x.note)}”</div>`:''}<ul class="small" style="margin:2px 0 4px 18px;padding:0">${(x.changes||[]).filter(t=>!/^total /.test(t)).map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div>`).join('')}</div></div>`}
+function cashCorrPrint(c){const cs=c.corrections||[];if(!cs.length) return '';
+  return `<div style="margin:10px 0;font-size:11px;border:1px solid #ccc;padding:6px 8px"><b>Corrections before approval</b>${cs.map(x=>`<div style="margin-top:4px">${esc(x.byName)} (${esc(x.role||'')}), ${fdt(x.at)}${x.note?' — “'+esc(x.note)+'”':''}: ${esc((x.changes||[]).join('; '))}</div>`).join('')}</div>`}
+
 // Typing in the shop or item box and then clicking a button straight away: the box
 // leaving focus redraws the bill (vendor match, last rate), which used to swallow
 // the click. Keep the focus on mouse-down, then let the box finish before the click acts.

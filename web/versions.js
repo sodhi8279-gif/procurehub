@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.7.0':'Cash purchase: approver, final approver or admin can correct it and approve',
   '9.6.0':'Cash purchase: freight before tax, other expenses after tax, round off; save as draft',
   '9.5.1':'Cash bill: new item with size and type drop-downs, like Item catalogue',
   '9.5.0':'Cash bill: add a new vendor or a new item inside the bill',
