@@ -240,7 +240,7 @@ function derive(){
   for(const e of S.sitelog) if(e.type==='opening'&&e.status!=='cancelled') orate(e.itemKey||itemKey(e.desc,e.spec,e.unit),e.orate,e.at||0);
   d.rateOf=k=>d.rate[k]?d.rate[k].rate:(d.orate[k]||0);
   d.closedPo={};for(const p of S.pos) if(p.closed&&p.status!=='cancelled') d.closedPo[p.id]=p;
-  d.cashSrc={};for(const c of S.cashbuys||[]) if(c.status!=='rejected') for(const s of c.srcs||[]) d.cashSrc[s.indentId+'|'+s.lineId]=c;
+  d.cashSrc={};for(const c of S.cashbuys||[]) if(c.status!=='rejected'&&c.status!=='draft') for(const s of c.srcs||[]) d.cashSrc[s.indentId+'|'+s.lineId]=c;
   for(const x of S.dispatches){if(x.status==='cancelled') continue;
     for(const l of x.lines||[]){const k=l.indentId+'|'+l.lineId;const ik=l.itemKey||itemKey(l.desc,l.spec,l.unit);
       if(l.indentId)(d.lineDisp[k]=d.lineDisp[k]||[]).push(x);

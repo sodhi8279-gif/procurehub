@@ -13,11 +13,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
 
-var cashEditable = map[string]bool{"date": true, "shop": true, "shopGstin": true, "vendorId": true, "billNo": true, "billDate": true, "payMode": true, "purpose": true, "lines": true, "photos": true, "useRemarks": true, "at": true}
+var cashEditable = map[string]bool{"date": true, "shop": true, "shopGstin": true, "vendorId": true, "billNo": true, "billDate": true, "payMode": true, "purpose": true, "lines": true, "photos": true, "useRemarks": true, "at": true, "charges": true, "roundAuto": true, "roundOff": true, "scanned": true}
 
 func cashMaySpend(u *User, d map[string]any) bool {
 	if u.Role == "site" {
@@ -26,29 +27,100 @@ func cashMaySpend(u *User, d map[string]any) bool {
 	return can(u, "cash_spend") && (str(d, "projectId") == "" || inScope(u, str(d, "projectId")))
 }
 
-// cashCheckLines validates the lines and returns the bill total incl. GST.
-func cashCheckLines(nd map[string]any) (float64, error) {
+// cashCharges cleans the extra charges of a bill: freight, loading… before tax
+// (GST charged on them at their own GST %) and other expenses after tax (added
+// as they are), plus the round off. It returns before-tax amount, its GST,
+// after-tax amount and the round off amount still to be worked out (auto).
+func cashCharges(nd map[string]any, strict bool) (before, cgst, after float64, err error) {
+	out := []any{}
+	for _, ci := range anyList(nd["charges"]) {
+		c, _ := ci.(map[string]any)
+		amt := fnum(c["amt"])
+		if c == nil || amt == 0 {
+			continue
+		}
+		label := clip(strings.TrimSpace(str(c, "label")), 80)
+		if label == "" {
+			if strict {
+				return 0, 0, 0, errors.New("Write what each extra charge is for (e.g. Freight, Loading & unloading).")
+			}
+			label = "Other charges"
+		}
+		if amt < 0 || amt > 1e8 {
+			return 0, 0, 0, errors.New("Check the amount of " + label + ".")
+		}
+		when, g := "before", fnum(c["gst"])
+		if str(c, "when") == "after" {
+			when, g = "after", 0
+		}
+		if g < 0 || g > 100 {
+			return 0, 0, 0, errors.New("GST % for " + label + " must be between 0 and 100.")
+		}
+		amt = float64(int64(amt*100+0.5)) / 100
+		if when == "before" {
+			before += amt
+			cgst += amt * g / 100
+		} else {
+			after += amt
+		}
+		out = append(out, map[string]any{"label": label, "amt": amt, "when": when, "gst": g})
+	}
+	nd["charges"] = out
+	ro := fnum(nd["roundOff"])
+	if ro > 1000 || ro < -1000 {
+		return 0, 0, 0, errors.New("Round off can be at most ₹1,000.")
+	}
+	nd["roundOff"] = float64(int64(ro*100+sign(ro)*0.5)) / 100
+	nd["roundAuto"] = nd["roundAuto"] == true
+	return before, cgst, after, nil
+}
+
+func sign(x float64) float64 {
+	if x < 0 {
+		return -1
+	}
+	return 1
+}
+
+// cashCheckLines validates the lines and returns the bill total incl. GST,
+// freight and other charges. A draft (strict false) may still be incomplete.
+func cashCheckLines(nd map[string]any, strict ...bool) (float64, error) {
+	full := len(strict) == 0 || strict[0]
 	ls := anyList(nd["lines"])
-	if len(ls) == 0 {
+	if len(ls) == 0 && full {
 		return 0, errors.New("Add at least one item.")
 	}
 	total := 0.0
 	for _, li := range ls {
 		m, ok := li.(map[string]any)
-		if !ok || strings.TrimSpace(str(m, "desc")) == "" {
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(str(m, "desc")) == "" && full {
 			return 0, errors.New("Enter the item on every line.")
 		}
 		q, _ := m["qty"].(float64)
 		r, _ := m["rate"].(float64)
 		g, _ := m["gst"].(float64)
 		un, _ := m["usedNow"].(float64)
-		if !(q > 0) || r < 0 || g < 0 || un < 0 || un > q+1e-9 {
+		if full && (!(q > 0) || r < 0 || g < 0 || un < 0 || un > q+1e-9) {
 			return 0, errors.New("Check the quantity, rate and GST of " + str(m, "desc") + ".")
 		}
 		amt := q * r * (1 + g/100)
 		m["amount"] = float64(int64(amt*100+0.5)) / 100
 		total += amt
 	}
+	before, cgst, after, err := cashCharges(nd, full)
+	if err != nil {
+		return 0, err
+	}
+	total += before + cgst + after
+	ro := fnum(nd["roundOff"])
+	if nd["roundAuto"] == true {
+		ro = math.Round(total) - total
+		ro = float64(int64(ro*100+sign(ro)*0.5)) / 100
+	}
+	total += ro
 	total = float64(int64(total*100+0.5)) / 100
 	nd["total"] = total
 	return total, nil
@@ -69,6 +141,21 @@ func cashGuard(u *User, ex, patch, nd map[string]any) error {
 		}
 		if str(nd, "location") == "site" && str(nd, "projectId") == "" {
 			return errors.New("Choose the site.")
+		}
+		if nd["draft"] == true { // saved to finish later; nobody else sees it yet
+			delete(nd, "draft")
+			if _, err := cashCheckLines(nd, false); err != nil {
+				return err
+			}
+			for _, k := range []string{"appr", "fin", "uses", "log", "returnNote"} {
+				delete(nd, k)
+			}
+			if err := cashCheckSrcs(nd); err != nil {
+				return err
+			}
+			nd["status"], nd["by"], nd["byName"] = "draft", u.ID, u.Name
+			nd["log"] = []any{map[string]any{"type": "draft", "by": u.Name, "at": now}}
+			return nil
 		}
 		if strings.TrimSpace(str(nd, "shop")) == "" || strings.TrimSpace(str(nd, "purpose")) == "" {
 			return errors.New("Enter the shop and the purpose of the purchase.")
@@ -246,6 +333,9 @@ func cashGuard(u *User, ex, patch, nd map[string]any) error {
 	if str(ex, "by") != u.ID {
 		return errors.New("Only the person who entered this cash purchase can change it.")
 	}
+	if status == "draft" {
+		return cashDraftUpdate(u, ex, patch, nd, now)
+	}
 	if status != "pending" && status != "returned" {
 		return errors.New("This cash purchase is already approved and can no longer be changed.")
 	}
@@ -353,5 +443,46 @@ func cashCheckSrcs(nd map[string]any) error {
 	}
 	nd["srcs"] = out
 	nd["indentId"] = str(srcs[0].(map[string]any), "indentId")
+	return nil
+}
+
+// cashDraftUpdate: the person who saved a draft changes it, keeps it as a draft,
+// or sends it for approval (submit) — then everything is checked as for a new entry.
+func cashDraftUpdate(u *User, ex, patch, nd map[string]any, now int64) error {
+	for k := range patch {
+		if !cashEditable[k] && k != "submit" {
+			return errors.New("This part of the cash purchase cannot be changed.")
+		}
+	}
+	for _, k := range []string{"no", "location", "projectId", "by", "byName", "appr", "fin", "uses", "log", "status", "returnNote", "srcs", "indentId", "indentNo"} {
+		if v, has := ex[k]; has {
+			nd[k] = v
+		} else {
+			delete(nd, k)
+		}
+	}
+	delete(nd, "submit")
+	if patch["submit"] != true {
+		_, err := cashCheckLines(nd, false)
+		return err
+	}
+	if !cashMaySpend(u, nd) {
+		return errors.New("You have not been given the right to make cash purchases. Ask your administrator.")
+	}
+	if strings.TrimSpace(str(nd, "shop")) == "" || strings.TrimSpace(str(nd, "purpose")) == "" {
+		return errors.New("Enter the shop and the purpose of the purchase.")
+	}
+	if len(anyList(nd["photos"])) == 0 {
+		return errors.New("Attach the bill or cash memo.")
+	}
+	total, err := cashCheckLines(nd)
+	if err != nil {
+		return err
+	}
+	if u.CashLimit > 0 && total > u.CashLimit+0.005 {
+		return fmt.Errorf("This bill (₹%.2f) is above your cash purchase limit of ₹%.2f per bill. Ask HQ.", total, u.CashLimit)
+	}
+	nd["status"], nd["enteredAt"] = "pending", now
+	cashLog(ex, nd, map[string]any{"type": "entered", "by": u.Name, "at": now})
 	return nil
 }

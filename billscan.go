@@ -44,8 +44,15 @@ type billRead struct {
 	PayMode   string     `json:"pay_mode"`
 	RatesIncl bool       `json:"rates_include_gst"`
 	Lines     []billLine `json:"lines"`
-	Total     *float64   `json:"bill_total"`
-	Warnings  []string   `json:"warnings"`
+	Charges   []struct {
+		Label    string   `json:"label"`
+		Amount   *float64 `json:"amount"`
+		AfterTax bool     `json:"after_tax"`
+		GST      *float64 `json:"gst"`
+	} `json:"charges"`
+	RoundOff *float64 `json:"round_off"`
+	Total    *float64 `json:"bill_total"`
+	Warnings []string `json:"warnings"`
 }
 
 const billSystem = `You read shop bills, GST invoices and handwritten cash memos (kachcha bills) for the store team of an Indian construction contractor, and reply with JSON only, no other text.
@@ -58,9 +65,10 @@ func billPrompt(known []string, units []string) string {
  "bill_no": "bill / invoice / memo number or empty", "bill_date": "YYYY-MM-DD or empty", "pay_mode": "Cash|UPI|Card or empty",
  "rates_include_gst": true or false,
  "lines": [{"item": "item name", "size_spec": "size, specification or make, or empty", "qty": number, "unit": "unit", "rate": number, "gst": number or null, "amount": number or null, "hsn": "HSN or empty", "known_item": "the matching name from the known items list, or empty"}],
- "bill_total": number or null, "warnings": ["things to check"]}
+ "charges": [{"label": "Freight, Cartage, Loading, Packing… as written", "amount": number, "after_tax": true or false, "gst": number or null}],
+ "round_off": number or null, "bill_total": number or null, "warnings": ["things to check"]}
 Rules:
-- One line per item row on the bill. Skip rows for freight, round off, discount or totals, but mention a discount or freight in warnings.
+- One line per item row on the bill. Do not put freight, cartage, loading, packing or other charges in lines: put each in charges. after_tax = true when the charge is added after the GST / tax total (no GST on it); false when GST is charged on it (then give its gst %). Put round off in round_off (negative if reduced). Skip discount and total rows, but mention a discount in warnings.
 - rate = price per unit EXCLUDING GST. On a GST invoice the rate column is usually before tax. If the bill only shows prices including GST (common on cash memos), convert using the GST % and set rates_include_gst to true; if no GST is shown at all, give the rate as written and gst = 0.
 - gst = GST percent of the item (CGST + SGST together, or IGST). null if not shown.
 - unit: use one of these when it fits: ` + strings.Join(units, ", ") + `. Bags of cement = Bag, metres = Mtr, pieces = Nos.

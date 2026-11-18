@@ -38,7 +38,7 @@ CH.cashShop=el=>{const d=ui.modal&&ui.modal.d;if(!d) return;d.shopGstin=d.vendor
 // the last time this item was bought (cash or purchase order)
 function cashLast(desc,spec){const k=norm(desc),sp=norm(spec||'');let best=null;
   const see=(l,at,from)=>{if(norm(l.desc)!==k||(sp&&l.spec&&norm(l.spec)!==sp)) return;if(!best||at>best.at) best={at,unit:l.unit,rate:num(l.rate),gst:l.gst,spec:l.spec||'',from}};
-  for(const c of S.cashbuys) if(c.status!=='rejected') for(const l of c.lines||[]) see(l,c.at||0,c.shop);
+  for(const c of S.cashbuys) if(c.status!=='rejected'&&c.status!=='draft') for(const l of c.lines||[]) see(l,c.at||0,c.shop);
   for(const p of S.pos) if(p.status!=='cancelled') for(const l of p.lines||[]) see(l,p.at||p.createdAt||0,p.vendorName||'PO');
   return best}
 CH.cashItem=el=>{const d=ui.modal&&ui.modal.d;if(!d) return;const l=d.lines[+el.dataset.i];if(!l) return;const desc=String(l.desc||'').trim();l.hint='';if(!desc){render();return}
@@ -69,6 +69,8 @@ CH.cashScanFile=async el=>{const f=el.files&&el.files[0];el.value='';const m=ui.
       return {desc,spec,unit:cashUnit(l.unit),qty:l.qty!=null?String(l.qty):'',rate:l.rate!=null?String(Math.round(l.rate*100)/100):'',gst:l.gst==null&&b.ocr?'18':cashSlab(l.gst),usedNow:'',scan:true,
         hint:l.amount!=null&&l.qty!=null&&l.rate!=null&&Math.abs(l.qty*l.rate*(1+num(l.gst)/100)-l.amount)>Math.max(2,l.amount*0.02)&&Math.abs(l.qty*l.rate-l.amount)>Math.max(2,l.amount*0.02)?`Bill shows amount ${money(l.amount)} — check qty and rate`:''}});
     if(ls.length) d.lines=ls;
+    {const cs=(b.charges||[]).filter(c=>c&&c.amount!=null&&num(c.amount)>0).slice(0,8).map(c=>({label:String(c.label||'Other charges').slice(0,80),amt:String(Math.round(num(c.amount)*100)/100),when:c.after_tax?'after':'before',gst:c.after_tax?'0':String(c.gst!=null?num(c.gst):Math.max(0,...ls.map(l=>num(l.gst)))),scan:true}));
+     if(cs.length) d.charges=cs;if(b.round_off!=null&&num(b.round_off)){d.roMode='manual';d.roundOff=String(Math.round(num(b.round_off)*100)/100)}}
     d.scan={total:b.bill_total!=null?num(b.bill_total):0,warnings:(b.warnings||[]).slice(0,8),incl:!!b.rates_include_gst};
     if(!ls.length) d.scan.warnings.unshift('No items could be read from this photo. Type them, or scan a clearer photo.');
     toast(ls.length?`${ls.length} item${ls.length===1?'':'s'} read from the bill — please check`:'Could not read items from the bill',ls.length?'ok':'err');

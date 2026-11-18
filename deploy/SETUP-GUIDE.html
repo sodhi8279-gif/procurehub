@@ -21,7 +21,7 @@ ol li,ul li{margin:4px 0}table{border-collapse:collapse;width:100%;font-size:14p
 <div class="card warn"><b>Updating from an earlier version — your data stays.</b><ol style="margin:6px 0 0">
 <li>Unzip the new version anywhere (for example in Downloads) and double-click <b>RGS-ProcureHub.exe</b>.</li>
 <li>From version 5.3 the program does the rest: if an older ProcureHub is still running it closes it, finds the folder that holds your data (for example <code>D:\RGS-ProcureHub\ProcureHub-Data</code>), copies itself there and restarts from there in a new window. If Windows asks for permission, click <b>Yes</b>.</li>
-<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 9.5.1</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
+<li>Check the result: the black window and the bottom of the menu in the browser show <b>version 9.6.0</b>, and the black window shows <b>Data folder: …\ProcureHub-Data</b> of your real folder. Browsers that were open reload automatically.</li>
 <li>Never delete or replace the <b>ProcureHub-Data</b> folder. It holds everything you entered.</li></ol></div>
 <div class="card tip"><b>How it works in one line:</b> you run <code>RGS-ProcureHub.exe</code> on <b>one</b> computer (the "server"). Everyone else — HQ staff and all 20 sites — just opens its address in a web browser on any phone, tablet or PC and signs in. Nothing is installed at site.</div>
 
@@ -105,6 +105,13 @@ sudo systemctl restart caddy</pre></li>
 <li><b>Pre-check:</b> new demands appear under <i>Pre-check</i> in the menu. Open one to change item, size, quantity or unit, remove or add items, save changes, then <b>Pre-approve &amp; send to approver</b> with an optional note — or <b>Delete demand</b> with a reason.</li>
 <li><b>Approval:</b> the approver can approve a demand only after it is pre-approved (also enforced on the server).</li>
 <li><b>Site:</b> the site sees "Awaiting pre-check", then every change — what it asked for, what was changed, removed or added, by whom and when, and the note.</li></ol></div>
+<div class="card tip"><b>New in 9.6.0 — Freight and other expenses on cash purchases, and drafts</b><ol style="margin:6px 0 0">
+<li><b>Freight / cartage (before tax):</b> under the items, press <b>Freight / cartage</b>. Enter the amount; GST is charged on it at the GST % shown (it starts at the highest GST % of the items).</li>
+<li><b>Other expense (after tax):</b> press <b>Other expense</b>, write what it is (labour, unloading, auto fare…) and the amount. It is added to the total as it is, with no GST.</li>
+<li><b>Round off:</b> None, nearest rupee, or type the amount shown on the bill. The bill summary shows basic value, charges, GST and the grand total. The cash limit is checked against the grand total.</li>
+<li>Scanning a bill now also picks up freight, cartage and round off written on it.</li>
+<li><b>Save draft:</b> the bill can be saved half-filled, without purpose or photo. It is not sent to anyone and only you can see it. Open it later from <b>Cash purchases → My drafts</b>, press <b>Continue &amp; send</b>, finish it and press <b>Send for approval</b>. You can also delete your own draft.</li>
+<li>Also fixed: <b>Save correction</b> on a cash purchase could fail with “This part of the cash purchase cannot be changed”.</li></ol></div>
 <div class="card tip"><b>New in 9.5.1 — Items in the cash bill with size and type drop-downs</b><ol style="margin:6px 0 0">
 <li>On an item line press <b>Choose item</b>, <b>Add to item list</b> or <b>Choose type / size</b>. Type the item, e.g. <i>pipe</i>, <i>elbow</i>, <i>sluice valve</i>, <i>cable</i>.</li>
 <li>Items in your list and the standard items come up. Pick one and choose from its drop-downs, for example Material → Class → Size → IS. After the first choice, only what goes with it is shown, e.g. GI pipe shows Light/Medium/Heavy and 15–150 mm. Sizes and types written on the bill are filled in for you.</li>

@@ -161,11 +161,38 @@ A.cashISave=async()=>{const m=ui.modal,d=m&&m.d;if(!d||!d.ni) return;const n=d.n
     const j=await run(()=>api('/api/cash/quick',body));if(!j||ui.modal!==m) return;desc=j.desc||desc;
     toast(j.existing?`“${desc}” is already in the item list — used on this line`:`“${desc}” added to the item list`)}
   l.desc=desc;l.spec=spec;l.unit=n.unit||it.unit||l.unit||'Nos';l.gst=String(n.gst||l.gst||'18');l.hint='';delete d.ni;render()};
+// ---- freight before tax, other expenses after tax, round off (9.6.0) ----
+function cashChargesBox(d,ct){d.charges=d.charges||[];
+  return `<div class="row tight cq-chg-q"><b class="small">Add to the bill:</b><button type="button" class="btn sm" data-act="cashChg" data-w="freight">${icon('plus','xs')} Freight / cartage <span class="muted small">(before tax)</span></button><button type="button" class="btn sm" data-act="cashChg" data-w="after">${icon('plus','xs')} Other expense <span class="muted small">(after tax)</span></button>${d.roMode&&d.roMode!=='none'?'':`<button type="button" class="btn sm ghost" data-act="cashChg" data-w="ro">Round off</button>`}</div>
+   ${d.charges.length||ct.roundOff||(d.roMode&&d.roMode!=='none')?chargesBox('modal.d',d,ct):''}`}
+A.cashChg=x=>{const d=ui.modal&&ui.modal.d;if(!d) return;d.charges=d.charges||[];if(x.w==='ro'){d.roMode='auto';render();return}const maxG=Math.max(0,...(d.lines||[]).map(l=>num(l.gst)));
+  d.charges.push(x.w==='freight'?{label:'Freight / cartage',amt:'',when:'before',gst:String(maxG||18)}:{label:'',amt:'',when:'after',gst:'0'});render();
+  setTimeout(()=>{const i=d.charges.length-1;const el=document.getElementById('modal-d-'+(x.w==='freight'?'ca':'cl')+'-'+i);if(el){el.focus();el.scrollIntoView({block:'center',behavior:'smooth'})}},40)};
+function cashChargesView(c){if(!(c.charges||[]).length&&!num(c.roundOff)&&!c.roundAuto) return '';const t=cashTotals(c);if(!t.extra) return '';
+  return `<div class="cq-bill">${billSummary(t)}${(c.charges||[]).length?`<p class="small muted" style="margin:4px 0 0">${c.charges.map(x=>`${esc(x.label)} ${money(num(x.amt))} · ${x.when==='after'?'after tax':'before tax, GST '+fq(x.gst)+'%'}`).join(' · ')}</p>`:''}</div>`}
+function cashChargesPrint(c,b){const t=cashTotals(c);if(!t.extra) return '';const r=(l,v)=>`<tr><td colspan="6" style="${b};text-align:right">${l}</td><td style="${b};text-align:right">${fq(Math.round(v*100)/100)}</td><td style="${b}"></td></tr>`;
+  return r('Items (incl. GST)',t.basic+t.itemGst)+(c.charges||[]).filter(x=>x.when!=='after').map(x=>r(esc(x.label)+' (before tax)',num(x.amt))).join('')+(t.cgst?r('GST on charges',t.cgst):'')+(c.charges||[]).filter(x=>x.when==='after').map(x=>r(esc(x.label)+' (after tax)',num(x.amt))).join('')+(t.roundOff?r('Round off',t.roundOff):'')}
+A.cashDelDraft=x=>{const c=S.cashbuys.find(y=>y.id===x.id);if(!c) return;confirmBox({title:'Delete draft '+c.no+'?',body:'<p>This draft has not been sent for approval. It will be removed.</p>',yes:'Delete draft',danger:true,
+  onYes:async()=>{if(await run(()=>delDoc('cashbuys',c.id),'Draft deleted')!==false) closeModal()}})};
+A.saveCashDraft=async()=>{const m=ui.modal,d=m&&m.d;if(!d) return;if(d.nv||d.ni){toast('Save or cancel the new vendor / item first.','err');return}
+  if(d.location==='site'&&!d.projectId){toast('Choose the site.','err');return}
+  let chg;try{chg=chargesOut({charges:d.charges,roMode:d.roMode||'none',roundOff:d.roundOff})}catch(e){toast(e.message,'err');return}
+  const lines=(d.lines||[]).filter(l=>String(l.desc||'').trim()||num(l.qty)>0).map(l=>{const desc=String(l.desc||'').trim(),spec=String(l.spec||'').trim();return {desc,spec,unit:l.unit,cat:classify(desc,spec).cat,itemKey:itemKey(desc,spec,l.unit),qty:num(l.qty),rate:num(l.rate),gst:num(l.gst),usedNow:num(l.usedNow)}});
+  const srcs=(d.srcs||[]).filter(s=>s.on).map(s=>({indentId:s.indentId,lineId:s.lineId,qty:num(s.qty)}));
+  const body={...chg,date:d.date,shop:String(d.shop||'').trim(),vendorId:d.vendorId||'',shopGstin:String(d.shopGstin||'').trim(),billNo:String(d.billNo||'').trim(),billDate:d.billDate||'',payMode:d.payMode,purpose:String(d.purpose||'').trim(),useRemarks:String(d.useRemarks||'').trim(),photos:d.photos||[],lines};
+  const ok=await run(async()=>{if(m.id){const c=S.cashbuys.find(x=>x.id===m.id);await updDoc('cashbuys',m.id,body);return c.no}
+    const no=await allocNo('CP',S.cashbuys);const id=newId();await setDoc('cashbuys',id,Object.assign({no,draft:true,location:d.location,projectId:d.projectId||'',at:Date.now(),scanned:!!d.scan},!m.id&&srcs.length?{srcs,indentId:d.fromIndent,indentNo:d.fromNo}:{},body));m.id=id;return no});
+  if(ok){closeModal();toast(ok+' saved as a draft. Open it from Cash purchases → My drafts to finish and send.')}};
+
 // Typing in the shop or item box and then clicking a button straight away: the box
 // leaving focus redraws the bill (vendor match, last rate), which used to swallow
 // the click. Keep the focus on mouse-down, then let the box finish before the click acts.
-document.addEventListener('mousedown',e=>{if(!ui.modal||ui.modal.type!=='cashNew') return;const b=e.target.closest&&e.target.closest('#modal button[data-act]');const ae=document.activeElement;
-  if(b&&ae&&ae.matches&&ae.matches('#modal input[data-act-change]')){e.preventDefault();ui.cqBlur=true}},true);
+document.addEventListener('mousedown',e=>{if(!ui.modal||ui.modal.type!=='cashNew') return;const ae=document.activeElement;
+  if(!(ae&&ae.matches&&ae.matches('#modal input[data-act-change]'))) return;
+  const b=e.target.closest&&e.target.closest('#modal button[data-act]');if(b){e.preventDefault();ui.cqBlur=true;return}
+  // moving to another box: finish the shop/item box first, then put the cursor where it was tapped
+  const f=e.target.closest&&e.target.closest('#modal input:not([type=checkbox]):not([type=file]), #modal textarea');
+  if(f&&f!==ae&&f.id){e.preventDefault();const id=f.id;ae.blur();setTimeout(()=>{const el=document.getElementById(id);if(el){el.focus();try{const n=el.value.length;el.setSelectionRange(n,n)}catch(_){}}},0)}},true);
 document.addEventListener('click',e=>{if(!ui.cqBlur) return;ui.cqBlur=false;const ae=document.activeElement;if(ae&&ae.matches&&ae.matches('#modal input[data-act-change]')) ae.blur()},true);
 
-Object.assign(ACT_PERM,{cashVNew:CQ_PERM,cashVCancel:CQ_PERM,cashVSave:CQ_PERM,cashINew:CQ_PERM,cashICancel:CQ_PERM,cashISave:CQ_PERM,cqChoose:CQ_PERM,cqPick:CQ_PERM,cqSize:CQ_PERM,cqVarAdd:CQ_PERM,cqVarDel:CQ_PERM,cqVarPreset:CQ_PERM,cqStdSizes:CQ_PERM,cqQuickCat:['masters_items','settings']});
+Object.assign(ACT_PERM,{cashVNew:CQ_PERM,cashVCancel:CQ_PERM,cashVSave:CQ_PERM,cashINew:CQ_PERM,cashICancel:CQ_PERM,cashISave:CQ_PERM,cqChoose:CQ_PERM,cqPick:CQ_PERM,cqSize:CQ_PERM,cqVarAdd:CQ_PERM,cqVarDel:CQ_PERM,cqVarPreset:CQ_PERM,cqStdSizes:CQ_PERM,cashChg:CQ_PERM,saveCashDraft:CQ_PERM,cashDelDraft:CQ_PERM,cqQuickCat:['masters_items','settings']});

@@ -219,6 +219,9 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		return need(u, "sitestock_edit")
 	case "cashbuys": // the steps are checked in cashGuard
 		if op == "delete" {
+			if ex != nil && str(ex, "status") == "draft" && str(ex, "by") == u.ID {
+				return nil // own draft
+			}
 			return errors.New("Only administrators can delete cash purchases.")
 		}
 		return nil

@@ -41,7 +41,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-const appVersion = "9.5.1"
+const appVersion = "9.6.0"
 const appName = "RGS Infra ProcureHub"
 
 const appDeveloper = "SS Sodhi"
@@ -1110,8 +1110,9 @@ func hWrite(w http.ResponseWriter, r *http.Request, u *User) {
 	} else if u.Role != "hq" {
 		if req.Op == "delete" {
 			ownPending := req.Col == "consumption" && str(exData, "projectId") == u.ProjectID && str(exData, "reportedBy") == u.ID && str(exData, "status") == "pending"
+			ownDraft := req.Col == "cashbuys" && str(exData, "projectId") == u.ProjectID && str(exData, "by") == u.ID && str(exData, "status") == "draft"
 			ownLog := req.Col == "sitelog" && str(exData, "projectId") == u.ProjectID && str(exData, "createdBy") == u.ID && str(exData, "issueId") == "" && (!siteStore(u) || str(exData, "status") == "pending")
-			if !ownPending && !ownLog && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
+			if !ownPending && !ownLog && !ownDraft && !(req.Col == "stocklvl" && str(exData, "projectId") == u.ProjectID) {
 				fail(w, 403, errDeny.Error())
 				return
 			}

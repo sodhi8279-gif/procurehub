@@ -359,3 +359,5 @@ label.icon-btn{cursor:pointer}
 .cq-opt small{display:block;color:var(--ink-3);font-size:12px}
 .cq-opt.create{border-style:dashed}
 .cq-panel .mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cq-chg-q{margin:6px 0 2px;gap:6px;flex-wrap:wrap}
+.cq-bill{max-width:420px;margin:6px 0 0 auto}
