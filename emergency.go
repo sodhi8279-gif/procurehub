@@ -36,18 +36,19 @@ func canEmergency(u *User) bool {
 }
 
 type emgLine struct {
-	Desc     string  `json:"desc"`
-	Spec     string  `json:"spec"`
-	Unit     string  `json:"unit"`
-	Category string  `json:"category"`
-	ItemKey  string  `json:"itemKey"`
-	Qty      float64 `json:"qty"`
-	Rate     float64 `json:"rate"`
-	GST      float64 `json:"gst"`
-	HSN      string  `json:"hsn"`
-	Note     string  `json:"note"`
-	LineID   string  `json:"lineId"`
-	IndentID string  `json:"indentId"` // the demand of this line, when one purchase covers several demands of the site (a cart)
+	Desc      string  `json:"desc"`
+	Spec      string  `json:"spec"`
+	Unit      string  `json:"unit"`
+	Category  string  `json:"category"`
+	ItemKey   string  `json:"itemKey"`
+	Qty       float64 `json:"qty"`
+	Rate      float64 `json:"rate"`
+	GST       float64 `json:"gst"`
+	HSN       string  `json:"hsn"`
+	Note      string  `json:"note"`
+	LineID    string  `json:"lineId"`
+	CloseRest bool    `json:"closeRest"` // less than the demand, and the rest is not wanted any more
+	IndentID  string  `json:"indentId"`  // the demand of this line, when one purchase covers several demands of the site (a cart)
 }
 
 type emgReq struct {
@@ -282,10 +283,8 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 			if _, ok := dl["approvedQty"].(float64); !ok {
 				need, _ = dl["qty"].(float64)
 			}
-			if l.Qty > need+1e-9 {
-				fail(w, 400, fmt.Sprintf("%s: the demand needs %g %s; enter at most that.", l.Desc, need, str(dl, "unit")))
-				return
-			}
+			// 9.11.0: the PO may be for more or less than the demand, and in another unit
+			_ = need
 		}
 	}
 	var mrNo string
@@ -303,6 +302,7 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 	payment := firstNonEmpty(q.Payment, str(v, "payment"))
 
 	var indLines, poLines, ddLines []any
+	var emgNotes []string // quantities or units that differ from the demand
 	for i, l := range q.Lines {
 		lid, key := "em"+randHex(5), fmt.Sprintf("e%d", i+1)
 		liid := indID
@@ -323,7 +323,23 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 					need, _ = dl["qty"].(float64)
 				}
 				var rest map[string]any
-				if l.Qty < need-1e-9 {
+				du := strings.TrimSpace(str(dl, "unit"))
+				unitChg := du != "" && !strings.EqualFold(du, strings.TrimSpace(l.Unit))
+				switch {
+				case unitChg:
+					if nl["apprOrig"] == nil {
+						nl["apprOrig"] = map[string]any{"desc": dl["desc"], "spec": dl["spec"], "unit": dl["unit"], "qty": dl["qty"], "category": dl["category"]}
+					}
+					nl["unit"] = l.Unit
+					nl["chgBy"], nl["chgByName"], nl["chgAt"] = u.ID, u.Name, now
+					nl["chgNote"] = fmt.Sprintf("Ordered as %g %s on emergency PO %s (demand %g %s)", l.Qty, l.Unit, poNo, need, du)
+					emgNotes = append(emgNotes, fmt.Sprintf("%s: demand %g %s, ordered %g %s", l.Desc, need, du, l.Qty, l.Unit))
+				case l.Qty > need+1e-9:
+					emgNotes = append(emgNotes, fmt.Sprintf("%s: demand %g %s, ordered %g %s (%g more)", l.Desc, need, du, l.Qty, du, math.Round((l.Qty-need)*1000)/1000))
+				case l.Qty < need-1e-9 && l.CloseRest:
+					emgNotes = append(emgNotes, fmt.Sprintf("%s: demand %g %s, ordered %g %s, no balance", l.Desc, need, du, l.Qty, du))
+				}
+				if !unitChg && !l.CloseRest && l.Qty < need-1e-9 {
 					rest = shallowCopy(dl)
 					for _, k := range []string{"buyVia", "buyViaBy", "buyViaByName", "buyViaAt", "buyViaNote", "poId", "poNo", "poAt", "vendorName", "expectedDate", "orderedQty"} {
 						delete(rest, k)
@@ -378,7 +394,11 @@ func hEmergency(w http.ResponseWriter, r *http.Request, u *User) {
 			nd := shallowCopy(x)
 			nd["lines"] = demBy[id]
 			rem := append([]any{}, anyList(x["hqRemarks"])...)
-			nd["hqRemarks"] = append(rem, map[string]any{"id": randHex(6), "text": "Emergency purchase " + poNo + " from " + vName + ": " + q.Reason, "action": "Emergency purchase", "at": now, "name": u.Name})
+			txt := "Emergency purchase " + poNo + " from " + vName + ": " + q.Reason
+			if len(emgNotes) > 0 {
+				txt += " · Changed from the demand: " + strings.Join(emgNotes, "; ")
+			}
+			nd["hqRemarks"] = append(rem, map[string]any{"id": randHex(6), "text": txt, "action": "Emergency purchase", "at": now, "name": u.Name})
 			putDocLocked("indents", id, nd)
 		}
 	} else {

@@ -197,7 +197,7 @@ A.crtEmg=d=>{const c=S.carts.find(x=>x.id===d.id);if(!c) return;if(!canEmg()) re
   const rs=crtRows(c).filter(r=>r.info.st==='emg'&&r.pid===d.p);if(!rs.length) return toast('No items of this site are waiting for emergency purchase.','err');
   A.emgNew();const m=ui.modal;if(!m||m.type!=='emg') return;
   Object.assign(m.d,{projectId:d.p,requestedBy:rs[0].ind.requestedBy||rs[0].ind.createdByName||'',reason:rs[0].l.buyViaNote||'',fromIndent:rs[0].ind.id,fromNo:[...new Set(rs.map(r=>r.ind.no))].join(', '),
-    lines:rs.map(r=>{const l=r.l;const it=D.itemMap[slug(l.desc)];return {desc:l.desc,spec:l.spec||'',qty:String(needQty(l)),unit:l.unit,rate:'',gst:it&&it.gst!=null&&it.gst!==''?String(it.gst):'',hsn:(it&&it.hsn)||'',category:l.category||'',note:'',lineId:l.id,indentId:r.ind.id,maxQty:needQty(l)}})});render()};
+    lines:rs.map(r=>{const l=r.l;const it=D.itemMap[slug(l.desc)];return {desc:l.desc,spec:l.spec||'',qty:String(needQty(l)),unit:l.unit,rate:'',gst:it&&it.gst!=null&&it.gst!==''?String(it.gst):'',hsn:(it&&it.hsn)||'',category:l.category||'',note:'',lineId:l.id,indentId:r.ind.id,maxQty:needQty(l),dUnit:l.unit}})});render()};
 
 Object.assign(ACT_PERM,{crtFromSel:CRT_PERM,crtQuick:CRT_PERM,crtNew:CRT_PERM,crtNewMode:CRT_PERM,crtNewTick:CRT_PERM,crtNewAll:CRT_PERM,crtNewSave:CRT_PERM,crtPickSave:CRT_PERM,crtTick:CRT_PERM,crtSet:CRT_PERM,crtName:CRT_PERM,crtRm:CRT_PERM,crtClose:CRT_PERM,crtDel:CRT_PERM,
   crtBuy:CRT_PERM,crtCash:['cash_spend','cash_approve','po_approve'],crtEmg:['emergency_purchase','po_approve']});

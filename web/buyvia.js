@@ -72,7 +72,7 @@ A.emgFromDemand=d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;if(!can
   const ls=(i.lines||[]).filter(l=>lineInfo(i,l).st==='emg');if(!ls.length) return toast('No items of this demand are waiting for emergency purchase.','err');
   A.emgNew();const m=ui.modal;if(!m||m.type!=='emg') return;
   Object.assign(m.d,{projectId:i.projectId,requestedBy:i.requestedBy||i.createdByName||'',reason:ls[0].buyViaNote||'',fromIndent:i.id,fromNo:i.no,
-    lines:ls.map(l=>{const it=D.itemMap[slug(l.desc)];return {desc:l.desc,spec:l.spec||'',qty:String(needQty(l)),unit:l.unit,rate:'',gst:it&&it.gst!=null&&it.gst!==''?String(it.gst):'',hsn:(it&&it.hsn)||'',category:l.category||'',note:'',lineId:l.id,maxQty:needQty(l)}})});render()};
+    lines:ls.map(l=>{const it=D.itemMap[slug(l.desc)];return {desc:l.desc,spec:l.spec||'',qty:String(needQty(l)),unit:l.unit,rate:'',gst:it&&it.gst!=null&&it.gst!==''?String(it.gst):'',hsn:(it&&it.hsn)||'',category:l.category||'',note:'',lineId:l.id,maxQty:needQty(l),dUnit:l.unit}})});render()};
 
 // the cash purchase form, filled from the demand
 A.cashFromDemand=d=>{const i=S.indents.find(x=>x.id===d.id);if(!i) return;if(!cashMaySpend()) return toast('You have not been given the right to make cash purchases.','err');

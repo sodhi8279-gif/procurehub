@@ -91,12 +91,12 @@ function emgModal(m,busy){const d=m.d;const t=emgTotals(d);const v=vend(d.vendor
    <td><div class="who">${l.desc?lineThumb({desc:l.desc,category:l.category},'xs'):''}<input class="inp sm" id="emg-d-${i}" data-bind="modal.d.lines.${i}.desc" data-act-change="emgItem" data-i="${i}" value="${esc(l.desc)}" list="emg-items" placeholder="Type or pick an item"></div></td>
    <td>${it&&(it.sizes||[]).length?`<datalist id="emg-sz-${i}">${it.sizes.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>`:''}<input class="inp sm" id="emg-s-${i}" data-bind="modal.d.lines.${i}.spec" value="${esc(l.spec)}" ${it&&(it.sizes||[]).length?`list="emg-sz-${i}"`:''} placeholder="Size, class, make"></td>
    <td class="num"><input class="inp sm qty" id="emg-q-${i}" data-bind="modal.d.lines.${i}.qty" value="${esc(l.qty)}" inputmode="decimal" data-rerender="1"></td>
-   <td><select class="inp sm auto" id="emg-u-${i}" data-bind="modal.d.lines.${i}.unit">${selOpts(UNITS.includes(l.unit)?UNITS:[l.unit,...UNITS],l.unit)}</select></td>
+   <td><select class="inp sm auto" id="emg-u-${i}" data-bind="modal.d.lines.${i}.unit" data-rerender="1">${selOpts(UNITS.includes(l.unit)?UNITS:[l.unit,...UNITS],l.unit)}</select></td>
    <td class="num"><input class="inp sm rate" id="emg-r-${i}" data-bind="modal.d.lines.${i}.rate" value="${esc(l.rate)}" inputmode="decimal" data-rerender="1"></td>
    <td class="num"><input class="inp sm gst" id="emg-g-${i}" data-bind="modal.d.lines.${i}.gst" value="${esc(l.gst)}" inputmode="decimal" list="gst-slabs-e" data-rerender="1" placeholder="${esc(d.gst)}"></td>
    <td><input class="inp sm hsn" id="emg-h-${i}" data-bind="modal.d.lines.${i}.hsn" value="${esc(l.hsn)}" inputmode="numeric"></td>
    <td class="num mono">${a?fq(a):'—'}</td>
-   <td><button type="button" class="btn sm ghost" data-act="emgRmLine" data-i="${i}" aria-label="Remove line">${icon('trash','xs')}</button></td></tr>`}).join('')}</tbody></table></div>
+   <td><button type="button" class="btn sm ghost" data-act="emgRmLine" data-i="${i}" aria-label="Remove line">${icon('trash','xs')}</button></td></tr>${emgDemHint(l,i)}`}).join('')}</tbody></table></div>
   <div class="row"><button type="button" class="btn sm" data-act="emgAddLine">${icon('plus','xs')} Add item</button><span class="small muted">Rates are per unit, excluding GST. Empty GST % is taken as ${esc(d.gst||'18')}%.</span></div>
   <div class="fields">${field('Freight (₹, total, no GST)','modal.d.freight',d.freight,'inputmode="decimal" data-rerender="1"')}</div>
   ${chargesBox('modal.d',d,t)}
@@ -106,6 +106,19 @@ function emgModal(m,busy){const d=m.d;const t=emgTotals(d);const v=vend(d.vendor
   ${p?`<p class="small muted">${icon('pin','xs')} Delivery to <b>${esc(p.name)}</b>${p.address?' — '+esc(p.address):''}. The site will see it as an emergency purchase and confirm receipt with the vendor's bill and the signed challan, as usual.</p>`:''}`,
   `<span class="grow"><b class="big">${money(t.total)}</b> <span class="muted small">grand total</span></span><button class="btn" data-act="closeModal">Cancel</button><button class="btn primary emg-go" data-act="emgSave" ${busy}>${icon('check')} Save &amp; send to site</button>`,'wide')}
 {const prev=v6Modal;v6Modal=(m,busy)=>m.type==='emg'?emgModal(m,busy):prev(m,busy)}
+
+/* 9.11.0: against a demand, the PO may be for more or less than the demand and in another
+   unit (vendor's packing, rate per RFT instead of Mtr…). Less in the same unit leaves the
+   rest on the demand unless "no balance" is ticked; another unit replaces the demand item's
+   unit and leaves no balance. */
+const emgUnitChg=l=>!!(l.lineId&&l.dUnit&&String(l.unit||'').trim().toLowerCase()!==String(l.dUnit).trim().toLowerCase());
+function emgDemHint(l,i){if(!l.lineId||l.maxQty==null) return '';const need=num(l.maxQty),q=num(l.qty),du=l.dUnit||l.unit;let t;
+  if(emgUnitChg(l)) t=`<span class="t-amber">${icon('swap','xs')} Demand ${fq(need)} ${esc(du)} → ordered as <b>${q>0?fq(q):'…'} ${esc(l.unit)}</b>. The demand item changes to ${esc(l.unit)}; no balance is left on the demand.</span>`;
+  else if(q>need+1e-9) t=`<span class="t-amber">${icon('alert','xs')} Demand ${fq(need)} ${esc(du)} · ordering <b>${fq(Math.round((q-need)*1000)/1000)} ${esc(du)} more</b> than the demand (it is approved at ${fq(q)}).</span>`;
+  else if(q>0&&q<need-1e-9){const rest=Math.round((need-q)*1000)/1000;t=`<span>Demand ${fq(need)} ${esc(du)} · ordering ${fq(q)}. <label class="emg-cr"><input type="checkbox" data-act="emgCloseRest" data-i="${i}" ${l.closeRest?'checked':''}> No balance: the demand is settled with ${fq(q)}</label> <span class="muted">${l.closeRest?`(the other ${fq(rest)} ${esc(du)} is dropped)`:`(the other ${fq(rest)} ${esc(du)} stays on the demand for the normal PO)`}</span></span>`}
+  else t=`<span class="muted">Demand ${fq(need)} ${esc(du)}. You may order more or less, or in another unit.</span>`;
+  return `<tr class="emg-dem"><td colspan="9"><small>${t}</small></td></tr>`}
+A.emgCloseRest=d=>{const l=ui.modal&&ui.modal.d.lines[+d.i];if(l){l.closeRest=!l.closeRest;render()}};
 
 A.emgSave=async()=>{const m=ui.modal;const d=m.d;
   if(!d.projectId){toast('Choose the site.','err');return}
@@ -117,8 +130,7 @@ A.emgSave=async()=>{const m=ui.modal;const d=m.d;
     if(!(num(l.rate)>0)){toast(`Enter the rate of ${desc}.`,'err');return}
     const gs=String(l.gst??'').trim();const g=gs===''?num(d.gst||18):num(gs);if(!(g>=0&&g<=100)){toast(`GST % for ${desc} must be between 0 and 100.`,'err');return}
     const spec=String(l.spec||'').trim(),unit=l.unit||'Nos';const it=D.itemMap[slug(desc)];
-    if(l.lineId&&l.maxQty!=null&&num(l.qty)>num(l.maxQty)+1e-9){toast(`${desc}: the demand needs ${fq(l.maxQty)} ${unit}; enter at most that (add a new line for more).`,'err');return}
-    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:'',...(l.lineId?{lineId:l.lineId,...(l.indentId?{indentId:l.indentId}:{})}:{})})}
+    lines.push({desc,spec,unit,qty:num(l.qty),rate:num(l.rate),gst:g,hsn:String(l.hsn||'').trim()||itemHsn(desc),category:l.category||(it&&it.category)||classify(desc,spec).cat||'others',itemKey:itemKey(desc,spec,unit),note:'',...(l.lineId?{lineId:l.lineId,closeRest:!!l.closeRest&&!emgUnitChg(l)&&num(l.qty)<num(l.maxQty),...(l.indentId?{indentId:l.indentId}:{})}:{})})}
   if(!lines.length){toast('Add the items bought.','err');return}
   {const bad=lines.filter(l=>rateUnitFix(l.desc,l.category,l.unit,l.rate));if(bad.length&&!m.unitOk){m.unitOk=true;const f=rateUnitFix(bad[0].desc,bad[0].category,bad[0].unit,bad[0].rate);toast(`${bad[0].desc}: ₹${fq(bad[0].rate)} per ${bad[0].unit} looks like a rate per ${f.as} (about ₹${fq(f.rate)} per ${bad[0].unit}). Correct the rate or unit, or tap Save again to keep it.`,'err');return}}
   let co;try{co=chargesOut(d)}catch(e){toast(errMsg(e),'err');return}

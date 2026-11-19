@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.11.0':'Emergency purchase against a demand: PO quantity more or less than the demand, or in another unit; option of no balance',
   '9.10.0':'Stock amendment: Project manager corrects a wrong item, type / size or unit (and quantity); admin or approver approves',
   '9.9.0':'More units (RFT, Ft, Sqft, Cft, Brass, Coil, Quintal…) and your own units in Settings',
   '9.8.0':'POs show the site; Material in transit tab; HQ inward items picked from the catalogue with drop-downs',
