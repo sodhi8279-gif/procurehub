@@ -367,3 +367,7 @@ label.icon-btn{cursor:pointer}
 .iw-item{min-width:180px}
 .iw-pick>td{padding:0 8px 8px!important;background:transparent}
 .linkish.block{display:block;margin-top:2px}
+/* 9.10.0 stock amendment: wrong item / unit */
+.sa-seg{display:inline-flex;margin-bottom:12px}
+.sa-was{padding:10px 12px;border-radius:10px;background:var(--surface-3);margin:8px 0 12px}
+.sa-chg s{text-decoration-thickness:1px}

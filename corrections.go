@@ -583,6 +583,9 @@ func corrStockNew(u *User, patch map[string]any, now int64) (map[string]any, err
 		}
 		for _, l := range subList(d.Data, "lines") {
 			waiting[str(l, "itemKey")] = str(d.Data, "no")
+			if t, ok := l["to"].(map[string]any); ok {
+				waiting[str(t, "itemKey")] = str(d.Data, "no")
+			}
 		}
 	}
 	var lines []any
@@ -593,6 +596,19 @@ func corrStockNew(u *User, patch map[string]any, now int64) (map[string]any, err
 		}
 		if n := waiting[k]; n != "" {
 			return nil, fmt.Errorf("%s is already waiting for HQ in stock amendment %s.", str(l, "desc"), n)
+		}
+		// 9.10.0: the entry was made under the wrong item, size or unit: move the
+		// quantity to the right item (in its own unit and quantity)
+		if str(l, "kind") == "change" {
+			ln, err := corrStockChange(l, k)
+			if err != nil {
+				return nil, err
+			}
+			if n := waiting[str(ln["to"].(map[string]any), "itemKey")]; n != "" {
+				return nil, fmt.Errorf("%s is already waiting for HQ in stock amendment %s.", str(ln["to"].(map[string]any), "desc"), n)
+			}
+			lines = append(lines, ln)
+			continue
 		}
 		book, actual := round3(fnum(l["book"])), round3(fnum(l["actual"]))
 		if actual < 0 || actual > 1e9 || book < -1e9 || book > 1e9 {
@@ -619,12 +635,62 @@ func corrStockNew(u *User, patch map[string]any, now int64) (map[string]any, err
 		"countedBy": clip(strings.TrimSpace(str(patch, "countedBy")), 80)}, nil
 }
 
+// corrStockChange checks a line that moves stock from a wrongly entered item to the right one.
+func corrStockChange(l map[string]any, k string) (map[string]any, error) {
+	book, qty := round3(fnum(l["book"])), round3(fnum(l["qty"]))
+	if !(qty > 0) || qty > 1e9 {
+		return nil, errors.New("Enter the quantity of " + str(l, "desc") + " that was entered wrongly.")
+	}
+	if qty > book+1e-9 {
+		return nil, fmt.Errorf("Only %v %s of %s is in the stock register.", book, str(l, "unit"), str(l, "desc"))
+	}
+	t, _ := l["to"].(map[string]any)
+	if t == nil {
+		return nil, errors.New("Choose the correct item.")
+	}
+	desc, spec, unit := clip(strings.TrimSpace(str(t, "desc")), 200), clip(strings.TrimSpace(str(t, "spec")), 200), clip(strings.TrimSpace(str(t, "unit")), 20)
+	if desc == "" {
+		return nil, errors.New("Enter the correct item.")
+	}
+	if unit == "" {
+		return nil, errors.New("Choose the correct unit.")
+	}
+	tq := round3(fnum(t["qty"]))
+	if !(tq > 0) || tq > 1e9 {
+		return nil, errors.New("Enter the correct quantity of " + desc + ".")
+	}
+	tk := normS(desc) + "|" + normS(spec) + "|" + strings.ToLower(unit)
+	if tk == k {
+		return nil, errors.New("The correct item, size and unit are the same as in the register. To change only the quantity, choose \"Quantity is wrong\".")
+	}
+	return map[string]any{"kind": "change", "itemKey": k, "desc": clip(str(l, "desc"), 200), "spec": clip(str(l, "spec"), 200), "unit": clip(str(l, "unit"), 20), "cat": clip(str(l, "cat"), 40),
+		"book": book, "qty": qty, "actual": round3(book - qty), "diff": -qty,
+		"to": map[string]any{"itemKey": tk, "desc": desc, "spec": spec, "unit": unit, "cat": clip(str(t, "cat"), 40), "qty": tq}}, nil
+}
+
 func corrStockApply(u *User, cid string, c, out map[string]any, now int64) error {
 	pid, sid := str(c, "projectId"), storeOf(c, "storeId")
 	date := time.Now().Format("2006-01-02")
 	var ids []any
+	entry := func(id string, l map[string]any, qty any, rem string) {
+		putDocLocked("sitelog", id, map[string]any{"type": "adjust", "projectId": pid, "storeId": sid, "itemKey": l["itemKey"], "desc": l["desc"], "spec": l["spec"], "unit": l["unit"], "cat": l["cat"],
+			"qty": qty, "date": date, "reason": "Stock amendment " + str(c, "no") + ": " + str(c, "reason"), "remarks": rem, "corrId": cid, "corrNo": str(c, "no"),
+			"status": "approved", "appr": map[string]any{"by": u.ID, "byName": u.Name, "at": float64(now), "status": "approved", "hq": true},
+			"at": float64(now), "createdBy": u.ID, "createdByName": u.Name, "requestedBy": str(c, "by"), "requestedByName": str(c, "byName")})
+	}
 	for i, l := range subList(c, "lines") {
 		id := fmt.Sprintf("sa-%s-%d", cid, i)
+		if str(l, "kind") == "change" {
+			t, _ := l["to"].(map[string]any)
+			if t == nil {
+				continue
+			}
+			rem := fmt.Sprintf("Entered wrongly as %v %s %s %s; correct: %v %s %s %s", fnum(l["qty"]), str(l, "unit"), str(l, "desc"), str(l, "spec"), fnum(t["qty"]), str(t, "unit"), str(t, "desc"), str(t, "spec"))
+			entry(id, l, -fnum(l["qty"]), rem)
+			entry(id+"-to", t, fnum(t["qty"]), rem)
+			ids = append(ids, id, id+"-to")
+			continue
+		}
 		rem := fmt.Sprintf("Register %v, actual %v %s", fnum(l["book"]), fnum(l["actual"]), str(l, "unit"))
 		if cb := str(c, "countedBy"); cb != "" {
 			rem += " (counted by " + cb + ")"
