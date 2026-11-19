@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.12.0':'GST amount and total incl. GST against each item: emergency purchase, quotations, cash purchase and the printed PO',
   '9.11.0':'Emergency purchase against a demand: PO quantity more or less than the demand, or in another unit; option of no balance',
   '9.10.0':'Stock amendment: Project manager corrects a wrong item, type / size or unit (and quantity); admin or approver approves',
   '9.9.0':'More units (RFT, Ft, Sqft, Cft, Brass, Coil, Quintal…) and your own units in Settings',

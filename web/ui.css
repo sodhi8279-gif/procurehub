@@ -375,3 +375,14 @@ label.icon-btn{cursor:pointer}
 tr.emg-dem td{border-top:0;padding-top:0;padding-bottom:10px}
 .emg-cr{display:inline-flex;align-items:center;gap:6px;font-weight:600;cursor:pointer;margin:0 4px}
 .emg-cr input{width:16px;height:16px;margin:0}
+/* 9.12.0 emergency purchase: GST (₹) and total columns; keep the inputs readable */
+.t.emg-lines td .inp.qty{min-width:64px}
+.t.emg-lines td select.inp{min-width:78px;padding-right:18px}
+.t.emg-lines td .inp.rate{min-width:76px}
+.t.emg-lines td .inp.gst{min-width:50px}
+.t.emg-lines td .inp.hsn{min-width:64px}
+.t.emg-lines td:first-child{min-width:170px}
+.t.emg-lines td:nth-child(2) .inp{min-width:120px}
+.t.emg-lines td.mono,.t.emg-lines tfoot td{white-space:nowrap;font-size:12.5px}
+.t.emg-lines th{font-size:12px}
+.modal.wide:has(.emg-lines){width:min(100%,1220px)}
