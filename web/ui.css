@@ -386,3 +386,15 @@ tr.emg-dem td{border-top:0;padding-top:0;padding-bottom:10px}
 .t.emg-lines td.mono,.t.emg-lines tfoot td{white-space:nowrap;font-size:12.5px}
 .t.emg-lines th{font-size:12px}
 .modal.wide:has(.emg-lines){width:min(100%,1220px)}
+/* 9.13.0 dispatch status in the PO list */
+.disp-st{display:flex;align-items:center;gap:8px;min-width:150px;line-height:1.25}
+.disp-st b{display:block;font-size:13px}
+.disp-st small{display:block;font-size:11.5px;color:var(--muted)}
+.disp-ic{position:relative;display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;flex:none}
+.disp-ic svg{width:20px;height:20px}
+.disp-st.ok .disp-ic{background:#E3F5EA;color:#1B8A4B}
+.disp-st.ok b{color:#1B8A4B}
+.disp-st.no .disp-ic{background:var(--surface-3);color:#7A8794}
+.disp-st.no b{color:#B3261E}
+.disp-ic i{position:absolute;right:-4px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:#D93025;color:#fff;display:grid;place-items:center;box-shadow:0 0 0 2px var(--surface)}
+.disp-ic i svg{width:10px;height:10px;stroke-width:3}

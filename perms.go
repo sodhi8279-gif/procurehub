@@ -292,7 +292,7 @@ func hqCheck(u *User, op, col string, ex, patch, merged map[string]any) error {
 		if op == "update" {
 			only := true
 			for _, k := range keys() {
-				if k != "received" {
+				if k != "received" && k != "vship" {
 					only = false
 				}
 			}
