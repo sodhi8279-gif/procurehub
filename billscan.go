@@ -139,7 +139,7 @@ func hCashScan(w http.ResponseWriter, r *http.Request, u *User) {
 		fail(w, 429, "Today's limit of AI readings is used up. Fill the bill by hand, or raise the limit in Settings.")
 		return
 	}
-	units := []string{"Nos", "Mtr", "Kg", "MT", "Bag", "Ltr", "Sqm", "Cum", "Set", "Box", "Roll", "Pair", "Pkt", "Ft", "Sqft", "Cft", "Brass", "Trip", "Job", "Lot"}
+	units := []string{"Nos", "Mtr", "Kg", "MT", "Bag", "Ltr", "Sqm", "Cum", "Set", "Box", "Roll", "Pair", "Pkt", "Ft", "RFT", "RMT", "Sqft", "Cft", "Brass", "Coil", "Sheet", "Quintal", "Trip", "Job", "Lot"}
 	br, err := aiReadBill(key, model, files, billPrompt(known, units))
 	if err != nil {
 		fail(w, 502, err.Error())

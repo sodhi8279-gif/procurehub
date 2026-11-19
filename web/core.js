@@ -157,7 +157,13 @@ function rebuild(){
   S.catalogList=L('catalog');S.catalog=Object.fromEntries(S.catalogList.map(x=>[x.id,x]));
   S.config=(store.cols.config||{}).main||{};
   applyCustomCats();
+  applyCustomUnits();
 }
+// Units added by the user (Settings → Company & branding → Units) come after the standard ones.
+const unitsParse=t=>{const out=[];for(const x of String(t||'').split(/[,\n]+/)){const u=x.trim().replace(/\s+/g,' ').slice(0,20);if(u&&!out.some(o=>o.toLowerCase()===u.toLowerCase())) out.push(u)}return out};
+// the unit list for a drop-down, keeping a unit that is not (or no longer) on it
+const unitsWith=u=>{u=String(u||'').trim();return u&&!UNITS.includes(u)?[u,...UNITS]:UNITS};
+function applyCustomUnits(){const own=unitsParse(S.config&&S.config.unitsExtra).filter(u=>!UNITS_STD.some(s=>s.toLowerCase()===u.toLowerCase()));UNITS.length=0;UNITS.push(...UNITS_STD,...own)}
 // Categories added by the user (Item catalogue → Categories) are merged into the standard list, before "Others".
 function applyCustomCats(){const cs=(S.config&&S.config.cats)||[];
   // 7.0.1: your own pictures for the standard categories (Item catalogue → Categories → Change picture)

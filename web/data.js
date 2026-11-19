@@ -17,7 +17,9 @@ const CATS=[
  {id:'others',name:'Others',h:210,blurb:'Anything else',kw:[]}
 ];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
-const UNITS=['Nos','Mtr','RMT','Kg','MT','Ltr','Set','Pair','Bag','Box','Roll','Cum','Sqm','Lot','Pkt','Bundle','Drum','Cyl'];
+// 9.9.0: more units used on Indian sites; more can be added in Settings → Company & branding → Units
+const UNITS_STD=['Nos','Pcs','Mtr','RMT','RFT','Ft','Inch','Mm','Km','Sqm','Sqft','Sqyd','Cum','Cft','Brass','Kg','Gm','MT','Quintal','Ltr','Kl','Set','Pair','Doz','Bag','Box','Roll','Coil','Length','Sheet','Pkt','Bundle','Drum','Cyl','Can','Tin','Bottle','Ream','Kit','Unit','Lot','LS','Job','Trip','Load','Hour','Day','Month'];
+const UNITS=UNITS_STD.slice();
 const SCHEMES=['Water Supply','Sewerage','STP','WTP','Storm Water','Jal Jeevan Mission','Other'];
 const PRIOS=['Normal','Urgent','Critical'];
 

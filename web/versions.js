@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.9.0':'More units (RFT, Ft, Sqft, Cft, Brass, Coil, Quintal…) and your own units in Settings',
   '9.8.0':'POs show the site; Material in transit tab; HQ inward items picked from the catalogue with drop-downs',
   '9.7.0':'Cash purchase: approver, final approver or admin can correct it and approve',
   '9.6.0':'Cash purchase: freight before tax, other expenses after tax, round off; save as draft',

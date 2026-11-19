@@ -41,7 +41,7 @@ function confirmBox(o){openModal(Object.assign({type:'confirm'},o))}
 async function patchLines(indId,fn){const ind=S.indents.find(i=>i.id===indId);if(!ind) return;const lines=JSON.parse(JSON.stringify(ind.lines||[]));fn(lines,ind);await updDoc('indents',indId,{lines})}
 async function learn(desc,spec,unit,cat){const id=slug(desc);const base=S.catalog[id]?Object.assign({},S.catalog[id]):STD[id]?{desc:STD[id].desc,spec:STD[id].spec,unit:STD[id].unit,sizes:STD[id].sizes}:{desc:desc.trim(),spec:spec||'',unit:unit||''};delete base.id;delete base.std;
   try{await setDoc('catalog',id,Object.assign(base,{category:cat,at:Date.now()}))}catch(e){console.warn(e)}}
-function guessUnit(s){s=norm(s);if(!s) return 'Nos';if(/^(m|mtr|mtrs|meter|metre|meters|rm|rmt)$/.test(s)) return 'Mtr';if(/^(no|nos|pc|pcs|piece|each|ea)$/.test(s)) return 'Nos';if(/^(kg|kgs)$/.test(s)) return 'Kg';if(/^(l|ltr|litre|liter|ltrs)$/.test(s)) return 'Ltr';if(/^(bag|bags)$/.test(s)) return 'Bag';if(/^(set|sets)$/.test(s)) return 'Set';if(/^(pair|pairs|pr)$/.test(s)) return 'Pair';if(/^(mt|ton|tonne|tons)$/.test(s)) return 'MT';return UNITS.find(u=>u.toLowerCase()===s)||'Nos'}
+function guessUnit(s){s=norm(s);if(!s) return 'Nos';if(/^(m|mtr|mtrs|meter|metre|meters|rm|rmt)$/.test(s)) return 'Mtr';if(/^(no|nos|pc|pcs|piece|each|ea)$/.test(s)) return 'Nos';if(/^(kg|kgs)$/.test(s)) return 'Kg';if(/^(l|ltr|litre|liter|ltrs)$/.test(s)) return 'Ltr';if(/^(bag|bags)$/.test(s)) return 'Bag';if(/^(set|sets)$/.test(s)) return 'Set';if(/^(pair|pairs|pr)$/.test(s)) return 'Pair';if(/^(mt|ton|tonne|tons)$/.test(s)) return 'MT';if(/^(rft|r ft|running feet|running ft)$/.test(s)) return 'RFT';if(/^(ft|feet|foot)$/.test(s)) return 'Ft';if(/^(sqft|sq ft|sft)$/.test(s)) return 'Sqft';if(/^(sqm|sq m|sq mtr)$/.test(s)) return 'Sqm';if(/^(cft|cu ft)$/.test(s)) return 'Cft';if(/^(cum|cu m|m3)$/.test(s)) return 'Cum';if(/^(pcs|pc)$/.test(s)) return 'Nos';if(/^(qtl|quintal)$/.test(s)) return 'Quintal';return UNITS.find(u=>u.toLowerCase()===s)||'Nos'}
 function blankLine(){return {lid:newId(),desc:'',spec:'',unit:'Nos',qty:'',category:'others',catSrc:'none',siteNote:'',photo:''}}
 const A={};const CH={};
 
@@ -549,7 +549,7 @@ A.saveStore=async()=>{const st=Object.assign({},ui.draft.store);st.gstin=String(
   if(st.pin&&!/^[1-9][0-9]{5}$/.test(st.pin)){toast('PIN code must be 6 digits.','err');return}
   if(st.gstin&&GST_STATES[st.gstin.slice(0,2)]&&GST_STATES[st.gstin.slice(0,2)]!==st.state){toast(`The GSTIN is registered in ${GST_STATES[st.gstin.slice(0,2)]}, but the state chosen is ${st.state}.`,'err');return}
   const cfg=Object.assign({},S.config,{store:st,storeAddress:addrText(st)});if(await run(()=>setDoc('config','main',cfg),'HQ store details saved')!==false){ui.draft.store=null;render()}};
-A.saveConfig=async()=>{const d=Object.assign({},ui.draft.cfg);delete d.store;delete d.storeAddress;await run(()=>setDoc('config','main',Object.assign({},S.config,d)),'Company details saved')};
+A.saveConfig=async()=>{const d=Object.assign({},ui.draft.cfg);delete d.store;delete d.storeAddress;if(d.unitsExtra!=null) d.unitsExtra=unitsParse(d.unitsExtra).join(', ');await run(()=>setDoc('config','main',Object.assign({},S.config,d)),'Company details saved')};
 
 /* ================= EMAIL SETTINGS & BACKUP ================= */
 async function saveSmtpDraft(){const d=ui.draft.smtp||{};ui.smtp=await api('/api/smtp',{host:d.host||'',port:d.port||'',security:d.security||'starttls',user:d.user||'',pass:d.pass||'',from:d.from||'',fromName:d.fromName||''});ui.draft.smtp.pass=''}
