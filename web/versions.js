@@ -7,6 +7,7 @@
 
 // what each version brought, so one can see what going back removes
 const VERSION_NOTES={
+  '9.14.0':'Direct-to-site POs with every delivery received (some short) leave Open and show in Closed as Delivered short',
   '9.13.0':'PO list shows dispatch status: not dispatched (days since PO) or dispatched with vehicle; Vendor dispatched for HQ store POs',
   '9.12.0':'GST amount and total incl. GST against each item: emergency purchase, quotations, cash purchase and the printed PO',
   '9.11.0':'Emergency purchase against a demand: PO quantity more or less than the demand, or in another unit; option of no balance',
